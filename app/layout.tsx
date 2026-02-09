@@ -1,25 +1,39 @@
-import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import React from "react"
+import type { Metadata, Viewport } from "next";
+import { DM_Sans, DM_Mono } from "next/font/google";
+import "./globals.css";
+import { Toaster } from "sonner";
 
-import './globals.css'
-
-const _geist = Geist({ subsets: ['latin'] })
-const _geistMono = Geist_Mono({ subsets: ['latin'] })
+const _dmSans = DM_Sans({ subsets: ["latin"], variable: "--font-dm-sans" });
+const _dmMono = DM_Mono({
+  subsets: ["latin"],
+  weight: ["400"],
+  variable: "--font-dm-mono",
+});
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
-  generator: 'v0.app',
-}
+  title: "CrowdRoast - Green Coffee Marketplace",
+  description:
+    "B2B marketplace connecting specialty coffee sellers with roasters through commitment-based group buying.",
+};
+
+export const viewport: Viewport = {
+  themeColor: "#5C3317",
+  width: "device-width",
+  initialScale: 1,
+};
 
 export default function RootLayout({
   children,
 }: Readonly<{
-  children: React.ReactNode
+  children: React.ReactNode;
 }>) {
   return (
     <html lang="en">
-      <body className="font-sans antialiased">{children}</body>
+      <body className="font-sans antialiased">
+        {children}
+        <Toaster richColors position="top-right" />
+      </body>
     </html>
-  )
+  );
 }
