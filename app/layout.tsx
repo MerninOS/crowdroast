@@ -4,8 +4,8 @@ import { DM_Sans, DM_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "sonner";
 
-const _dmSans = DM_Sans({ subsets: ["latin"], variable: "--font-dm-sans" });
-const _dmMono = DM_Mono({
+const dmSans = DM_Sans({ subsets: ["latin"], variable: "--font-dm-sans" });
+const dmMono = DM_Mono({
   subsets: ["latin"],
   weight: ["400"],
   variable: "--font-dm-mono",
@@ -30,7 +30,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="font-sans antialiased">
+      <body className={`${dmSans.variable} ${dmMono.variable} font-sans antialiased`}>
         {children}
         <Toaster richColors position="top-right" />
       </body>

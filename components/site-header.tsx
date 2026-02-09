@@ -13,7 +13,12 @@ export function SiteHeader() {
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data }) => setUser(data.user));
+    supabase.auth
+      .getUser()
+      .then(({ data }) => setUser(data.user))
+      .catch(() => {
+        // Auth service unreachable – render as logged-out
+      });
   }, []);
 
   return (

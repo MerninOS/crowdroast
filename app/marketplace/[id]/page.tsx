@@ -20,9 +20,13 @@ export default async function LotDetailPage({
 
   if (!lot) notFound();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user = null;
+  try {
+    const { data } = await supabase.auth.getUser();
+    user = data.user;
+  } catch {
+    // Auth unreachable – continue as anonymous
+  }
 
   return (
     <div className="flex min-h-svh flex-col">
