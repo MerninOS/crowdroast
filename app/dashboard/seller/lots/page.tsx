@@ -1,12 +1,18 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Plus, Pencil } from "lucide-react";
+import { Plus, Pencil, Package } from "lucide-react";
 import Link from "next/link";
 import type { Lot } from "@/lib/types";
+
+const statusStyles: Record<string, string> = {
+  active: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  fully_committed: "bg-blue-50 text-blue-700 border-blue-200",
+  draft: "bg-secondary text-secondary-foreground",
+};
 
 export default async function SellerLotsPage() {
   const supabase = await createClient();
@@ -25,9 +31,12 @@ export default async function SellerLotsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-foreground">My Lots</h1>
-        <Button asChild>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">My Lots</h1>
+          <p className="text-sm text-muted-foreground mt-1">Manage your coffee lot listings.</p>
+        </div>
+        <Button asChild className="w-full sm:w-auto shadow-sm">
           <Link href="/dashboard/seller/lots/new">
             <Plus className="mr-2 h-4 w-4" />
             Create Lot
@@ -36,71 +45,68 @@ export default async function SellerLotsPage() {
       </div>
 
       {myLots.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center py-12">
-            <p className="text-muted-foreground">
+        <Card className="shadow-sm">
+          <CardContent className="flex flex-col items-center py-10 px-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-secondary text-muted-foreground mb-4">
+              <Package className="h-6 w-6" />
+            </div>
+            <p className="text-sm text-muted-foreground">
               You haven&apos;t created any lots yet.
             </p>
-            <Button asChild className="mt-4">
+            <Button asChild className="mt-4" size="sm">
               <Link href="/dashboard/seller/lots/new">Create Your First Lot</Link>
             </Button>
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {myLots.map((lot) => {
             const pct =
               lot.total_quantity_kg > 0
-                ? Math.round(
-                    (lot.committed_quantity_kg / lot.total_quantity_kg) * 100
-                  )
+                ? Math.round((lot.committed_quantity_kg / lot.total_quantity_kg) * 100)
                 : 0;
+            const statusLabel = lot.status === "fully_committed"
+              ? "Fully Committed"
+              : lot.status.charAt(0).toUpperCase() + lot.status.slice(1);
+
             return (
-              <Card key={lot.id}>
-                <CardHeader className="flex flex-row items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <Link
-                      href={`/dashboard/seller/lots/${lot.id}/edit`}
-                      className="hover:underline"
-                    >
-                      <CardTitle className="text-base">{lot.title}</CardTitle>
-                    </Link>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {lot.origin_country}
-                      {lot.region ? `, ${lot.region}` : ""} &middot; $
-                      {lot.price_per_kg.toFixed(2)}/kg
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge
-                      variant={lot.status === "active" ? "default" : "secondary"}
-                      className={
-                        lot.status === "active"
-                          ? "bg-accent text-accent-foreground"
-                          : ""
-                      }
-                    >
-                      {lot.status === "fully_committed"
-                        ? "Fully Committed"
-                        : lot.status.charAt(0).toUpperCase() + lot.status.slice(1)}
-                    </Badge>
-                    <Button asChild size="sm" variant="outline">
-                      <Link href={`/dashboard/seller/lots/${lot.id}/edit`}>
-                        <Pencil className="mr-1 h-3 w-3" />
-                        Edit
+              <Card key={lot.id} className="shadow-sm">
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <Link
+                        href={`/dashboard/seller/lots/${lot.id}/edit`}
+                        className="text-sm font-semibold text-foreground hover:text-primary transition-colors"
+                      >
+                        {lot.title}
                       </Link>
-                    </Button>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {lot.origin_country}
+                        {lot.region ? `, ${lot.region}` : ""} &middot; $
+                        {lot.price_per_kg.toFixed(2)}/kg
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Badge variant="outline" className={`text-xs ${statusStyles[lot.status] || ""}`}>
+                        {statusLabel}
+                      </Badge>
+                      <Button asChild size="sm" variant="outline" className="hidden sm:flex bg-transparent">
+                        <Link href={`/dashboard/seller/lots/${lot.id}/edit`}>
+                          <Pencil className="mr-1 h-3 w-3" />
+                          Edit
+                        </Link>
+                      </Button>
+                    </div>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center justify-between text-sm mb-2">
-                    <span className="text-muted-foreground">
-                      {lot.committed_quantity_kg.toLocaleString()} /{" "}
-                      {lot.total_quantity_kg.toLocaleString()} kg
-                    </span>
-                    <span className="font-medium">{pct}%</span>
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between text-xs mb-1.5">
+                      <span className="text-muted-foreground">
+                        {lot.committed_quantity_kg.toLocaleString()} / {lot.total_quantity_kg.toLocaleString()} kg
+                      </span>
+                      <span className="font-medium text-foreground">{pct}%</span>
+                    </div>
+                    <Progress value={pct} className="h-1.5" />
                   </div>
-                  <Progress value={pct} className="h-2" />
                 </CardContent>
               </Card>
             );

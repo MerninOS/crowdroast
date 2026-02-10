@@ -1,14 +1,13 @@
-import React from "react"
+import React from "react";
 import type { Metadata, Viewport } from "next";
-import { DM_Sans, DM_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "sonner";
 
-const dmSans = DM_Sans({ subsets: ["latin"], variable: "--font-dm-sans" });
-const dmMono = DM_Mono({
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
-  weight: ["400"],
-  variable: "--font-dm-mono",
+  variable: "--font-jetbrains",
 });
 
 export const metadata: Metadata = {
@@ -18,9 +17,10 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#5C3317",
+  themeColor: "#4F46E5",
   width: "device-width",
   initialScale: 1,
+  maximumScale: 1,
 };
 
 export default function RootLayout({
@@ -29,8 +29,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className={`${dmSans.variable} ${dmMono.variable} font-sans antialiased`}>
+    <html lang="en" className="bg-background">
+      <body
+        className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}
+      >
         {children}
         <Toaster richColors position="top-right" />
       </body>

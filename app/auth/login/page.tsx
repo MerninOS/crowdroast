@@ -46,14 +46,16 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-svh w-full items-center justify-center p-6 md:p-10">
+    <div className="flex min-h-svh w-full items-center justify-center bg-secondary/30 p-4 md:p-10">
       <div className="w-full max-w-sm">
         <div className="flex flex-col gap-6">
           <div className="flex items-center justify-center gap-2">
-            <Coffee className="h-8 w-8 text-primary" />
-            <span className="text-2xl font-bold text-primary">CrowdRoast</span>
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              <Coffee className="h-4 w-4" />
+            </div>
+            <span className="text-xl font-semibold text-foreground">CrowdRoast</span>
           </div>
-          <Card>
+          <Card className="shadow-md">
             <CardHeader>
               <CardTitle className="text-2xl">Welcome back</CardTitle>
               <CardDescription>

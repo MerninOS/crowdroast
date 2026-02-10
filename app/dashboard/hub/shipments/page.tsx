@@ -2,22 +2,15 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Truck } from "lucide-react";
 import { ShipmentStatusButtons } from "@/components/shipment-status-buttons";
 
-const statusColors: Record<string, string> = {
-  pending: "bg-yellow-100 text-yellow-800",
-  in_transit: "bg-blue-100 text-blue-800",
-  at_hub: "bg-accent/20 text-accent-foreground",
-  out_for_delivery: "bg-orange-100 text-orange-800",
-  delivered: "bg-accent text-accent-foreground",
+const statusStyles: Record<string, string> = {
+  pending: "bg-amber-50 text-amber-700 border-amber-200",
+  in_transit: "bg-blue-50 text-blue-700 border-blue-200",
+  at_hub: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  out_for_delivery: "bg-orange-50 text-orange-700 border-orange-200",
+  delivered: "bg-emerald-50 text-emerald-700 border-emerald-200",
 };
 
 export default async function HubShipmentsPage() {
@@ -44,64 +37,60 @@ export default async function HubShipmentsPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-foreground mb-6">
-        Hub Shipments
-      </h1>
+      <div className="mb-8">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Hub Shipments</h1>
+        <p className="text-sm text-muted-foreground mt-1">Track and update shipment statuses for your hubs.</p>
+      </div>
+
       {items.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            No shipments assigned to your hubs yet.
+        <Card className="shadow-sm">
+          <CardContent className="flex flex-col items-center py-10 px-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-secondary text-muted-foreground mb-4">
+              <Truck className="h-6 w-6" />
+            </div>
+            <p className="text-sm text-muted-foreground">No shipments assigned to your hubs yet.</p>
           </CardContent>
         </Card>
       ) : (
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Lot</TableHead>
-                  <TableHead>Carrier</TableHead>
-                  <TableHead>Tracking</TableHead>
-                  <TableHead className="text-right">Weight</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {items.map((s: any) => (
-                  <TableRow key={s.id}>
-                    <TableCell className="font-medium">
-                      {s.lot?.title || "Unknown"}
-                    </TableCell>
-                    <TableCell>{s.carrier || "-"}</TableCell>
-                    <TableCell className="font-mono text-sm">
-                      {s.tracking_number || "-"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {s.weight_kg ? `${s.weight_kg} kg` : "-"}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        className={statusColors[s.status] || ""}
-                        variant="secondary"
-                      >
-                        {s.status
-                          .replace(/_/g, " ")
-                          .replace(/\b\w/g, (c: string) => c.toUpperCase())}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <ShipmentStatusButtons
-                        shipmentId={s.id}
-                        currentStatus={s.status}
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        <div className="space-y-3">
+          {items.map((s: any) => {
+            const statusLabel = s.status.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+            return (
+              <Card key={s.id} className="shadow-sm">
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-foreground">{s.lot?.title || "Unknown"}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {s.carrier || "No carrier"} {s.tracking_number ? `- ${s.tracking_number}` : ""}
+                      </p>
+                    </div>
+                    <Badge variant="outline" className={`shrink-0 text-xs ${statusStyles[s.status] || ""}`}>
+                      {statusLabel}
+                    </Badge>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between">
+                    <div className="flex items-center gap-4 text-sm">
+                      {s.weight_kg && (
+                        <div>
+                          <p className="text-xs text-muted-foreground">Weight</p>
+                          <p className="font-medium text-foreground">{s.weight_kg} kg</p>
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-xs text-muted-foreground">Date</p>
+                        <p className="font-medium text-foreground">
+                          {new Date(s.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                        </p>
+                      </div>
+                    </div>
+                    <ShipmentStatusButtons shipmentId={s.id} currentStatus={s.status} />
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
       )}
     </div>
   );

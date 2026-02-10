@@ -16,26 +16,28 @@ export function SiteHeader() {
     supabase.auth
       .getUser()
       .then(({ data }) => setUser(data.user))
-      .catch(() => {
-        // Auth service unreachable – render as logged-out
-      });
+      .catch(() => {});
   }, []);
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-card/80 backdrop-blur-sm">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 lg:px-8">
+    <header className="sticky top-0 z-50 w-full border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 shadow-sm">
+      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 lg:px-8">
         <Link href="/" className="flex items-center gap-2">
-          <Coffee className="h-7 w-7 text-primary" />
-          <span className="text-xl font-bold text-primary">CrowdRoast</span>
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <Coffee className="h-4 w-4" />
+          </div>
+          <span className="text-lg font-semibold tracking-tight text-foreground">
+            CrowdRoast
+          </span>
         </Link>
 
-        <nav className="hidden items-center gap-6 md:flex">
+        <nav className="hidden items-center gap-2 md:flex">
           {user ? (
             <Button asChild size="sm">
               <Link href="/dashboard">Dashboard</Link>
             </Button>
           ) : (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               <Button asChild variant="ghost" size="sm">
                 <Link href="/auth/login">Sign In</Link>
               </Button>
@@ -48,32 +50,34 @@ export function SiteHeader() {
 
         <button
           type="button"
-          className="md:hidden"
+          className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted transition-colors md:hidden"
           onClick={() => setMobileOpen(!mobileOpen)}
           aria-label={mobileOpen ? "Close menu" : "Open menu"}
         >
-          {mobileOpen ? (
-            <X className="h-6 w-6" />
-          ) : (
-            <Menu className="h-6 w-6" />
-          )}
+          {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>
       </div>
 
       {mobileOpen && (
-        <div className="border-t bg-card px-4 py-4 md:hidden">
-          <nav className="flex flex-col gap-3">
+        <div className="border-t bg-card px-4 py-4 md:hidden animate-in slide-in-from-top-2 duration-200">
+          <nav className="flex flex-col gap-2">
             {user ? (
-              <Button asChild size="sm">
-                <Link href="/dashboard">Dashboard</Link>
+              <Button asChild size="lg" className="w-full">
+                <Link href="/dashboard" onClick={() => setMobileOpen(false)}>
+                  Dashboard
+                </Link>
               </Button>
             ) : (
               <>
-                <Button asChild variant="ghost" size="sm">
-                  <Link href="/auth/login">Sign In</Link>
+                <Button asChild variant="outline" size="lg" className="w-full bg-transparent">
+                  <Link href="/auth/login" onClick={() => setMobileOpen(false)}>
+                    Sign In
+                  </Link>
                 </Button>
-                <Button asChild size="sm">
-                  <Link href="/auth/sign-up">Get Started</Link>
+                <Button asChild size="lg" className="w-full">
+                  <Link href="/auth/sign-up" onClick={() => setMobileOpen(false)}>
+                    Get Started
+                  </Link>
                 </Button>
               </>
             )}

@@ -93,8 +93,8 @@ export default async function BuyerBrowsePage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-foreground">Browse Lots</h1>
+      <div className="mb-8">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Browse Lots</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Lots curated by your hub{hubIds.length > 1 ? "s" : ""}. Prices drop
           as more buyers commit.
@@ -170,7 +170,7 @@ export default async function BuyerBrowsePage() {
                       key={lot.id}
                       href={`/dashboard/buyer/lot/${lot.id}?hub=${hubId}`}
                     >
-                      <Card className="h-full transition-shadow hover:shadow-md cursor-pointer group">
+                      <Card className="h-full shadow-sm transition-shadow hover:shadow-md cursor-pointer group">
                         <CardHeader className="pb-3">
                           <div className="flex items-start justify-between gap-2">
                             <CardTitle className="text-base leading-snug group-hover:text-primary transition-colors">

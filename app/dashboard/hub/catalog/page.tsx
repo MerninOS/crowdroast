@@ -116,7 +116,7 @@ export default function HubCatalogPage() {
     <div>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Hub Catalog</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Hub Catalog</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Browse seller offerings and curate which lots to show in your hub.
           </p>
@@ -170,7 +170,7 @@ export default function HubCatalogPage() {
             const seller = lot.seller as unknown as { company_name: string | null; contact_name: string | null } | null;
 
             return (
-              <Card key={lot.id} className={inHub ? "border-primary/30 bg-primary/[0.02]" : ""}>
+              <Card key={lot.id} className={`shadow-sm ${inHub ? "border-primary/30 bg-primary/[0.02]" : ""}`}>
                 <CardHeader className="flex flex-row items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <Link href={`/dashboard/hub/catalog/${lot.id}`} className="hover:underline">

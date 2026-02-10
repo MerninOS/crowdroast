@@ -2,15 +2,16 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { FlaskConical } from "lucide-react";
 import { SampleActionButtons } from "@/components/sample-action-buttons";
+
+const statusStyles: Record<string, string> = {
+  pending: "bg-amber-50 text-amber-700 border-amber-200",
+  approved: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  shipped: "bg-blue-50 text-blue-700 border-blue-200",
+  delivered: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  rejected: "bg-red-50 text-red-700 border-red-200",
+};
 
 export default async function SellerSamplesPage() {
   const supabase = await createClient();
@@ -37,60 +38,61 @@ export default async function SellerSamplesPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-foreground mb-6">
-        Sample Requests
-      </h1>
+      <div className="mb-8">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Sample Requests</h1>
+        <p className="text-sm text-muted-foreground mt-1">Manage incoming sample requests from buyers.</p>
+      </div>
+
       {items.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            No sample requests yet.
+        <Card className="shadow-sm">
+          <CardContent className="flex flex-col items-center py-10 px-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-secondary text-muted-foreground mb-4">
+              <FlaskConical className="h-6 w-6" />
+            </div>
+            <p className="text-sm text-muted-foreground">No sample requests yet.</p>
           </CardContent>
         </Card>
       ) : (
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Lot</TableHead>
-                  <TableHead>Buyer</TableHead>
-                  <TableHead className="text-right">Grams</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {items.map((s: any) => (
-                  <TableRow key={s.id}>
-                    <TableCell className="font-medium">
+        <div className="space-y-3">
+          {items.map((s: any) => (
+            <Card key={s.id} className="shadow-sm">
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-foreground">
                       {lotMap[s.lot_id] || "Unknown"}
-                    </TableCell>
-                    <TableCell>
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
                       {s.buyer?.company_name || s.buyer?.contact_name || "Buyer"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {s.quantity_grams}g
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">
-                        {s.status.charAt(0).toUpperCase() + s.status.slice(1)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {new Date(s.created_at).toLocaleDateString()}
-                    </TableCell>
-                    <TableCell>
-                      {s.status === "pending" && (
-                        <SampleActionButtons sampleId={s.id} />
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Badge variant="outline" className={`text-xs ${statusStyles[s.status] || ""}`}>
+                      {s.status.charAt(0).toUpperCase() + s.status.slice(1)}
+                    </Badge>
+                  </div>
+                </div>
+                <div className="mt-3 flex items-center justify-between">
+                  <div className="flex items-center gap-4 text-sm">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Quantity</p>
+                      <p className="font-medium text-foreground">{s.quantity_grams}g</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Requested</p>
+                      <p className="font-medium text-foreground">
+                        {new Date(s.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                      </p>
+                    </div>
+                  </div>
+                  {s.status === "pending" && (
+                    <SampleActionButtons sampleId={s.id} />
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       )}
     </div>
   );

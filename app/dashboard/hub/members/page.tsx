@@ -158,7 +158,7 @@ export default function HubMembersPage() {
     <div>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Hub Members</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Hub Members</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Invite buyers to your hub. They will only see the lots you curate.
           </p>

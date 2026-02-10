@@ -96,8 +96,11 @@ export default function BuyerClaimsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-foreground">Claims</h1>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Claims</h1>
+          <p className="text-sm text-muted-foreground mt-1">Report issues with your commitments.</p>
+        </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button>
@@ -174,47 +177,37 @@ export default function BuyerClaimsPage() {
       </div>
 
       {claims.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            No claims filed yet.
+        <Card className="shadow-sm">
+          <CardContent className="flex flex-col items-center py-10 px-4">
+            <p className="text-sm text-muted-foreground">No claims filed yet.</p>
           </CardContent>
         </Card>
       ) : (
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Date</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {claims.map((cl) => (
-                  <TableRow key={cl.id}>
-                    <TableCell className="capitalize font-medium">
+        <div className="space-y-3">
+          {claims.map((cl) => (
+            <Card key={cl.id} className="shadow-sm">
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-foreground capitalize">
                       {cl.type.replace("_", " ")}
-                    </TableCell>
-                    <TableCell className="max-w-xs truncate">
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
                       {cl.description}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">
-                        {cl.status.replace("_", " ").charAt(0).toUpperCase() +
-                          cl.status.replace("_", " ").slice(1)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {new Date(cl.created_at).toLocaleDateString()}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                    </p>
+                  </div>
+                  <Badge variant="outline" className="shrink-0 text-xs">
+                    {cl.status.replace("_", " ").charAt(0).toUpperCase() +
+                      cl.status.replace("_", " ").slice(1)}
+                  </Badge>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {new Date(cl.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+                </p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       )}
     </div>
   );

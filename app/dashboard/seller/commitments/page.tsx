@@ -1,23 +1,16 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { ShoppingCart } from "lucide-react";
 import type { Commitment } from "@/lib/types";
 
-const statusColors: Record<string, string> = {
-  pending: "bg-yellow-100 text-yellow-800",
-  confirmed: "bg-accent/20 text-accent-foreground",
-  cancelled: "bg-destructive/10 text-destructive",
-  shipped: "bg-blue-100 text-blue-800",
-  delivered: "bg-accent text-accent-foreground",
+const statusStyles: Record<string, string> = {
+  pending: "bg-amber-50 text-amber-700 border-amber-200",
+  confirmed: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  cancelled: "bg-red-50 text-red-700 border-red-200",
+  shipped: "bg-blue-50 text-blue-700 border-blue-200",
+  delivered: "bg-emerald-50 text-emerald-700 border-emerald-200",
 };
 
 export default async function SellerCommitmentsPage() {
@@ -27,7 +20,6 @@ export default async function SellerCommitmentsPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/auth/login");
 
-  // Get lots owned by this seller, then their commitments
   const { data: lots } = await supabase
     .from("lots")
     .select("id, title")
@@ -48,61 +40,59 @@ export default async function SellerCommitmentsPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-foreground mb-6">
-        Incoming Commitments
-      </h1>
+      <div className="mb-8">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Incoming Commitments</h1>
+        <p className="text-sm text-muted-foreground mt-1">Commitments received from buyers across your lots.</p>
+      </div>
+
       {items.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            No commitments received yet.
+        <Card className="shadow-sm">
+          <CardContent className="flex flex-col items-center py-10 px-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-secondary text-muted-foreground mb-4">
+              <ShoppingCart className="h-6 w-6" />
+            </div>
+            <p className="text-sm text-muted-foreground">No commitments received yet.</p>
           </CardContent>
         </Card>
       ) : (
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Lot</TableHead>
-                  <TableHead>Buyer</TableHead>
-                  <TableHead className="text-right">Qty (kg)</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Date</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {items.map((c) => (
-                  <TableRow key={c.id}>
-                    <TableCell className="font-medium">
+        <div className="space-y-3">
+          {items.map((c) => (
+            <Card key={c.id} className="shadow-sm">
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-foreground">
                       {lotMap[c.lot_id] || "Unknown"}
-                    </TableCell>
-                    <TableCell>
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
                       {c.buyer?.company_name || c.buyer?.contact_name || "Buyer"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {c.quantity_kg.toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-right font-medium">
-                      ${c.total_price.toLocaleString()}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        className={statusColors[c.status] || ""}
-                        variant="secondary"
-                      >
-                        {c.status.charAt(0).toUpperCase() + c.status.slice(1)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {new Date(c.created_at).toLocaleDateString()}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                    </p>
+                  </div>
+                  <Badge variant="outline" className={`shrink-0 text-xs ${statusStyles[c.status] || ""}`}>
+                    {c.status.charAt(0).toUpperCase() + c.status.slice(1)}
+                  </Badge>
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Quantity</p>
+                    <p className="font-medium text-foreground">{c.quantity_kg.toLocaleString()} kg</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Price/kg</p>
+                    <p className="font-medium text-foreground">${c.price_per_kg.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Total</p>
+                    <p className="font-semibold text-foreground">${c.total_price.toLocaleString()}</p>
+                  </div>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {new Date(c.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+                </p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       )}
     </div>
   );
