@@ -63,25 +63,27 @@ export default function LoginPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleLogin}>
+              <form onSubmit={handleLogin} suppressHydrationWarning>
                 <div className="flex flex-col gap-4">
-                  <div className="grid gap-2">
+                  <div className="grid gap-2" suppressHydrationWarning>
                     <Label htmlFor="email">Email</Label>
                     <Input
                       id="email"
                       type="email"
                       placeholder="you@company.com"
                       required
+                      autoComplete="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                     />
                   </div>
-                  <div className="grid gap-2">
+                  <div className="grid gap-2" suppressHydrationWarning>
                     <Label htmlFor="password">Password</Label>
                     <Input
                       id="password"
                       type="password"
                       required
+                      autoComplete="current-password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                     />

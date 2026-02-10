@@ -19,7 +19,6 @@ import {
   Menu,
   X,
   User as UserIcon,
-  ChevronRight,
 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import type { User } from "@supabase/supabase-js";
@@ -29,15 +28,31 @@ const navByRole = {
   buyer: [
     { href: "/dashboard/buyer", label: "Overview", icon: LayoutDashboard },
     { href: "/dashboard/buyer/browse", label: "Browse Lots", icon: Coffee },
-    { href: "/dashboard/buyer/commitments", label: "Commitments", icon: ShoppingCart },
-    { href: "/dashboard/buyer/samples", label: "Samples", icon: FlaskConical },
+    {
+      href: "/dashboard/buyer/commitments",
+      label: "Commitments",
+      icon: ShoppingCart,
+    },
+    {
+      href: "/dashboard/buyer/samples",
+      label: "Samples",
+      icon: FlaskConical,
+    },
     { href: "/dashboard/buyer/claims", label: "Claims", icon: FileWarning },
   ],
   seller: [
     { href: "/dashboard/seller", label: "Overview", icon: LayoutDashboard },
     { href: "/dashboard/seller/lots", label: "My Lots", icon: Package },
-    { href: "/dashboard/seller/commitments", label: "Commitments", icon: ShoppingCart },
-    { href: "/dashboard/seller/samples", label: "Sample Requests", icon: FlaskConical },
+    {
+      href: "/dashboard/seller/commitments",
+      label: "Commitments",
+      icon: ShoppingCart,
+    },
+    {
+      href: "/dashboard/seller/samples",
+      label: "Sample Requests",
+      icon: FlaskConical,
+    },
     { href: "/dashboard/seller/shipments", label: "Shipments", icon: Truck },
   ],
   hub_owner: [
@@ -45,7 +60,11 @@ const navByRole = {
     { href: "/dashboard/hub/hubs", label: "My Hubs", icon: Warehouse },
     { href: "/dashboard/hub/catalog", label: "Catalog", icon: Package },
     { href: "/dashboard/hub/members", label: "Members", icon: UserIcon },
-    { href: "/dashboard/hub/samples", label: "Samples", icon: FlaskConical },
+    {
+      href: "/dashboard/hub/samples",
+      label: "Samples",
+      icon: FlaskConical,
+    },
     { href: "/dashboard/hub/shipments", label: "Shipments", icon: Truck },
   ],
 };
@@ -67,10 +86,10 @@ function NavLink({
     <Link
       href={href}
       onClick={onClick}
-      className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${
+      className={`flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-colors active:opacity-80 ${
         isActive
           ? "bg-primary text-primary-foreground shadow-sm"
-          : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+          : "text-muted-foreground hover:bg-secondary hover:text-foreground active:bg-secondary"
       }`}
     >
       <Icon className="h-4 w-4 shrink-0" />
@@ -92,7 +111,9 @@ export function DashboardShell({
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const role = (profile?.role || user.user_metadata?.role || "buyer") as keyof typeof navByRole;
+  const role = (profile?.role ||
+    user.user_metadata?.role ||
+    "buyer") as keyof typeof navByRole;
   const navItems = navByRole[role] || navByRole.buyer;
 
   const closeMobile = useCallback(() => setMobileOpen(false), []);
@@ -120,7 +141,10 @@ export function DashboardShell({
     router.push("/");
   };
 
-  const roleLabel = role === "hub_owner" ? "Hub Owner" : role.charAt(0).toUpperCase() + role.slice(1);
+  const roleLabel =
+    role === "hub_owner"
+      ? "Hub Owner"
+      : role.charAt(0).toUpperCase() + role.slice(1);
 
   return (
     <div className="flex min-h-svh bg-background">
@@ -130,7 +154,9 @@ export function DashboardShell({
           <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
             <Coffee className="h-3.5 w-3.5" />
           </div>
-          <span className="text-base font-semibold tracking-tight text-foreground">CrowdRoast</span>
+          <span className="text-base font-semibold tracking-tight text-foreground">
+            CrowdRoast
+          </span>
         </div>
 
         <div className="px-3 pt-3 pb-1">
@@ -146,7 +172,11 @@ export function DashboardShell({
               href={item.href}
               label={item.label}
               icon={item.icon}
-              isActive={pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/"))}
+              isActive={
+                pathname === item.href ||
+                (item.href !== "/dashboard" &&
+                  pathname.startsWith(item.href + "/"))
+              }
             />
           ))}
         </nav>
@@ -177,11 +207,15 @@ export function DashboardShell({
         </div>
       </aside>
 
-      {/* Mobile overlay */}
+      {/* Mobile overlay -- use onTouchEnd to ensure it fires on iOS */}
       {mobileOpen && (
         <div
           className="fixed inset-0 z-40 bg-foreground/20 backdrop-blur-sm lg:hidden"
           onClick={closeMobile}
+          onTouchEnd={(e) => {
+            e.preventDefault();
+            closeMobile();
+          }}
           aria-hidden="true"
         />
       )}
@@ -197,12 +231,14 @@ export function DashboardShell({
             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
               <Coffee className="h-3.5 w-3.5" />
             </div>
-            <span className="text-base font-semibold text-foreground">CrowdRoast</span>
+            <span className="text-base font-semibold text-foreground">
+              CrowdRoast
+            </span>
           </div>
           <button
             type="button"
             onClick={closeMobile}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary"
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary active:bg-secondary/80"
             aria-label="Close menu"
           >
             <X className="h-5 w-5" />
@@ -222,7 +258,11 @@ export function DashboardShell({
               href={item.href}
               label={item.label}
               icon={item.icon}
-              isActive={pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/"))}
+              isActive={
+                pathname === item.href ||
+                (item.href !== "/dashboard" &&
+                  pathname.startsWith(item.href + "/"))
+              }
               onClick={closeMobile}
             />
           ))}
@@ -239,15 +279,14 @@ export function DashboardShell({
               </p>
             </div>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="mt-1 w-full justify-start text-muted-foreground hover:text-destructive"
+          <button
+            type="button"
             onClick={handleSignOut}
+            className="mt-1 flex h-10 w-full items-center rounded-md px-3 text-sm font-medium text-muted-foreground hover:text-destructive active:bg-muted transition-colors"
           >
             <LogOut className="mr-2 h-3.5 w-3.5" />
             Sign Out
-          </Button>
+          </button>
         </div>
       </aside>
 
@@ -258,7 +297,7 @@ export function DashboardShell({
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
-            className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary transition-colors"
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary active:bg-secondary/80 transition-colors"
             aria-label="Open menu"
           >
             <Menu className="h-5 w-5" />
@@ -269,11 +308,13 @@ export function DashboardShell({
             </div>
             <span className="font-semibold text-foreground">CrowdRoast</span>
           </div>
-          <div className="w-10" />
+          <div className="w-11" />
         </header>
 
         <main className="flex-1 overflow-auto">
-          <div className="mx-auto max-w-6xl p-4 md:p-6 lg:p-8">{children}</div>
+          <div className="mx-auto max-w-6xl p-4 md:p-6 lg:p-8">
+            {children}
+          </div>
         </main>
       </div>
     </div>

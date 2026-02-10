@@ -3,15 +3,17 @@
 import Link from "next/link";
 import { Coffee, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { User } from "@supabase/supabase-js";
 
 export function SiteHeader() {
   const [user, setUser] = useState<User | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     const supabase = createClient();
     supabase.auth
       .getUser()
@@ -31,54 +33,72 @@ export function SiteHeader() {
           </span>
         </Link>
 
+        {/* Desktop nav -- only render auth-dependent buttons after mount to avoid hydration mismatch */}
         <nav className="hidden items-center gap-2 md:flex">
-          {user ? (
-            <Button asChild size="sm">
-              <Link href="/dashboard">Dashboard</Link>
-            </Button>
-          ) : (
-            <div className="flex items-center gap-2">
-              <Button asChild variant="ghost" size="sm">
-                <Link href="/auth/login">Sign In</Link>
-              </Button>
+          {mounted ? (
+            user ? (
               <Button asChild size="sm">
-                <Link href="/auth/sign-up">Get Started</Link>
+                <Link href="/dashboard">Dashboard</Link>
               </Button>
-            </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Button asChild variant="ghost" size="sm">
+                  <Link href="/auth/login">Sign In</Link>
+                </Button>
+                <Button asChild size="sm">
+                  <Link href="/auth/sign-up">Get Started</Link>
+                </Button>
+              </div>
+            )
+          ) : (
+            /* placeholder to prevent layout shift */
+            <div className="h-9 w-20" />
           )}
         </nav>
 
+        {/* Mobile hamburger */}
         <button
           type="button"
-          className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted transition-colors md:hidden"
-          onClick={() => setMobileOpen(!mobileOpen)}
+          className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted active:bg-muted/80 transition-colors md:hidden"
+          onClick={() => setMobileOpen((prev) => !prev)}
           aria-label={mobileOpen ? "Close menu" : "Open menu"}
         >
-          {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          {mobileOpen ? (
+            <X className="h-5 w-5" />
+          ) : (
+            <Menu className="h-5 w-5" />
+          )}
         </button>
       </div>
 
+      {/* Mobile dropdown */}
       {mobileOpen && (
-        <div className="border-t bg-card px-4 py-4 md:hidden animate-in slide-in-from-top-2 duration-200">
+        <div className="border-t bg-card px-4 py-4 md:hidden">
           <nav className="flex flex-col gap-2">
-            {user ? (
-              <Button asChild size="lg" className="w-full">
-                <Link href="/dashboard" onClick={() => setMobileOpen(false)}>
-                  Dashboard
-                </Link>
-              </Button>
+            {mounted && user ? (
+              <Link
+                href="/dashboard"
+                onClick={() => setMobileOpen(false)}
+                className="flex h-12 w-full items-center justify-center rounded-md bg-primary text-sm font-medium text-primary-foreground active:bg-primary/90"
+              >
+                Dashboard
+              </Link>
             ) : (
               <>
-                <Button asChild variant="outline" size="lg" className="w-full bg-transparent">
-                  <Link href="/auth/login" onClick={() => setMobileOpen(false)}>
-                    Sign In
-                  </Link>
-                </Button>
-                <Button asChild size="lg" className="w-full">
-                  <Link href="/auth/sign-up" onClick={() => setMobileOpen(false)}>
-                    Get Started
-                  </Link>
-                </Button>
+                <Link
+                  href="/auth/login"
+                  onClick={() => setMobileOpen(false)}
+                  className="flex h-12 w-full items-center justify-center rounded-md border text-sm font-medium text-foreground active:bg-muted"
+                >
+                  Sign In
+                </Link>
+                <Link
+                  href="/auth/sign-up"
+                  onClick={() => setMobileOpen(false)}
+                  className="flex h-12 w-full items-center justify-center rounded-md bg-primary text-sm font-medium text-primary-foreground active:bg-primary/90"
+                >
+                  Get Started
+                </Link>
               </>
             )}
           </nav>

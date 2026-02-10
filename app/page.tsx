@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
 import { SiteHeader } from "@/components/site-header";
 import {
   Coffee,
@@ -36,20 +35,19 @@ export default function HomePage() {
               discounts, and get the best green coffee at the best price.
             </p>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-              <Button asChild size="lg" className="h-12 px-8 text-base shadow-md">
-                <Link href="/auth/sign-up">
-                  Start Trading
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Link>
-              </Button>
-              <Button
-                asChild
-                size="lg"
-                variant="outline"
-                className="h-12 px-8 text-base bg-transparent"
+              <Link
+                href="/auth/sign-up"
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-primary px-8 text-base font-medium text-primary-foreground shadow-md hover:bg-primary/90 active:bg-primary/80 transition-colors"
               >
-                <Link href="/auth/login">Sign In</Link>
-              </Button>
+                Start Trading
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link
+                href="/auth/login"
+                className="inline-flex h-12 items-center justify-center rounded-md border px-8 text-base font-medium text-foreground hover:bg-accent hover:text-accent-foreground active:bg-accent/80 transition-colors"
+              >
+                Sign In
+              </Link>
             </div>
           </div>
         </div>
@@ -234,12 +232,13 @@ export default function HomePage() {
                 <p className="mt-2 flex-1 text-sm text-muted-foreground leading-relaxed">
                   {role.description}
                 </p>
-                <Button asChild variant="ghost" className="mt-4 w-fit px-0 text-primary hover:text-primary/80 hover:bg-transparent">
-                  <Link href="/auth/sign-up">
-                    {role.cta}
-                    <ArrowRight className="ml-1 h-4 w-4" />
-                  </Link>
-                </Button>
+                <Link
+                  href="/auth/sign-up"
+                  className="mt-4 inline-flex w-fit items-center gap-1 text-sm font-medium text-primary hover:text-primary/80 active:text-primary/70 transition-colors"
+                >
+                  {role.cta}
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
               </div>
             ))}
           </div>
@@ -257,16 +256,13 @@ export default function HomePage() {
             trusted hub networks.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <Button
-              asChild
-              size="lg"
-              className="h-12 bg-card text-foreground hover:bg-card/90 shadow-md"
+            <Link
+              href="/auth/sign-up"
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-card px-8 text-base font-medium text-foreground shadow-md hover:bg-card/90 active:bg-card/80 transition-colors"
             >
-              <Link href="/auth/sign-up">
-                Get Started Free
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
+              Get Started Free
+              <ArrowRight className="h-4 w-4" />
+            </Link>
           </div>
         </div>
       </section>

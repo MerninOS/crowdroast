@@ -91,7 +91,7 @@ export default function SignUpPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSignUp}>
+              <form onSubmit={handleSignUp} suppressHydrationWarning>
                 <div className="flex flex-col gap-4">
                   <div className="grid gap-2">
                     <Label htmlFor="role">I am a</Label>
@@ -133,33 +133,36 @@ export default function SignUpPage() {
                       onChange={(e) => setContactName(e.target.value)}
                     />
                   </div>
-                  <div className="grid gap-2">
+                  <div className="grid gap-2" suppressHydrationWarning>
                     <Label htmlFor="email">Email</Label>
                     <Input
                       id="email"
                       type="email"
                       placeholder="you@company.com"
                       required
+                      autoComplete="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                     />
                   </div>
-                  <div className="grid gap-2">
+                  <div className="grid gap-2" suppressHydrationWarning>
                     <Label htmlFor="password">Password</Label>
                     <Input
                       id="password"
                       type="password"
                       required
+                      autoComplete="new-password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                     />
                   </div>
-                  <div className="grid gap-2">
+                  <div className="grid gap-2" suppressHydrationWarning>
                     <Label htmlFor="repeat-password">Confirm Password</Label>
                     <Input
                       id="repeat-password"
                       type="password"
                       required
+                      autoComplete="new-password"
                       value={repeatPassword}
                       onChange={(e) => setRepeatPassword(e.target.value)}
                     />

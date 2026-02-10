@@ -84,7 +84,17 @@
   * {
     @apply border-border;
   }
+  html {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+  }
   body {
     @apply bg-background text-foreground;
+  }
+  /* Ensure touch targets are easily tappable on mobile */
+  a,
+  button,
+  [role="button"] {
+    touch-action: manipulation;
   }
 }
