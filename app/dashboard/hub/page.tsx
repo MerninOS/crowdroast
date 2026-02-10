@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Warehouse, Truck, Package, BarChart3 } from "lucide-react";
+import { Warehouse, Truck, Package, Users, Coffee, FlaskConical } from "lucide-react";
 
 export default async function HubOverview() {
   const supabase = await createClient();
@@ -16,16 +16,31 @@ export default async function HubOverview() {
     .eq("owner_id", user.id);
 
   const hubIds = (hubs || []).map((h) => h.id);
-  const totalCapacity = (hubs || []).reduce((s, h) => s + (h.capacity_kg || 0), 0);
-  const usedCapacity = (hubs || []).reduce((s, h) => s + (h.used_capacity_kg || 0), 0);
+  const noHubFallback = ["00000000-0000-0000-0000-000000000000"];
+
+  const { data: hubLots } = await supabase
+    .from("hub_lots")
+    .select("id")
+    .in("hub_id", hubIds.length > 0 ? hubIds : noHubFallback);
+
+  const { data: hubMembers } = await supabase
+    .from("hub_members")
+    .select("id, status")
+    .in("hub_id", hubIds.length > 0 ? hubIds : noHubFallback);
 
   const { data: shipments } = await supabase
     .from("shipments")
     .select("id, status")
-    .in("hub_id", hubIds.length > 0 ? hubIds : ["00000000-0000-0000-0000-000000000000"]);
+    .in("hub_id", hubIds.length > 0 ? hubIds : noHubFallback);
 
+  const { data: samples } = await supabase
+    .from("sample_requests")
+    .select("id, status")
+    .in("hub_id", hubIds.length > 0 ? hubIds : noHubFallback);
+
+  const activeMembers = hubMembers?.filter((m) => m.status === "active").length || 0;
   const inTransit = shipments?.filter((s) => s.status === "in_transit").length || 0;
-  const atHub = shipments?.filter((s) => s.status === "at_hub").length || 0;
+  const pendingSamples = samples?.filter((s) => s.status === "pending").length || 0;
 
   const stats = [
     {
@@ -35,10 +50,16 @@ export default async function HubOverview() {
       icon: Warehouse,
     },
     {
-      label: "Capacity",
-      value: `${usedCapacity.toLocaleString()} / ${totalCapacity.toLocaleString()} kg`,
-      sub: totalCapacity > 0 ? `${Math.round((usedCapacity / totalCapacity) * 100)}% used` : "No capacity set",
-      icon: BarChart3,
+      label: "Catalog Lots",
+      value: hubLots?.length || 0,
+      sub: "curated offerings",
+      icon: Coffee,
+    },
+    {
+      label: "Active Buyers",
+      value: activeMembers,
+      sub: `${hubMembers?.length || 0} total members`,
+      icon: Users,
     },
     {
       label: "In Transit",
@@ -47,10 +68,10 @@ export default async function HubOverview() {
       icon: Truck,
     },
     {
-      label: "At Hub",
-      value: atHub,
-      sub: "ready for pickup",
-      icon: Package,
+      label: "Pending Samples",
+      value: pendingSamples,
+      sub: `${samples?.length || 0} total`,
+      icon: FlaskConical,
     },
   ];
 
@@ -59,7 +80,7 @@ export default async function HubOverview() {
       <h1 className="text-2xl font-bold text-foreground mb-6">
         Hub Owner Dashboard
       </h1>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {stats.map((stat) => (
           <Card key={stat.label}>
             <CardHeader className="flex flex-row items-center justify-between pb-2">

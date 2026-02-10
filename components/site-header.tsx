@@ -30,12 +30,6 @@ export function SiteHeader() {
         </Link>
 
         <nav className="hidden items-center gap-6 md:flex">
-          <Link
-            href="/marketplace"
-            className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            Marketplace
-          </Link>
           {user ? (
             <Button asChild size="sm">
               <Link href="/dashboard">Dashboard</Link>
@@ -69,13 +63,6 @@ export function SiteHeader() {
       {mobileOpen && (
         <div className="border-t bg-card px-4 py-4 md:hidden">
           <nav className="flex flex-col gap-3">
-            <Link
-              href="/marketplace"
-              className="text-sm font-medium text-muted-foreground"
-              onClick={() => setMobileOpen(false)}
-            >
-              Marketplace
-            </Link>
             {user ? (
               <Button asChild size="sm">
                 <Link href="/dashboard">Dashboard</Link>

@@ -43,11 +43,11 @@ export default async function BuyerCommitmentsPage() {
       {items.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
-            No commitments yet. Browse the{" "}
-            <Link href="/marketplace" className="text-primary underline">
-              marketplace
+            No commitments yet.{" "}
+            <Link href="/dashboard/buyer/browse" className="text-primary underline">
+              Browse your hub&apos;s lots
             </Link>{" "}
-            to find lots.
+            to get started.
           </CardContent>
         </Card>
       ) : (
@@ -69,7 +69,7 @@ export default async function BuyerCommitmentsPage() {
                   <TableRow key={c.id}>
                     <TableCell>
                       <Link
-                        href={`/marketplace/${c.lot_id}`}
+                        href={`/dashboard/buyer/lot/${c.lot_id}`}
                         className="font-medium hover:underline"
                       >
                         {c.lot?.title || "Unknown Lot"}

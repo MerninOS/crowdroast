@@ -12,7 +12,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { commitment_id, type, description } = body;
+  const { commitment_id, type, description, hub_id } = body;
 
   if (!commitment_id || !type || !description) {
     return NextResponse.json(
@@ -41,6 +41,7 @@ export async function POST(request: Request) {
     .insert({
       commitment_id,
       filed_by: user.id,
+      hub_id: hub_id || null,
       type,
       description,
       status: "open",

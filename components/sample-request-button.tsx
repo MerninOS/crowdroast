@@ -8,9 +8,11 @@ import { FlaskConical } from "lucide-react";
 export function SampleRequestButton({
   lotId,
   userId,
+  hubId,
 }: {
   lotId: string;
   userId: string;
+  hubId?: string;
 }) {
   const [isLoading, setIsLoading] = useState(false);
 
@@ -20,7 +22,7 @@ export function SampleRequestButton({
       const res = await fetch("/api/samples", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lot_id: lotId }),
+        body: JSON.stringify({ lot_id: lotId, hub_id: hubId }),
       });
       if (!res.ok) {
         const err = await res.json();

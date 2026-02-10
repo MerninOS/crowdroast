@@ -15,11 +15,13 @@ export function CommitmentForm({
   pricePerKg,
   minKg,
   maxKg,
+  hubId,
 }: {
   lotId: string;
   pricePerKg: number;
   minKg: number;
   maxKg: number;
+  hubId?: string;
 }) {
   const [quantity, setQuantity] = useState(minKg.toString());
   const [notes, setNotes] = useState("");
@@ -41,7 +43,7 @@ export function CommitmentForm({
       const res = await fetch("/api/commitments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lot_id: lotId, quantity_kg: qty, notes }),
+        body: JSON.stringify({ lot_id: lotId, quantity_kg: qty, notes, hub_id: hubId }),
       });
       if (!res.ok) {
         const err = await res.json();

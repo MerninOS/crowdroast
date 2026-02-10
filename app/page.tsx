@@ -21,12 +21,12 @@ export default function HomePage() {
         <div className="mx-auto max-w-7xl">
           <div className="max-w-2xl">
             <h1 className="text-4xl font-bold tracking-tight text-primary-foreground lg:text-6xl text-balance">
-              Specialty coffee, sourced together.
+              Specialty coffee, sourced through trusted hubs.
             </h1>
             <p className="mt-6 text-lg leading-relaxed text-primary-foreground/80">
               CrowdRoast connects specialty coffee roasters with producers
-              through commitment-based group buying. Pool demand, reduce costs,
-              and access the world&apos;s finest lots.
+              through hub-curated group buying. Hub owners source the best lots,
+              invite their buyers, and manage the entire supply chain.
             </p>
             <div className="mt-8 flex flex-wrap gap-4">
               <Button
@@ -45,7 +45,7 @@ export default function HomePage() {
                 variant="outline"
                 className="border-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/10 bg-transparent"
               >
-                <Link href="/marketplace">Browse Lots</Link>
+                <Link href="/auth/login">Sign In</Link>
               </Button>
             </div>
           </div>
@@ -70,21 +70,21 @@ export default function HomePage() {
             {[
               {
                 icon: Coffee,
-                title: "Browse & Commit",
+                title: "Hubs Curate",
                 description:
-                  "Explore curated lots from producers worldwide. Request samples, then commit to the quantity you need. Watch the progress bar fill as other buyers join.",
+                  "Hub owners browse seller offerings, request samples, and hand-pick the best lots to feature in their hub catalog for their network of buyers.",
               },
               {
                 icon: Package,
-                title: "Pool & Ship",
+                title: "Buyers Commit",
                 description:
-                  "Once a lot reaches its commitment threshold, the seller ships to a regional hub. Logistics are handled end-to-end with full tracking.",
+                  "Buyers see only the lots curated by their hub. They request samples, commit to quantities, and pool demand together through the hub.",
               },
               {
                 icon: BarChart3,
-                title: "Receive & Roast",
+                title: "Ship & Deliver",
                 description:
-                  "Your allocation arrives at the hub ready for pickup or last-mile delivery. Quality claims are handled through our transparent dispute system.",
+                  "Once a lot is fully committed, the hub coordinates shipping from the seller. All logistics, tracking, and quality claims flow through the hub.",
               },
             ].map((step) => (
               <div
@@ -115,25 +115,25 @@ export default function HomePage() {
           <div className="mt-16 grid gap-6 md:grid-cols-3">
             {[
               {
-                icon: Users,
-                title: "Roasters & Buyers",
+                icon: Truck,
+                title: "Hub Owners",
                 description:
-                  "Discover new origins, request samples, and commit to lots at competitive prices through group buying power.",
-                cta: "Join as Buyer",
+                  "The heart of CrowdRoast. Browse seller offerings, curate your catalog, invite buyers, and manage the full supply chain from origin to roastery.",
+                cta: "Join as Hub Owner",
               },
               {
                 icon: Coffee,
                 title: "Producers & Sellers",
                 description:
-                  "List your lots, manage commitments, and reach a global network of specialty roasters without intermediaries.",
+                  "List your lots and let hub owners discover your coffee. Manage sample requests, track commitments, and ship to hubs worldwide.",
                 cta: "Join as Seller",
               },
               {
-                icon: Truck,
-                title: "Hub Owners",
+                icon: Users,
+                title: "Roasters & Buyers",
                 description:
-                  "Manage receiving, storage, and distribution at your facility. Track inbound shipments and coordinate last-mile delivery.",
-                cta: "Join as Hub Owner",
+                  "Get invited to a hub, browse curated lots, request samples, and commit to purchases. No middleman hunting -- your hub handles everything.",
+                cta: "Join as Buyer",
               },
             ].map((role) => (
               <div
@@ -174,8 +174,8 @@ export default function HomePage() {
             verifiable reputations over time.
           </p>
           <Button asChild size="lg" className="mt-8">
-            <Link href="/marketplace">
-              Explore the Marketplace
+            <Link href="/auth/sign-up">
+              Get Started
               <ArrowRight className="ml-2 h-4 w-4" />
             </Link>
           </Button>

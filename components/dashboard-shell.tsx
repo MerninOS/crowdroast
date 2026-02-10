@@ -27,6 +27,7 @@ import type { Profile } from "@/lib/types";
 const navByRole = {
   buyer: [
     { href: "/dashboard/buyer", label: "Overview", icon: LayoutDashboard },
+    { href: "/dashboard/buyer/browse", label: "Browse Lots", icon: Coffee },
     { href: "/dashboard/buyer/commitments", label: "Commitments", icon: ShoppingCart },
     { href: "/dashboard/buyer/samples", label: "Samples", icon: FlaskConical },
     { href: "/dashboard/buyer/claims", label: "Claims", icon: FileWarning },
@@ -41,6 +42,9 @@ const navByRole = {
   hub_owner: [
     { href: "/dashboard/hub", label: "Overview", icon: LayoutDashboard },
     { href: "/dashboard/hub/hubs", label: "My Hubs", icon: Warehouse },
+    { href: "/dashboard/hub/catalog", label: "Catalog", icon: Package },
+    { href: "/dashboard/hub/members", label: "Members", icon: UserIcon },
+    { href: "/dashboard/hub/samples", label: "Samples", icon: FlaskConical },
     { href: "/dashboard/hub/shipments", label: "Shipments", icon: Truck },
   ],
 };

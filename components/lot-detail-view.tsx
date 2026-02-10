@@ -31,9 +31,11 @@ import { SampleRequestButton } from "@/components/sample-request-button";
 export function LotDetailView({
   lot,
   userId,
+  hubId,
 }: {
   lot: Lot;
   userId: string | null;
+  hubId?: string | null;
 }) {
   const commitPercent =
     lot.total_quantity_kg > 0
@@ -47,11 +49,11 @@ export function LotDetailView({
   return (
     <div>
       <Link
-        href="/marketplace"
+        href={hubId ? "/dashboard/buyer/browse" : "/marketplace"}
         className="mb-6 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
       >
         <ArrowLeft className="h-4 w-4" />
-        Back to Marketplace
+        {hubId ? "Back to Browse" : "Back to Marketplace"}
       </Link>
 
       <div className="grid gap-8 lg:grid-cols-3">
@@ -265,11 +267,12 @@ export function LotDetailView({
                   pricePerKg={lot.price_per_kg}
                   minKg={lot.min_commitment_kg}
                   maxKg={remaining}
+                  hubId={hubId || undefined}
                 />
               )}
 
               {userId && !isOwner && (
-                <SampleRequestButton lotId={lot.id} userId={userId} />
+                <SampleRequestButton lotId={lot.id} userId={userId} hubId={hubId || undefined} />
               )}
 
               {isOwner && (

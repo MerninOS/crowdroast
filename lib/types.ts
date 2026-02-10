@@ -105,6 +105,7 @@ export interface Commitment {
   id: string;
   lot_id: string;
   buyer_id: string;
+  hub_id: string | null;
   quantity_kg: number;
   price_per_kg: number;
   total_price: number;
@@ -121,6 +122,7 @@ export interface SampleRequest {
   id: string;
   lot_id: string;
   buyer_id: string;
+  hub_id: string | null;
   quantity_grams: number;
   shipping_address: string | null;
   status: SampleStatus;
@@ -157,6 +159,7 @@ export interface Claim {
   id: string;
   commitment_id: string;
   filed_by: string;
+  hub_id: string | null;
   type: ClaimType;
   description: string;
   evidence_urls: string[];
@@ -167,4 +170,28 @@ export interface Claim {
   // Joined fields
   commitment?: Commitment;
   filer?: Profile;
+}
+
+export type HubMemberRole = "buyer" | "seller";
+export type HubMemberStatus = "invited" | "active" | "removed";
+
+export interface HubLot {
+  id: string;
+  hub_id: string;
+  lot_id: string;
+  added_at: string;
+  // Joined fields
+  lot?: Lot;
+}
+
+export interface HubMember {
+  id: string;
+  hub_id: string;
+  user_id: string | null;
+  invited_email: string | null;
+  role: HubMemberRole;
+  status: HubMemberStatus;
+  joined_at: string;
+  // Joined fields
+  user?: Profile;
 }

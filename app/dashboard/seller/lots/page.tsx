@@ -60,7 +60,7 @@ export default async function SellerLotsPage() {
                 <CardHeader className="flex flex-row items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <Link
-                      href={`/marketplace/${lot.id}`}
+                      href={`/dashboard/seller/lots`}
                       className="hover:underline"
                     >
                       <CardTitle className="text-base">{lot.title}</CardTitle>
