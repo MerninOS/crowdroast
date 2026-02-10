@@ -99,6 +99,7 @@ export interface Lot {
   seller?: Profile;
   hub?: Hub;
   commitments?: Commitment[];
+  pricing_tiers?: PricingTier[];
 }
 
 export interface Commitment {
@@ -170,6 +171,14 @@ export interface Claim {
   // Joined fields
   commitment?: Commitment;
   filer?: Profile;
+}
+
+export interface PricingTier {
+  id: string;
+  lot_id: string;
+  min_quantity_kg: number;
+  price_per_kg: number;
+  created_at: string;
 }
 
 export type HubMemberRole = "buyer" | "seller";

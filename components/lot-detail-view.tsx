@@ -1,7 +1,6 @@
 "use client";
 
-import React from "react"
-
+import React, { useState, useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,29 +21,85 @@ import {
   FlaskConical,
   ArrowLeft,
   Package,
+  Clock,
+  Users,
+  TrendingDown,
+  Check,
 } from "lucide-react";
 import Link from "next/link";
-import type { Lot } from "@/lib/types";
+import type { Lot, PricingTier, Commitment } from "@/lib/types";
 import { CommitmentForm } from "@/components/commitment-form";
 import { SampleRequestButton } from "@/components/sample-request-button";
+
+interface LotDetailProps {
+  lot: Lot;
+  userId: string | null;
+  hubId?: string | null;
+  pricingTiers?: PricingTier[];
+  commitments?: Commitment[];
+}
 
 export function LotDetailView({
   lot,
   userId,
   hubId,
-}: {
-  lot: Lot;
-  userId: string | null;
-  hubId?: string | null;
-}) {
-  const commitPercent =
+  pricingTiers = [],
+  commitments = [],
+}: LotDetailProps) {
+  const sortedTiers = [...pricingTiers].sort(
+    (a, b) => a.min_quantity_kg - b.min_quantity_kg
+  );
+
+  // Build full tier list: base + discount tiers
+  const allTiers = [
+    {
+      min_quantity_kg: lot.min_commitment_kg,
+      price_per_kg: lot.price_per_kg,
+      label: "Minimum (trigger)",
+    },
+    ...sortedTiers.map((t) => ({
+      min_quantity_kg: t.min_quantity_kg,
+      price_per_kg: t.price_per_kg,
+      label: `${t.min_quantity_kg.toLocaleString()} kg`,
+    })),
+  ];
+
+  // Current active price based on committed quantity
+  const getActivePrice = (committedQty: number) => {
+    let price = lot.price_per_kg;
+    for (const tier of [...sortedTiers].reverse()) {
+      if (committedQty >= tier.min_quantity_kg) {
+        price = tier.price_per_kg;
+        break;
+      }
+    }
+    return price;
+  };
+
+  const activePrice = getActivePrice(lot.committed_quantity_kg);
+  const nextTier = sortedTiers.find(
+    (t) => t.min_quantity_kg > lot.committed_quantity_kg
+  );
+
+  const triggerPercent =
+    lot.min_commitment_kg > 0
+      ? Math.min(
+          100,
+          Math.round(
+            (lot.committed_quantity_kg / lot.min_commitment_kg) * 100
+          )
+        )
+      : 0;
+  const capacityPercent =
     lot.total_quantity_kg > 0
       ? Math.round((lot.committed_quantity_kg / lot.total_quantity_kg) * 100)
       : 0;
 
+  const isTriggered = lot.committed_quantity_kg >= lot.min_commitment_kg;
   const remaining = lot.total_quantity_kg - lot.committed_quantity_kg;
   const isOwner = userId === lot.seller_id;
-  const canCommit = userId && !isOwner && lot.status === "active" && remaining > 0;
+  const canCommit =
+    userId && !isOwner && lot.status === "active" && remaining > 0;
 
   return (
     <div>
@@ -73,7 +128,10 @@ export function LotDetailView({
             </div>
             {lot.seller && (
               <p className="mt-1 text-sm text-muted-foreground">
-                by {lot.seller.company_name || lot.seller.contact_name || "Seller"}
+                by{" "}
+                {lot.seller.company_name ||
+                  lot.seller.contact_name ||
+                  "Seller"}
               </p>
             )}
           </div>
@@ -83,6 +141,139 @@ export function LotDetailView({
               {lot.description}
             </p>
           )}
+
+          {/* Pricing Tiers Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <TrendingDown className="h-4 w-4" />
+                Volume Pricing Tiers
+              </CardTitle>
+              <CardDescription>
+                The more buyers commit, the lower the price for everyone.
+                {nextTier && (
+                  <>
+                    {" "}
+                    Only{" "}
+                    <span className="font-semibold text-foreground">
+                      {(
+                        nextTier.min_quantity_kg - lot.committed_quantity_kg
+                      ).toLocaleString()}{" "}
+                      kg
+                    </span>{" "}
+                    more needed to unlock $
+                    {nextTier.price_per_kg.toFixed(2)}/kg!
+                  </>
+                )}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {allTiers.map((tier, idx) => {
+                  const isActive =
+                    tier.price_per_kg === activePrice &&
+                    lot.committed_quantity_kg >= tier.min_quantity_kg;
+                  const isReached =
+                    lot.committed_quantity_kg >= tier.min_quantity_kg;
+                  const isNext =
+                    !isReached &&
+                    (idx === 0 ||
+                      lot.committed_quantity_kg >=
+                        allTiers[idx - 1].min_quantity_kg);
+                  const savings =
+                    idx > 0
+                      ? (
+                          ((lot.price_per_kg - tier.price_per_kg) /
+                            lot.price_per_kg) *
+                          100
+                        ).toFixed(0)
+                      : null;
+
+                  return (
+                    <div
+                      key={idx}
+                      className={`flex items-center justify-between rounded-lg border p-3 transition-colors ${
+                        isActive
+                          ? "border-primary bg-primary/5"
+                          : isReached
+                            ? "border-border bg-muted/30"
+                            : isNext
+                              ? "border-dashed border-primary/40"
+                              : "border-border"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`flex h-6 w-6 items-center justify-center rounded-full text-xs ${
+                            isReached
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          {isReached ? (
+                            <Check className="h-3 w-3" />
+                          ) : (
+                            idx + 1
+                          )}
+                        </div>
+                        <div>
+                          <p
+                            className={`text-sm font-medium ${isActive ? "text-primary" : "text-foreground"}`}
+                          >
+                            {tier.min_quantity_kg.toLocaleString()} kg
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {tier.label}
+                            {savings && (
+                              <span className="ml-1 text-primary font-medium">
+                                ({savings}% off)
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                      <p
+                        className={`text-lg font-bold ${isActive ? "text-primary" : "text-foreground"}`}
+                      >
+                        ${tier.price_per_kg.toFixed(2)}
+                        <span className="text-xs font-normal text-muted-foreground">
+                          /kg
+                        </span>
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Tier progress visualization */}
+              {sortedTiers.length > 0 && (
+                <div className="mt-4">
+                  <div className="relative h-2 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="absolute inset-y-0 left-0 rounded-full bg-primary transition-all"
+                      style={{ width: `${capacityPercent}%` }}
+                    />
+                    {/* Tier markers */}
+                    {sortedTiers.map((tier) => {
+                      const markerPct =
+                        (tier.min_quantity_kg / lot.total_quantity_kg) * 100;
+                      return (
+                        <div
+                          key={tier.id}
+                          className="absolute top-0 h-full w-0.5 bg-foreground/30"
+                          style={{ left: `${markerPct}%` }}
+                        />
+                      );
+                    })}
+                  </div>
+                  <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
+                    <span>0 kg</span>
+                    <span>{lot.total_quantity_kg.toLocaleString()} kg</span>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Details grid */}
           <Card>
@@ -140,7 +331,8 @@ export function LotDetailView({
           </Card>
 
           {/* Flavor notes and certs */}
-          {(lot.flavor_notes?.length > 0 || lot.certifications?.length > 0) && (
+          {(lot.flavor_notes?.length > 0 ||
+            lot.certifications?.length > 0) && (
             <Card>
               <CardContent className="pt-6">
                 {lot.flavor_notes?.length > 0 && (
@@ -174,38 +366,152 @@ export function LotDetailView({
               </CardContent>
             </Card>
           )}
+
+          {/* Backers List */}
+          {commitments.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Users className="h-4 w-4" />
+                  Backers ({commitments.length})
+                </CardTitle>
+                <CardDescription>
+                  People who have committed to this lot.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {commitments.map((c, idx) => (
+                    <div
+                      key={c.id}
+                      className="flex items-center justify-between rounded-lg bg-muted/30 px-4 py-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-semibold">
+                          {c.buyer?.company_name?.[0] ||
+                            c.buyer?.contact_name?.[0] ||
+                            `#${idx + 1}`}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-foreground">
+                            {c.buyer?.company_name ||
+                              c.buyer?.contact_name ||
+                              "Anonymous Buyer"}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(c.created_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-semibold text-foreground">
+                          {c.quantity_kg.toLocaleString()} kg
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* Sidebar */}
         <div className="space-y-6">
+          {/* Price + Countdown */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-2xl">
-                ${lot.price_per_kg.toFixed(2)}
-                <span className="text-sm font-normal text-muted-foreground">
-                  {" "}
-                  / kg
-                </span>
-              </CardTitle>
-              <CardDescription>
-                {lot.currency || "USD"} per kilogram
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-2xl">
+                    ${activePrice.toFixed(2)}
+                    <span className="text-sm font-normal text-muted-foreground">
+                      {" "}
+                      / kg
+                    </span>
+                  </CardTitle>
+                  <CardDescription>
+                    {sortedTiers.length > 0
+                      ? "Current price (may decrease with more buyers)"
+                      : `${lot.currency || "USD"} per kilogram`}
+                  </CardDescription>
+                </div>
+                {lot.price_per_kg !== activePrice && (
+                  <Badge variant="secondary" className="text-xs line-through opacity-60">
+                    ${lot.price_per_kg.toFixed(2)}
+                  </Badge>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Countdown timer */}
+              {lot.commitment_deadline && (
+                <CountdownTimer deadline={lot.commitment_deadline} />
+              )}
+
+              {/* Progress toward minimum trigger */}
               <div>
                 <div className="flex items-center justify-between text-sm mb-2">
                   <span className="text-muted-foreground">
-                    Commitment Progress
+                    {isTriggered ? "Sale Triggered" : "Toward Minimum"}
                   </span>
-                  <span className="font-semibold">{commitPercent}%</span>
+                  <span className="font-semibold">
+                    {isTriggered ? "Reached" : `${triggerPercent}%`}
+                  </span>
                 </div>
-                <Progress value={commitPercent} className="h-3" />
+                <Progress
+                  value={triggerPercent}
+                  className={`h-3 ${isTriggered ? "[&>div]:bg-accent" : ""}`}
+                />
                 <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
                   <span>
                     {lot.committed_quantity_kg.toLocaleString()} kg committed
                   </span>
                   <span>
-                    {lot.total_quantity_kg.toLocaleString()} kg total
+                    {lot.min_commitment_kg.toLocaleString()} kg needed
+                  </span>
+                </div>
+              </div>
+
+              {!isTriggered && (
+                <p className="text-xs text-muted-foreground bg-muted/50 rounded-lg p-3">
+                  This sale only triggers if{" "}
+                  {lot.min_commitment_kg.toLocaleString()} kg total is committed
+                  by the deadline. Still need{" "}
+                  <span className="font-semibold text-foreground">
+                    {(
+                      lot.min_commitment_kg - lot.committed_quantity_kg
+                    ).toLocaleString()}{" "}
+                    kg
+                  </span>{" "}
+                  more.
+                </p>
+              )}
+
+              {isTriggered && (
+                <p className="text-xs bg-accent/10 text-accent-foreground rounded-lg p-3 font-medium">
+                  Minimum reached! This sale is confirmed. Keep committing to
+                  unlock lower pricing tiers.
+                </p>
+              )}
+
+              <Separator />
+
+              {/* Capacity progress */}
+              <div>
+                <div className="flex items-center justify-between text-sm mb-2">
+                  <span className="text-muted-foreground">
+                    Total Capacity
+                  </span>
+                  <span className="font-semibold">{capacityPercent}%</span>
+                </div>
+                <Progress value={capacityPercent} className="h-2" />
+                <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+                  <span>
+                    {remaining.toLocaleString()} kg remaining
+                  </span>
+                  <span>
+                    {lot.total_quantity_kg.toLocaleString()} kg max
                   </span>
                 </div>
               </div>
@@ -214,25 +520,9 @@ export function LotDetailView({
 
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Remaining</span>
-                  <span className="font-medium">
-                    {remaining.toLocaleString()} kg
-                  </span>
+                  <span className="text-muted-foreground">Backers</span>
+                  <span className="font-medium">{commitments.length}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Min. commitment</span>
-                  <span className="font-medium">
-                    {lot.min_commitment_kg} kg
-                  </span>
-                </div>
-                {lot.commitment_deadline && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Deadline</span>
-                    <span className="font-medium">
-                      {new Date(lot.commitment_deadline).toLocaleDateString()}
-                    </span>
-                  </div>
-                )}
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Status</span>
                   <Badge
@@ -264,15 +554,18 @@ export function LotDetailView({
               {canCommit && (
                 <CommitmentForm
                   lotId={lot.id}
-                  pricePerKg={lot.price_per_kg}
-                  minKg={lot.min_commitment_kg}
+                  activePrice={activePrice}
                   maxKg={remaining}
                   hubId={hubId || undefined}
                 />
               )}
 
               {userId && !isOwner && (
-                <SampleRequestButton lotId={lot.id} userId={userId} hubId={hubId || undefined} />
+                <SampleRequestButton
+                  lotId={lot.id}
+                  userId={userId}
+                  hubId={hubId || undefined}
+                />
               )}
 
               {isOwner && (
@@ -302,6 +595,69 @@ export function LotDetailView({
       </div>
     </div>
   );
+}
+
+function CountdownTimer({ deadline }: { deadline: string }) {
+  const [timeLeft, setTimeLeft] = useState(() =>
+    getTimeRemaining(new Date(deadline))
+  );
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTimeLeft(getTimeRemaining(new Date(deadline)));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [deadline]);
+
+  const isExpired = timeLeft.total <= 0;
+
+  return (
+    <div
+      className={`rounded-lg p-4 ${isExpired ? "bg-destructive/10" : "bg-muted/50"}`}
+    >
+      <div className="flex items-center gap-2 mb-2">
+        <Clock className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm font-medium text-foreground">
+          {isExpired ? "Deadline Passed" : "Time Remaining"}
+        </span>
+      </div>
+      {isExpired ? (
+        <p className="text-sm text-destructive font-medium">
+          The commitment period has ended.
+        </p>
+      ) : (
+        <div className="grid grid-cols-4 gap-2 text-center">
+          <TimeBlock value={timeLeft.days} label="Days" />
+          <TimeBlock value={timeLeft.hours} label="Hrs" />
+          <TimeBlock value={timeLeft.minutes} label="Min" />
+          <TimeBlock value={timeLeft.seconds} label="Sec" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TimeBlock({ value, label }: { value: number; label: string }) {
+  return (
+    <div>
+      <p className="text-xl font-bold font-mono text-foreground">
+        {String(value).padStart(2, "0")}
+      </p>
+      <p className="text-xs text-muted-foreground">{label}</p>
+    </div>
+  );
+}
+
+function getTimeRemaining(deadline: Date) {
+  const total = deadline.getTime() - Date.now();
+  if (total <= 0) return { total: 0, days: 0, hours: 0, minutes: 0, seconds: 0 };
+  return {
+    total,
+    days: Math.floor(total / (1000 * 60 * 60 * 24)),
+    hours: Math.floor((total / (1000 * 60 * 60)) % 24),
+    minutes: Math.floor((total / (1000 * 60)) % 60),
+    seconds: Math.floor((total / 1000) % 60),
+  };
 }
 
 function DetailRow({

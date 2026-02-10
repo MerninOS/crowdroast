@@ -1,8 +1,6 @@
 "use client";
 
-import React from "react"
-
-import { useState } from "react";
+import React, { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -16,9 +14,15 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
+
+interface TierRow {
+  min_quantity_kg: string;
+  price_per_kg: string;
+}
 
 export default function CreateLotPage() {
   const router = useRouter();
@@ -36,15 +40,33 @@ export default function CreateLotPage() {
     score: "",
     description: "",
     total_quantity_kg: "",
-    min_commitment_kg: "10",
+    min_commitment_kg: "",
     price_per_kg: "",
     commitment_deadline: "",
     flavor_notes: "",
     certifications: "",
   });
 
+  const [tiers, setTiers] = useState<TierRow[]>([]);
+
   const update = (key: string, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
+
+  const addTier = () => {
+    setTiers((prev) => [...prev, { min_quantity_kg: "", price_per_kg: "" }]);
+  };
+
+  const updateTier = (idx: number, key: keyof TierRow, value: string) => {
+    setTiers((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], [key]: value };
+      return next;
+    });
+  };
+
+  const removeTier = (idx: number) => {
+    setTiers((prev) => prev.filter((_, i) => i !== idx));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,40 +82,105 @@ export default function CreateLotPage() {
       return;
     }
 
-    const { error } = await supabase.from("lots").insert({
-      seller_id: user.id,
-      title: form.title,
-      origin_country: form.origin_country,
-      region: form.region || null,
-      farm: form.farm || null,
-      variety: form.variety || null,
-      process: form.process || null,
-      altitude_min: form.altitude_min ? Number.parseInt(form.altitude_min) : null,
-      altitude_max: form.altitude_max ? Number.parseInt(form.altitude_max) : null,
-      crop_year: form.crop_year || null,
-      score: form.score ? Number.parseFloat(form.score) : null,
-      description: form.description || null,
-      total_quantity_kg: Number.parseFloat(form.total_quantity_kg),
-      min_commitment_kg: Number.parseFloat(form.min_commitment_kg),
-      price_per_kg: Number.parseFloat(form.price_per_kg),
-      commitment_deadline: form.commitment_deadline || null,
-      flavor_notes: form.flavor_notes
-        ? form.flavor_notes.split(",").map((s) => s.trim())
-        : [],
-      certifications: form.certifications
-        ? form.certifications.split(",").map((s) => s.trim())
-        : [],
-      status: "active",
-    });
+    const basePrice = Number.parseFloat(form.price_per_kg);
+    const minTotal = Number.parseFloat(form.min_commitment_kg);
+    const maxTotal = Number.parseFloat(form.total_quantity_kg);
 
-    if (error) {
-      toast.error(error.message);
-    } else {
-      toast.success("Lot created successfully!");
-      router.push("/dashboard/seller/lots");
+    // Validate tiers
+    for (let i = 0; i < tiers.length; i++) {
+      const tierQty = Number.parseFloat(tiers[i].min_quantity_kg);
+      const tierPrice = Number.parseFloat(tiers[i].price_per_kg);
+      if (!tierQty || !tierPrice) {
+        toast.error(`Tier ${i + 1}: quantity and price are required`);
+        setIsLoading(false);
+        return;
+      }
+      if (tierQty <= minTotal) {
+        toast.error(
+          `Tier ${i + 1}: quantity (${tierQty} kg) must be above the minimum trigger (${minTotal} kg)`
+        );
+        setIsLoading(false);
+        return;
+      }
+      if (tierQty > maxTotal) {
+        toast.error(
+          `Tier ${i + 1}: quantity (${tierQty} kg) cannot exceed the maximum (${maxTotal} kg)`
+        );
+        setIsLoading(false);
+        return;
+      }
+      if (tierPrice >= basePrice) {
+        toast.error(
+          `Tier ${i + 1}: price must be lower than the base price ($${basePrice.toFixed(2)}/kg)`
+        );
+        setIsLoading(false);
+        return;
+      }
     }
+
+    const { data: lot, error } = await supabase
+      .from("lots")
+      .insert({
+        seller_id: user.id,
+        title: form.title,
+        origin_country: form.origin_country,
+        region: form.region || null,
+        farm: form.farm || null,
+        variety: form.variety || null,
+        process: form.process || null,
+        altitude_min: form.altitude_min
+          ? Number.parseInt(form.altitude_min)
+          : null,
+        altitude_max: form.altitude_max
+          ? Number.parseInt(form.altitude_max)
+          : null,
+        crop_year: form.crop_year || null,
+        score: form.score ? Number.parseFloat(form.score) : null,
+        description: form.description || null,
+        total_quantity_kg: maxTotal,
+        min_commitment_kg: minTotal,
+        price_per_kg: basePrice,
+        commitment_deadline: form.commitment_deadline || null,
+        flavor_notes: form.flavor_notes
+          ? form.flavor_notes.split(",").map((s) => s.trim())
+          : [],
+        certifications: form.certifications
+          ? form.certifications.split(",").map((s) => s.trim())
+          : [],
+        status: "active",
+      })
+      .select("id")
+      .single();
+
+    if (error || !lot) {
+      toast.error(error?.message || "Failed to create lot");
+      setIsLoading(false);
+      return;
+    }
+
+    // Insert pricing tiers
+    if (tiers.length > 0) {
+      const tierRows = tiers.map((t) => ({
+        lot_id: lot.id,
+        min_quantity_kg: Number.parseFloat(t.min_quantity_kg),
+        price_per_kg: Number.parseFloat(t.price_per_kg),
+      }));
+      const { error: tierError } = await supabase
+        .from("pricing_tiers")
+        .insert(tierRows);
+      if (tierError) {
+        toast.error("Lot created but failed to save tiers: " + tierError.message);
+      }
+    }
+
+    toast.success("Lot created successfully!");
+    router.push("/dashboard/seller/lots");
     setIsLoading(false);
   };
+
+  const basePrice = Number.parseFloat(form.price_per_kg) || 0;
+  const minQty = Number.parseFloat(form.min_commitment_kg) || 0;
+  const maxQty = Number.parseFloat(form.total_quantity_kg) || 0;
 
   return (
     <div className="max-w-2xl">
@@ -109,7 +196,7 @@ export default function CreateLotPage() {
         <CardHeader>
           <CardTitle>Create New Lot</CardTitle>
           <CardDescription>
-            List a new green coffee lot on the marketplace.
+            List a new green coffee lot with tiered volume pricing.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -236,10 +323,43 @@ export default function CreateLotPage() {
                   onChange={(e) => update("description", e.target.value)}
                 />
               </div>
+            </div>
+
+            <Separator />
+
+            {/* Pricing & Quantity Section */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-foreground">
+                Pricing & Quantity
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Set a minimum total quantity for the sale to trigger, a maximum
+                quantity available, and a base price per kg. Then add volume
+                discount tiers to incentivize larger group purchases.
+              </p>
 
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="grid gap-2">
-                  <Label htmlFor="total_quantity_kg">Total Quantity (kg) *</Label>
+                  <Label htmlFor="min_commitment_kg">
+                    Min Total to Trigger (kg) *
+                  </Label>
+                  <Input
+                    id="min_commitment_kg"
+                    type="number"
+                    required
+                    min="1"
+                    placeholder="300"
+                    value={form.min_commitment_kg}
+                    onChange={(e) => update("min_commitment_kg", e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Sale triggers when total commitments reach this amount
+                  </p>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="total_quantity_kg">
+                    Max Available (kg) *
+                  </Label>
                   <Input
                     id="total_quantity_kg"
                     type="number"
@@ -249,20 +369,12 @@ export default function CreateLotPage() {
                     value={form.total_quantity_kg}
                     onChange={(e) => update("total_quantity_kg", e.target.value)}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Maximum quantity you can supply
+                  </p>
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="min_commitment_kg">Min Commitment (kg)</Label>
-                  <Input
-                    id="min_commitment_kg"
-                    type="number"
-                    min="1"
-                    placeholder="10"
-                    value={form.min_commitment_kg}
-                    onChange={(e) => update("min_commitment_kg", e.target.value)}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="price_per_kg">Price per kg (USD) *</Label>
+                  <Label htmlFor="price_per_kg">Base Price ($/kg) *</Label>
                   <Input
                     id="price_per_kg"
                     type="number"
@@ -273,21 +385,148 @@ export default function CreateLotPage() {
                     value={form.price_per_kg}
                     onChange={(e) => update("price_per_kg", e.target.value)}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Price at the minimum trigger quantity
+                  </p>
                 </div>
               </div>
 
               <div className="grid gap-2">
-                <Label htmlFor="commitment_deadline">Commitment Deadline</Label>
+                <Label htmlFor="commitment_deadline">
+                  Commitment Deadline *
+                </Label>
                 <Input
                   id="commitment_deadline"
                   type="datetime-local"
+                  required
                   value={form.commitment_deadline}
                   onChange={(e) =>
                     update("commitment_deadline", e.target.value)
                   }
                 />
+                <p className="text-xs text-muted-foreground">
+                  The sale triggers (or cancels) at this deadline
+                </p>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Volume Discount Tiers */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground">
+                    Volume Discount Tiers
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    Lower the price per kg as buyers commit to more total
+                    quantity. Each tier&apos;s quantity must be between the
+                    minimum trigger and maximum available.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addTier}
+                >
+                  <Plus className="mr-1 h-4 w-4" />
+                  Add Tier
+                </Button>
               </div>
 
+              {/* Base tier preview */}
+              <div className="rounded-lg border bg-muted/30 p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">
+                      Base Tier (minimum)
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {minQty > 0
+                        ? `${minQty.toLocaleString()} kg`
+                        : "Set minimum above"}
+                    </p>
+                  </div>
+                  <p className="text-lg font-bold text-foreground">
+                    {basePrice > 0 ? `$${basePrice.toFixed(2)}/kg` : "--"}
+                  </p>
+                </div>
+              </div>
+
+              {tiers.map((tier, idx) => (
+                <div
+                  key={idx}
+                  className="rounded-lg border p-4 space-y-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-foreground">
+                      Tier {idx + 1}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removeTier(idx)}
+                      className="text-destructive hover:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="grid gap-2">
+                      <Label>When total reaches (kg)</Label>
+                      <Input
+                        type="number"
+                        min={minQty + 1}
+                        max={maxQty}
+                        placeholder="500"
+                        value={tier.min_quantity_kg}
+                        onChange={(e) =>
+                          updateTier(idx, "min_quantity_kg", e.target.value)
+                        }
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Price per kg ($)</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max={basePrice > 0 ? basePrice - 0.01 : undefined}
+                        placeholder="7.50"
+                        value={tier.price_per_kg}
+                        onChange={(e) =>
+                          updateTier(idx, "price_per_kg", e.target.value)
+                        }
+                      />
+                    </div>
+                  </div>
+                  {tier.min_quantity_kg && tier.price_per_kg && (
+                    <p className="text-xs text-muted-foreground">
+                      If total commitments reach{" "}
+                      {Number.parseFloat(tier.min_quantity_kg).toLocaleString()}{" "}
+                      kg, everyone pays $
+                      {Number.parseFloat(tier.price_per_kg).toFixed(2)}/kg
+                      instead of ${basePrice.toFixed(2)}/kg
+                    </p>
+                  )}
+                </div>
+              ))}
+
+              {tiers.length === 0 && (
+                <p className="text-sm text-muted-foreground italic">
+                  No volume discounts yet. Add tiers to incentivize larger group
+                  purchases.
+                </p>
+              )}
+            </div>
+
+            <Separator />
+
+            {/* Flavor & Certifications */}
+            <div className="grid gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="flavor_notes">
                   Flavor Notes (comma separated)
@@ -299,7 +538,6 @@ export default function CreateLotPage() {
                   onChange={(e) => update("flavor_notes", e.target.value)}
                 />
               </div>
-
               <div className="grid gap-2">
                 <Label htmlFor="certifications">
                   Certifications (comma separated)

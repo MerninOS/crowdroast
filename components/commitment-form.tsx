@@ -1,8 +1,6 @@
 "use client";
 
-import React from "react"
-
-import { useState } from "react";
+import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,29 +10,27 @@ import { useRouter } from "next/navigation";
 
 export function CommitmentForm({
   lotId,
-  pricePerKg,
-  minKg,
+  activePrice,
   maxKg,
   hubId,
 }: {
   lotId: string;
-  pricePerKg: number;
-  minKg: number;
+  activePrice: number;
   maxKg: number;
   hubId?: string;
 }) {
-  const [quantity, setQuantity] = useState(minKg.toString());
+  const [quantity, setQuantity] = useState("1");
   const [notes, setNotes] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
   const qty = Number.parseFloat(quantity) || 0;
-  const total = qty * pricePerKg;
+  const total = qty * activePrice;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (qty < minKg || qty > maxKg) {
-      toast.error(`Quantity must be between ${minKg} and ${maxKg} kg`);
+    if (qty <= 0 || qty > maxKg) {
+      toast.error(`Quantity must be between 1 and ${maxKg} kg`);
       return;
     }
 
@@ -43,7 +39,12 @@ export function CommitmentForm({
       const res = await fetch("/api/commitments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lot_id: lotId, quantity_kg: qty, notes, hub_id: hubId }),
+        body: JSON.stringify({
+          lot_id: lotId,
+          quantity_kg: qty,
+          notes,
+          hub_id: hubId,
+        }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -65,7 +66,7 @@ export function CommitmentForm({
         <Input
           id="qty"
           type="number"
-          min={minKg}
+          min={1}
           max={maxKg}
           step="0.1"
           value={quantity}
@@ -73,7 +74,7 @@ export function CommitmentForm({
           required
         />
         <p className="text-xs text-muted-foreground">
-          Min {minKg} kg / Max {maxKg.toLocaleString()} kg
+          Max {maxKg.toLocaleString()} kg remaining
         </p>
       </div>
       <div className="grid gap-2">
@@ -88,11 +89,16 @@ export function CommitmentForm({
       </div>
       <div className="rounded-lg bg-muted p-3">
         <div className="flex items-center justify-between text-sm">
-          <span className="text-muted-foreground">Estimated Total</span>
+          <span className="text-muted-foreground">
+            {qty.toLocaleString()} kg x ${activePrice.toFixed(2)}
+          </span>
           <span className="text-lg font-bold text-foreground">
             ${total.toFixed(2)}
           </span>
         </div>
+        <p className="text-xs text-muted-foreground mt-1">
+          Final price may be lower if more buyers commit before deadline
+        </p>
       </div>
       <Button type="submit" className="w-full" disabled={isLoading}>
         {isLoading ? "Submitting..." : "Commit to Purchase"}

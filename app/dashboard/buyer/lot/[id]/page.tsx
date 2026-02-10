@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { notFound, redirect } from "next/navigation";
 import { LotDetailView } from "@/components/lot-detail-view";
-import type { Lot } from "@/lib/types";
+import type { Lot, PricingTier, Commitment } from "@/lib/types";
 
 export default async function BuyerLotDetailPage({
   params,
@@ -46,13 +46,32 @@ export default async function BuyerLotDetailPage({
     }
   }
 
+  // Fetch lot with seller info
   const { data: lot } = await supabase
     .from("lots")
-    .select("*, seller:profiles!lots_seller_id_fkey(company_name, contact_name, country)")
+    .select(
+      "*, seller:profiles!lots_seller_id_fkey(company_name, contact_name, country)"
+    )
     .eq("id", id)
     .single();
 
   if (!lot) notFound();
+
+  // Fetch pricing tiers
+  const { data: pricingTiers } = await supabase
+    .from("pricing_tiers")
+    .select("*")
+    .eq("lot_id", id)
+    .order("min_quantity_kg", { ascending: true });
+
+  // Fetch commitments with buyer info (for the backers list)
+  const { data: commitments } = await supabase
+    .from("commitments")
+    .select(
+      "*, buyer:profiles!commitments_buyer_id_fkey(company_name, contact_name)"
+    )
+    .eq("lot_id", id)
+    .order("created_at", { ascending: true });
 
   return (
     <div className="max-w-5xl">
@@ -60,6 +79,8 @@ export default async function BuyerLotDetailPage({
         lot={lot as unknown as Lot}
         userId={user.id}
         hubId={hubId || null}
+        pricingTiers={(pricingTiers as unknown as PricingTier[]) || []}
+        commitments={(commitments as unknown as Commitment[]) || []}
       />
     </div>
   );
