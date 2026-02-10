@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Plus } from "lucide-react";
+import { Plus, Pencil } from "lucide-react";
 import Link from "next/link";
 import type { Lot } from "@/lib/types";
 
@@ -60,7 +60,7 @@ export default async function SellerLotsPage() {
                 <CardHeader className="flex flex-row items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <Link
-                      href={`/dashboard/seller/lots`}
+                      href={`/dashboard/seller/lots/${lot.id}/edit`}
                       className="hover:underline"
                     >
                       <CardTitle className="text-base">{lot.title}</CardTitle>
@@ -71,18 +71,26 @@ export default async function SellerLotsPage() {
                       {lot.price_per_kg.toFixed(2)}/kg
                     </p>
                   </div>
-                  <Badge
-                    variant={lot.status === "active" ? "default" : "secondary"}
-                    className={
-                      lot.status === "active"
-                        ? "bg-accent text-accent-foreground"
-                        : ""
-                    }
-                  >
-                    {lot.status === "fully_committed"
-                      ? "Fully Committed"
-                      : lot.status.charAt(0).toUpperCase() + lot.status.slice(1)}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      variant={lot.status === "active" ? "default" : "secondary"}
+                      className={
+                        lot.status === "active"
+                          ? "bg-accent text-accent-foreground"
+                          : ""
+                      }
+                    >
+                      {lot.status === "fully_committed"
+                        ? "Fully Committed"
+                        : lot.status.charAt(0).toUpperCase() + lot.status.slice(1)}
+                    </Badge>
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={`/dashboard/seller/lots/${lot.id}/edit`}>
+                        <Pencil className="mr-1 h-3 w-3" />
+                        Edit
+                      </Link>
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center justify-between text-sm mb-2">

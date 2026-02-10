@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Plus, Check, Coffee, X } from "lucide-react";
+import Link from "next/link";
 import type { Hub, Lot } from "@/lib/types";
 
 export default function HubCatalogPage() {
@@ -172,7 +173,9 @@ export default function HubCatalogPage() {
               <Card key={lot.id} className={inHub ? "border-primary/30 bg-primary/[0.02]" : ""}>
                 <CardHeader className="flex flex-row items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
-                    <CardTitle className="text-base">{lot.title}</CardTitle>
+                    <Link href={`/dashboard/hub/catalog/${lot.id}`} className="hover:underline">
+                      <CardTitle className="text-base">{lot.title}</CardTitle>
+                    </Link>
                     <p className="text-sm text-muted-foreground mt-1">
                       {lot.origin_country}
                       {lot.region ? `, ${lot.region}` : ""} &middot; $

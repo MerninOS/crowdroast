@@ -37,6 +37,8 @@ interface LotDetailProps {
   hubId?: string | null;
   pricingTiers?: PricingTier[];
   commitments?: Commitment[];
+  backHref?: string;
+  backLabel?: string;
 }
 
 export function LotDetailView({
@@ -45,6 +47,8 @@ export function LotDetailView({
   hubId,
   pricingTiers = [],
   commitments = [],
+  backHref,
+  backLabel,
 }: LotDetailProps) {
   const sortedTiers = [...pricingTiers].sort(
     (a, b) => a.min_quantity_kg - b.min_quantity_kg
@@ -104,11 +108,11 @@ export function LotDetailView({
   return (
     <div>
       <Link
-        href={hubId ? "/dashboard/buyer/browse" : "/marketplace"}
+        href={backHref || (hubId ? "/dashboard/buyer/browse" : "/marketplace")}
         className="mb-6 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
       >
         <ArrowLeft className="h-4 w-4" />
-        {hubId ? "Back to Browse" : "Back to Marketplace"}
+        {backLabel || (hubId ? "Back to Browse" : "Back to Marketplace")}
       </Link>
 
       <div className="grid gap-8 lg:grid-cols-3">
