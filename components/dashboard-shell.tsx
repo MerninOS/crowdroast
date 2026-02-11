@@ -173,9 +173,7 @@ export function DashboardShell({
               label={item.label}
               icon={item.icon}
               isActive={
-                pathname === item.href ||
-                (item.href !== "/dashboard" &&
-                  pathname.startsWith(item.href + "/"))
+                pathname === item.href 
               }
             />
           ))}
