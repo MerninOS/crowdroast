@@ -50,7 +50,12 @@ export function CommitmentForm({
         const err = await res.json();
         throw new Error(err.error || "Failed to create commitment");
       }
-      toast.success("Commitment created successfully!");
+      const payload = await res.json();
+      if (payload?.checkout_url) {
+        window.location.href = payload.checkout_url as string;
+        return;
+      }
+      toast.success("Commitment created. Add your card to finalize setup.");
       router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Something went wrong");

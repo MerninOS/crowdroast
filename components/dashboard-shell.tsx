@@ -15,6 +15,7 @@ import {
   Warehouse,
   FileWarning,
   FlaskConical,
+  CreditCard,
   LogOut,
   Menu,
   X,
@@ -53,6 +54,7 @@ const navByRole = {
       label: "Sample Requests",
       icon: FlaskConical,
     },
+    { href: "/dashboard/seller/payouts", label: "Payouts", icon: CreditCard },
     { href: "/dashboard/seller/shipments", label: "Shipments", icon: Truck },
   ],
   hub_owner: [
@@ -65,6 +67,7 @@ const navByRole = {
       label: "Samples",
       icon: FlaskConical,
     },
+    { href: "/dashboard/hub/payouts", label: "Payouts", icon: CreditCard },
     { href: "/dashboard/hub/shipments", label: "Shipments", icon: Truck },
   ],
 };

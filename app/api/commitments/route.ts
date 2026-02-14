@@ -1,4 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
+import {
+  createSetupCheckoutSession,
+  createStripeCustomer,
+} from "@/lib/stripe";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
@@ -85,6 +89,23 @@ export async function POST(request: Request) {
 
   const total_price = quantity_kg * activePricePerKg;
 
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("email, stripe_customer_id")
+    .eq("id", user.id)
+    .single();
+
+  let stripeCustomerId: string | null = profile?.stripe_customer_id || null;
+  if (!stripeCustomerId) {
+    const customer = await createStripeCustomer(profile?.email || user.email || null);
+    stripeCustomerId = customer.id;
+
+    await supabase
+      .from("profiles")
+      .update({ stripe_customer_id: stripeCustomerId })
+      .eq("id", user.id);
+  }
+
   const { data, error } = await supabase
     .from("commitments")
     .insert({
@@ -96,6 +117,10 @@ export async function POST(request: Request) {
       total_price,
       notes: notes || null,
       status: "pending",
+      payment_status: "pending_setup",
+      charge_amount_cents: Math.round(total_price * 100),
+      charge_currency: (lot.currency || "USD").toLowerCase(),
+      stripe_customer_id: stripeCustomerId,
     })
     .select()
     .single();
@@ -104,5 +129,58 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json(data, { status: 201 });
+  const origin = request.headers.get("origin") || process.env.NEXT_PUBLIC_APP_URL;
+  if (!origin) {
+    return NextResponse.json(
+      { error: "Missing request origin and NEXT_PUBLIC_APP_URL" },
+      { status: 500 }
+    );
+  }
+
+  try {
+    const successUrl = `${origin}/dashboard/buyer/commitments?payment_setup=success`;
+    const cancelUrl = `${origin}/dashboard/buyer/lot/${lot_id}?payment_setup=cancelled`;
+
+    const session = await createSetupCheckoutSession({
+      customerId: stripeCustomerId!,
+      successUrl,
+      cancelUrl,
+      commitmentId: data.id,
+      lotId: lot_id,
+    });
+
+    await supabase
+      .from("commitments")
+      .update({ stripe_checkout_session_id: session.id })
+      .eq("id", data.id);
+
+    return NextResponse.json(
+      {
+        commitment: data,
+        checkout_url: session.url,
+      },
+      { status: 201 }
+    );
+  } catch (checkoutError) {
+    await supabase
+      .from("commitments")
+      .update({
+        payment_status: "charge_failed",
+        payment_error:
+          checkoutError instanceof Error
+            ? checkoutError.message
+            : "Failed to create checkout session",
+      })
+      .eq("id", data.id);
+
+    return NextResponse.json(
+      {
+        error:
+          checkoutError instanceof Error
+            ? checkoutError.message
+            : "Failed to initialize payment setup",
+      },
+      { status: 500 }
+    );
+  }
 }

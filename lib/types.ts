@@ -15,6 +15,19 @@ export type CommitmentStatus =
   | "shipped"
   | "delivered";
 
+export type CommitmentPaymentStatus =
+  | "pending_setup"
+  | "setup_complete"
+  | "charge_succeeded"
+  | "charge_failed"
+  | "cancelled";
+
+export type LotSettlementStatus =
+  | "pending"
+  | "settled"
+  | "minimum_not_met"
+  | "failed";
+
 export type SampleStatus =
   | "pending"
   | "approved"
@@ -49,6 +62,8 @@ export interface Profile {
   city: string | null;
   state: string | null;
   country: string | null;
+  stripe_customer_id: string | null;
+  stripe_connect_account_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -90,6 +105,8 @@ export interface Lot {
   currency: string;
   status: LotStatus;
   commitment_deadline: string | null;
+  settlement_status: LotSettlementStatus;
+  settlement_processed_at: string | null;
   images: string[];
   flavor_notes: string[];
   certifications: string[];
@@ -111,6 +128,17 @@ export interface Commitment {
   price_per_kg: number;
   total_price: number;
   status: CommitmentStatus;
+  payment_status: CommitmentPaymentStatus;
+  charge_amount_cents: number | null;
+  charge_currency: string | null;
+  stripe_checkout_session_id: string | null;
+  stripe_setup_intent_id: string | null;
+  stripe_payment_method_id: string | null;
+  stripe_customer_id: string | null;
+  stripe_payment_intent_id: string | null;
+  stripe_charge_id: string | null;
+  payment_error: string | null;
+  charged_at: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;

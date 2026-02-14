@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Warehouse, Truck, Package, Users, Coffee, FlaskConical } from "lucide-react";
+import { StripeConnectButton } from "@/components/stripe-connect-button";
 
 export default async function HubOverview() {
   const supabase = await createClient();
@@ -14,6 +15,12 @@ export default async function HubOverview() {
     .from("hubs")
     .select("*")
     .eq("owner_id", user.id);
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("stripe_connect_account_id")
+    .eq("id", user.id)
+    .single();
 
   const hubIds = (hubs || []).map((h) => h.id);
   const noHubFallback = ["00000000-0000-0000-0000-000000000000"];
@@ -71,6 +78,20 @@ export default async function HubOverview() {
           </Card>
         ))}
       </div>
+      <Card className="mt-6 shadow-sm">
+        <CardContent className="p-4 md:p-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-sm font-medium text-foreground">Stripe Connect Payouts</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Connect Stripe to receive the 2% hub fee on settled sales.
+            </p>
+          </div>
+          <StripeConnectButton
+            connected={Boolean(profile?.stripe_connect_account_id)}
+            roleLabel="hub"
+          />
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Package, ShoppingCart, DollarSign, Truck } from "lucide-react";
+import { StripeConnectButton } from "@/components/stripe-connect-button";
 
 export default async function SellerOverview() {
   const supabase = await createClient();
@@ -14,6 +15,12 @@ export default async function SellerOverview() {
     .from("lots")
     .select("id, status, total_quantity_kg, committed_quantity_kg, price_per_kg")
     .eq("seller_id", user.id);
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("stripe_connect_account_id")
+    .eq("id", user.id)
+    .single();
 
   const { data: commitments } = await supabase
     .from("commitments")
@@ -84,6 +91,20 @@ export default async function SellerOverview() {
           </Card>
         ))}
       </div>
+      <Card className="mt-6 shadow-sm">
+        <CardContent className="p-4 md:p-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-sm font-medium text-foreground">Stripe Connect Payouts</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Required to receive your 90% share when a lot settles.
+            </p>
+          </div>
+          <StripeConnectButton
+            connected={Boolean(profile?.stripe_connect_account_id)}
+            roleLabel="seller"
+          />
+        </CardContent>
+      </Card>
     </div>
   );
 }
