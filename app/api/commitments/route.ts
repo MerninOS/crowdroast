@@ -147,6 +147,7 @@ export async function POST(request: Request) {
       cancelUrl,
       commitmentId: data.id,
       lotId: lot_id,
+      currency: lot.currency || "USD",
     });
 
     await supabase
