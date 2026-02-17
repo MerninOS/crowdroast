@@ -25,7 +25,7 @@ export default async function BuyerCuppingsPage() {
     hubIds.length > 0
       ? await supabase
           .from("cupping_events")
-          .select("id, scheduled_at, notes, hub:hubs!cupping_events_hub_id_fkey(name, city, state, country)")
+          .select("id, scheduled_at, timezone, notes, hub:hubs!cupping_events_hub_id_fkey(name, address, city, state, country)")
           .in("hub_id", hubIds)
           .gte("scheduled_at", nowIso)
           .order("scheduled_at", { ascending: true })
@@ -90,17 +90,29 @@ export default async function BuyerCuppingsPage() {
                     });
                   const locationParts = [
                     item.hub?.name || "Hub",
+                    item.hub?.address,
                     item.hub?.city,
                     item.hub?.state,
                     item.hub?.country,
                   ].filter(Boolean);
+                  const eventTitle = `CrowdRoast Cupping - ${item.hub?.name || "Hub"}`;
+                  const eventDescription = `Coffees: ${coffees.join(", ") || "Coffee samples"}${item.notes ? `\nNotes: ${item.notes}` : ""}`;
+                  const eventLocation = locationParts.join(", ");
                   const icsHref = buildIcsDataUri({
-                    title: `CrowdRoast Cupping - ${item.hub?.name || "Hub"}`,
-                    description: `Coffees: ${coffees.join(", ") || "Coffee samples"}`,
-                    location: locationParts.join(", "),
+                    title: eventTitle,
+                    description: eventDescription,
+                    location: eventLocation,
                     start: new Date(item.scheduled_at),
                     end: new Date(new Date(item.scheduled_at).getTime() + 90 * 60 * 1000),
                     uid: item.id,
+                  });
+                  const googleCalendarHref = buildGoogleCalendarUrl({
+                    title: eventTitle,
+                    description: eventDescription,
+                    location: eventLocation,
+                    start: new Date(item.scheduled_at),
+                    end: new Date(new Date(item.scheduled_at).getTime() + 90 * 60 * 1000),
+                    timezone: item.timezone || "UTC",
                   });
 
                   return (
@@ -119,14 +131,9 @@ export default async function BuyerCuppingsPage() {
                 <div className="mt-3 text-sm">
                   <p className="text-xs text-muted-foreground">When</p>
                   <p className="font-medium text-foreground">
-                    {new Date(item.scheduled_at).toLocaleString(undefined, {
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })}
+                    {formatInEventTimezone(item.scheduled_at, item.timezone)}
                   </p>
+                  <p className="text-xs text-muted-foreground mt-1">{item.timezone || "UTC"}</p>
                 </div>
                 <div className="mt-2 text-sm">
                   <p className="text-xs text-muted-foreground">Hub</p>
@@ -153,10 +160,15 @@ export default async function BuyerCuppingsPage() {
                     })}
                   </div>
                 </div>
-                <div className="mt-4">
+                <div className="mt-4 flex flex-wrap gap-2">
                   <Button asChild size="sm" variant="outline">
                     <a href={icsHref} download={`cupping-${item.id}.ics`}>
                       Add to Calendar
+                    </a>
+                  </Button>
+                  <Button asChild size="sm">
+                    <a href={googleCalendarHref} target="_blank" rel="noreferrer">
+                      Add to Google Calendar
                     </a>
                   </Button>
                 </div>
@@ -220,4 +232,42 @@ function escapeIcs(value: string) {
     .replaceAll(";", "\\;")
     .replaceAll(",", "\\,")
     .replaceAll("\n", "\\n");
+}
+
+function buildGoogleCalendarUrl({
+  title,
+  description,
+  location,
+  start,
+  end,
+  timezone,
+}: {
+  title: string;
+  description: string;
+  location: string;
+  start: Date;
+  end: Date;
+  timezone: string;
+}) {
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: title,
+    details: description,
+    location,
+    dates: `${formatIcsDate(start)}/${formatIcsDate(end)}`,
+    ctz: timezone,
+  });
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
+function formatInEventTimezone(iso: string, timezone: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    timeZone: timezone || "UTC",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(new Date(iso));
 }

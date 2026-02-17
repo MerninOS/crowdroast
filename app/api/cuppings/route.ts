@@ -12,11 +12,12 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { hub_id, scheduled_at, sample_request_ids, notes } = body as {
+  const { hub_id, scheduled_at, sample_request_ids, notes, timezone } = body as {
     hub_id?: string;
     scheduled_at?: string;
     sample_request_ids?: string[];
     notes?: string | null;
+    timezone?: string;
   };
 
   if (!hub_id || !scheduled_at || !Array.isArray(sample_request_ids) || sample_request_ids.length === 0) {
@@ -29,6 +30,13 @@ export async function POST(request: Request) {
   const scheduled = new Date(scheduled_at);
   if (Number.isNaN(scheduled.getTime())) {
     return NextResponse.json({ error: "Invalid scheduled_at value" }, { status: 400 });
+  }
+
+  const eventTimezone = timezone?.trim() || "UTC";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: eventTimezone }).format(scheduled);
+  } catch {
+    return NextResponse.json({ error: "Invalid timezone value" }, { status: 400 });
   }
 
   const { data: profile } = await supabase
@@ -79,9 +87,10 @@ export async function POST(request: Request) {
       hub_id,
       host_id: user.id,
       scheduled_at: scheduled.toISOString(),
+      timezone: eventTimezone,
       notes: notes?.trim() || null,
     })
-    .select("id, hub_id, scheduled_at, notes")
+    .select("id, hub_id, scheduled_at, timezone, notes")
     .single();
 
   if (eventError || !event) {
