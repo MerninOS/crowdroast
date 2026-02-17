@@ -156,12 +156,14 @@ export interface SampleRequest {
   shipping_address: string | null;
   status: SampleStatus;
   tracking_number: string | null;
+  cupping_scheduled_at: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
   // Joined fields
   lot?: Lot;
   buyer?: Profile;
+  hub?: Hub;
 }
 
 export interface Shipment {

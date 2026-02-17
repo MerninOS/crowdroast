@@ -21,12 +21,71 @@ export async function POST(request: Request) {
     );
   }
 
+  if (!hub_id) {
+    return NextResponse.json(
+      { error: "hub_id is required" },
+      { status: 400 }
+    );
+  }
+
+  if (!shipping_address || typeof shipping_address !== "string" || !shipping_address.trim()) {
+    return NextResponse.json(
+      { error: "shipping_address is required" },
+      { status: 400 }
+    );
+  }
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
+  if (profile?.role !== "hub_owner") {
+    return NextResponse.json(
+      { error: "Only hub owners can request samples" },
+      { status: 403 }
+    );
+  }
+
+  const { data: hub } = await supabase
+    .from("hubs")
+    .select("id")
+    .eq("id", hub_id)
+    .eq("owner_id", user.id)
+    .single();
+
+  if (!hub) {
+    return NextResponse.json(
+      { error: "You can only request samples for hubs you own" },
+      { status: 403 }
+    );
+  }
+
+  const { data: lot } = await supabase
+    .from("lots")
+    .select("id, seller_id")
+    .eq("id", lot_id)
+    .single();
+
+  if (!lot) {
+    return NextResponse.json({ error: "Lot not found" }, { status: 404 });
+  }
+
+  if (lot.seller_id === user.id) {
+    return NextResponse.json(
+      { error: "Cannot request a sample from your own lot" },
+      { status: 400 }
+    );
+  }
+
   // Check for existing pending sample request
   const { data: existing } = await supabase
     .from("sample_requests")
     .select("id")
     .eq("lot_id", lot_id)
     .eq("buyer_id", user.id)
+    .eq("hub_id", hub_id)
     .in("status", ["pending", "approved", "shipped"])
     .single();
 
@@ -42,9 +101,9 @@ export async function POST(request: Request) {
     .insert({
       lot_id,
       buyer_id: user.id,
-      hub_id: hub_id || null,
+      hub_id,
       quantity_grams: quantity_grams || 100,
-      shipping_address: shipping_address || null,
+      shipping_address: shipping_address.trim(),
       notes: notes || null,
       status: "pending",
     })
