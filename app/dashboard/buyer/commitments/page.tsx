@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
 import { ShoppingCart } from "lucide-react";
 import type { Commitment, CommitmentPaymentStatus, CommitmentStatus } from "@/lib/types";
+import { getCheckoutSession, getSetupIntent } from "@/lib/stripe";
 
 const statusStyles: Record<string, string> = {
   pending: "bg-amber-50 text-amber-700 border-amber-200",
@@ -38,12 +39,65 @@ function formatMoney(amount: number, currency: string) {
   }).format(amount);
 }
 
-export default async function BuyerCommitmentsPage() {
+async function syncPendingSetupCommitments(supabase: Awaited<ReturnType<typeof createClient>>, buyerId: string) {
+  const { data: pending } = await supabase
+    .from("commitments")
+    .select("id, stripe_checkout_session_id, payment_status")
+    .eq("buyer_id", buyerId)
+    .eq("payment_status", "pending_setup")
+    .not("stripe_checkout_session_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  for (const commitment of pending || []) {
+    const sessionId = commitment.stripe_checkout_session_id;
+    if (!sessionId) continue;
+
+    try {
+      const session = await getCheckoutSession(sessionId);
+      const setupIntentId = session.setup_intent || null;
+      let paymentMethodId = session.payment_method || null;
+      let customerId = session.customer || null;
+
+      if (!paymentMethodId && setupIntentId) {
+        const setupIntent = await getSetupIntent(setupIntentId);
+        paymentMethodId = setupIntent.payment_method || null;
+        customerId = customerId || setupIntent.customer || null;
+      }
+
+      if (setupIntentId || paymentMethodId) {
+        await supabase
+          .from("commitments")
+          .update({
+            payment_status: "setup_complete",
+            stripe_setup_intent_id: setupIntentId,
+            stripe_payment_method_id: paymentMethodId,
+            stripe_customer_id: customerId,
+          })
+          .eq("id", commitment.id)
+          .eq("buyer_id", buyerId);
+      }
+    } catch {
+      // Best-effort sync fallback when webhook hasn't updated yet.
+    }
+  }
+}
+
+export default async function BuyerCommitmentsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ payment_setup?: string }>;
+}) {
+  const { payment_setup: paymentSetup } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/auth/login");
+
+  if (paymentSetup === "success") {
+    await syncPendingSetupCommitments(supabase, user.id);
+  }
 
   const { data: commitments } = await supabase
     .from("commitments")
@@ -88,84 +142,85 @@ export default async function BuyerCommitmentsPage() {
                 : Number(c.total_price || 0);
 
             return (
-            <Card key={c.id} className="shadow-sm">
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <Link
-                      href={`/dashboard/buyer/lot/${c.lot_id}`}
-                      className="text-sm font-semibold text-foreground hover:text-primary transition-colors"
-                    >
-                      {c.lot?.title || "Unknown Lot"}
-                    </Link>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {c.lot?.origin_country}
-                    </p>
-                  </div>
-                  <div className="shrink-0 flex flex-col gap-1 items-end">
-                    <Badge variant="outline" className={`text-xs ${statusStyles[c.status as CommitmentStatus] || ""}`}>
-                      {c.status.charAt(0).toUpperCase() + c.status.slice(1)}
-                    </Badge>
-                    <Badge variant="outline" className={`text-xs ${paymentStatusStyles[paymentStatus] || ""}`}>
-                      {paymentStatusLabels[paymentStatus]}
-                    </Badge>
-                  </div>
-                </div>
-                <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
-                  <div>
-                    <p className="text-xs text-muted-foreground">Quantity</p>
-                    <p className="font-medium text-foreground">{c.quantity_kg.toLocaleString()} kg</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Price/kg</p>
-                    <p className="font-medium text-foreground">${c.price_per_kg.toFixed(2)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Total</p>
-                    <p className="font-semibold text-foreground">${c.total_price.toLocaleString()}</p>
-                  </div>
-                </div>
-                {c.lot?.settlement_status !== "pending" && (
-                  <div className="mt-3 rounded-md border bg-muted/40 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Campaign Result</p>
-                    {c.payment_status === "charge_succeeded" ? (
-                      <div className="mt-2 grid grid-cols-3 gap-3 text-sm">
-                        <div>
-                          <p className="text-xs text-muted-foreground">You Paid</p>
-                          <p className="font-semibold text-foreground">{formatMoney(chargedTotal, displayCurrency)}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Coffee Secured</p>
-                          <p className="font-semibold text-foreground">{c.quantity_kg.toLocaleString()} kg</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Final Price/kg</p>
-                          <p className="font-semibold text-foreground">
-                            {formatMoney(Number(c.price_per_kg || 0), displayCurrency)}
-                          </p>
-                        </div>
-                      </div>
-                    ) : c.lot?.settlement_status === "minimum_not_met" || c.payment_status === "cancelled" ? (
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        This campaign did not reach its minimum commitment. Your card was not charged.
+              <Card key={c.id} className="shadow-sm">
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <Link
+                        href={`/dashboard/buyer/lot/${c.lot_id}`}
+                        className="text-sm font-semibold text-foreground hover:text-primary transition-colors"
+                      >
+                        {c.lot?.title || "Unknown Lot"}
+                      </Link>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {c.lot?.origin_country}
                       </p>
-                    ) : c.payment_status === "charge_failed" ? (
-                      <p className="mt-2 text-sm text-red-700">
-                        We couldn&apos;t complete your charge{c.payment_error ? `: ${c.payment_error}` : "."}
-                      </p>
-                    ) : (
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        Settlement is processing for this campaign.
-                      </p>
-                    )}
+                    </div>
+                    <div className="shrink-0 flex flex-col gap-1 items-end">
+                      <Badge variant="outline" className={`text-xs ${statusStyles[c.status as CommitmentStatus] || ""}`}>
+                        {c.status.charAt(0).toUpperCase() + c.status.slice(1)}
+                      </Badge>
+                      <Badge variant="outline" className={`text-xs ${paymentStatusStyles[paymentStatus] || ""}`}>
+                        {paymentStatusLabels[paymentStatus]}
+                      </Badge>
+                    </div>
                   </div>
-                )}
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {new Date(c.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
-                </p>
-              </CardContent>
-            </Card>
-          )})}
+                  <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Quantity</p>
+                      <p className="font-medium text-foreground">{c.quantity_kg.toLocaleString()} kg</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Price/kg</p>
+                      <p className="font-medium text-foreground">${c.price_per_kg.toFixed(2)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Total</p>
+                      <p className="font-semibold text-foreground">${c.total_price.toLocaleString()}</p>
+                    </div>
+                  </div>
+                  {c.lot?.settlement_status !== "pending" && (
+                    <div className="mt-3 rounded-md border bg-muted/40 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Campaign Result</p>
+                      {c.payment_status === "charge_succeeded" ? (
+                        <div className="mt-2 grid grid-cols-3 gap-3 text-sm">
+                          <div>
+                            <p className="text-xs text-muted-foreground">You Paid</p>
+                            <p className="font-semibold text-foreground">{formatMoney(chargedTotal, displayCurrency)}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Coffee Secured</p>
+                            <p className="font-semibold text-foreground">{c.quantity_kg.toLocaleString()} kg</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Final Price/kg</p>
+                            <p className="font-semibold text-foreground">
+                              {formatMoney(Number(c.price_per_kg || 0), displayCurrency)}
+                            </p>
+                          </div>
+                        </div>
+                      ) : c.lot?.settlement_status === "minimum_not_met" || c.payment_status === "cancelled" ? (
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          This campaign did not reach its minimum commitment. Your card was not charged.
+                        </p>
+                      ) : c.payment_status === "charge_failed" ? (
+                        <p className="mt-2 text-sm text-red-700">
+                          We couldn&apos;t complete your charge{c.payment_error ? `: ${c.payment_error}` : "."}
+                        </p>
+                      ) : (
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          Settlement is processing for this campaign.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {new Date(c.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+                  </p>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>

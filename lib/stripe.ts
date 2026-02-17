@@ -46,6 +46,37 @@ async function stripeRequest<T>(
   return json as T;
 }
 
+async function stripeGetRequest<T>(
+  path: string,
+  query?: Record<string, string | number | boolean | null | undefined>
+): Promise<T> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${getStripeSecretKey()}`,
+  };
+
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(query || {})) {
+    if (v === null || v === undefined) continue;
+    params.append(k, String(v));
+  }
+
+  const queryString = params.toString();
+  const url = queryString ? `${STRIPE_API_BASE}${path}?${queryString}` : `${STRIPE_API_BASE}${path}`;
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers,
+  });
+
+  const json = await res.json();
+  if (!res.ok) {
+    const message = json?.error?.message || "Stripe API request failed";
+    throw new Error(message);
+  }
+
+  return json as T;
+}
+
 export interface StripeCustomer {
   id: string;
 }
@@ -56,12 +87,20 @@ export interface StripeCheckoutSession {
   customer: string | null;
   setup_intent?: string | null;
   mode?: string;
+  payment_method?: string | null;
 }
 
 export interface StripePaymentIntent {
   id: string;
   status: string;
   latest_charge?: string | null;
+}
+
+export interface StripeSetupIntent {
+  id: string;
+  payment_method?: string | null;
+  customer?: string | null;
+  status?: string;
 }
 
 export interface StripeTransfer {
@@ -101,6 +140,14 @@ export async function createSetupCheckoutSession(params: {
     "setup_intent_data[metadata][commitment_id]": params.commitmentId,
     "setup_intent_data[metadata][lot_id]": params.lotId,
   });
+}
+
+export async function getCheckoutSession(sessionId: string) {
+  return stripeGetRequest<StripeCheckoutSession>(`/checkout/sessions/${sessionId}`);
+}
+
+export async function getSetupIntent(setupIntentId: string) {
+  return stripeGetRequest<StripeSetupIntent>(`/setup_intents/${setupIntentId}`);
 }
 
 export async function createAndConfirmPaymentIntent(params: {
