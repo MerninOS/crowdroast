@@ -32,6 +32,7 @@ const statusStyles: Record<string, string> = {
 type CuppingEventItem = {
   id: string;
   scheduled_at: string;
+  timezone: string;
   notes: string | null;
 };
 
@@ -84,7 +85,7 @@ export default function HubSamplesPage() {
 
       const { data: eventData } = await supabase
         .from("cupping_events")
-        .select("id, scheduled_at, notes")
+        .select("id, scheduled_at, timezone, notes")
         .eq("hub_id", selectedHubId)
         .gte("scheduled_at", new Date().toISOString())
         .order("scheduled_at", { ascending: true });
@@ -146,6 +147,7 @@ export default function HubSamplesPage() {
         body: JSON.stringify({
           hub_id: selectedHubId,
           scheduled_at: new Date(scheduledAtInput).toISOString(),
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           sample_request_ids: selectedSampleIds,
           notes: eventNotes,
         }),
@@ -265,14 +267,9 @@ export default function HubSamplesPage() {
               {events.map((event) => (
                 <div key={event.id} className="rounded-md border p-3">
                   <p className="text-sm font-medium text-foreground">
-                    {new Date(event.scheduled_at).toLocaleString(undefined, {
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })}
+                    {formatInEventTimezone(event.scheduled_at, event.timezone)}
                   </p>
+                  <p className="text-xs text-muted-foreground mt-1">{event.timezone}</p>
                   {!!event.notes && (
                     <p className="text-xs text-muted-foreground mt-1">{event.notes}</p>
                   )}
@@ -356,4 +353,16 @@ export default function HubSamplesPage() {
       )}
     </div>
   );
+}
+
+function formatInEventTimezone(iso: string, timezone: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    timeZone: timezone || "UTC",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(new Date(iso));
 }

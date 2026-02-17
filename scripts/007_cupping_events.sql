@@ -4,6 +4,7 @@ create table if not exists public.cupping_events (
   hub_id uuid not null references public.hubs(id) on delete cascade,
   host_id uuid not null references public.profiles(id) on delete cascade,
   scheduled_at timestamptz not null,
+  timezone text not null default 'UTC',
   notes text,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
