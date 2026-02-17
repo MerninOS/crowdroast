@@ -42,7 +42,7 @@ async function settleDeadlines(request: Request) {
   const { data: dueLots, error: dueLotsError } = await admin
     .from("lots")
     .select(
-      "id, seller_id, hub_id, status, currency, price_per_kg, committed_quantity_kg, min_commitment_kg, commitment_deadline, settlement_status"
+      "id, seller_id, status, currency, price_per_kg, committed_quantity_kg, min_commitment_kg, commitment_deadline, settlement_status"
     )
     .lte("commitment_deadline", nowIso)
     .eq("settlement_status", "pending")
@@ -104,58 +104,10 @@ async function settleDeadlines(request: Request) {
       continue;
     }
 
-    if (!lot.hub_id) {
-      await admin
-        .from("lots")
-        .update({
-          settlement_status: "failed",
-          settlement_processed_at: nowIso,
-        })
-        .eq("id", lot.id);
-
-      results.push({
-        lot_id: lot.id,
-        outcome: "failed",
-        error: "Lot is missing hub_id",
-      });
-      continue;
-    }
-
-    const { data: hub } = await admin
-      .from("hubs")
-      .select("owner_id")
-      .eq("id", lot.hub_id)
-      .single();
-
-    const { data: hubOwnerProfile } = hub?.owner_id
-      ? await admin
-          .from("profiles")
-          .select("stripe_connect_account_id")
-          .eq("id", hub.owner_id)
-          .single()
-      : { data: null };
-
-    if (!hubOwnerProfile?.stripe_connect_account_id) {
-      await admin
-        .from("lots")
-        .update({
-          settlement_status: "failed",
-          settlement_processed_at: nowIso,
-        })
-        .eq("id", lot.id);
-
-      results.push({
-        lot_id: lot.id,
-        outcome: "failed",
-        error: "Hub owner is missing stripe_connect_account_id",
-      });
-      continue;
-    }
-
     const { data: commitments, error: commitmentsError } = await admin
       .from("commitments")
       .select(
-        "id, status, payment_status, quantity_kg, charge_amount_cents, charge_currency, stripe_customer_id, stripe_payment_method_id"
+        "id, status, payment_status, hub_id, quantity_kg, charge_amount_cents, charge_currency, stripe_customer_id, stripe_payment_method_id"
       )
       .eq("lot_id", lot.id)
       .neq("payment_status", "charge_succeeded");
@@ -167,6 +119,7 @@ async function settleDeadlines(request: Request) {
 
     let failedCount = 0;
     let succeededCount = 0;
+    const hubConnectAccountByHubId = new Map<string, string | null>();
     const { data: tiers } = await admin
       .from("pricing_tiers")
       .select("min_quantity_kg, price_per_kg")
@@ -182,6 +135,51 @@ async function settleDeadlines(request: Request) {
     }
 
     for (const commitment of commitments || []) {
+      const commitmentHubId = commitment.hub_id;
+      if (!commitmentHubId) {
+        failedCount += 1;
+        await admin
+          .from("commitments")
+          .update({
+            payment_status: "charge_failed",
+            payment_error: "Missing hub_id on commitment",
+          })
+          .eq("id", commitment.id);
+        continue;
+      }
+
+      let hubDestinationAccount = hubConnectAccountByHubId.get(commitmentHubId) || null;
+      if (!hubConnectAccountByHubId.has(commitmentHubId)) {
+        const { data: hub } = await admin
+          .from("hubs")
+          .select("owner_id")
+          .eq("id", commitmentHubId)
+          .single();
+
+        const { data: hubOwnerProfile } = hub?.owner_id
+          ? await admin
+              .from("profiles")
+              .select("stripe_connect_account_id")
+              .eq("id", hub.owner_id)
+              .single()
+          : { data: null };
+
+        hubDestinationAccount = hubOwnerProfile?.stripe_connect_account_id || null;
+        hubConnectAccountByHubId.set(commitmentHubId, hubDestinationAccount);
+      }
+
+      if (!hubDestinationAccount) {
+        failedCount += 1;
+        await admin
+          .from("commitments")
+          .update({
+            payment_status: "charge_failed",
+            payment_error: "Hub owner is missing stripe_connect_account_id",
+          })
+          .eq("id", commitment.id);
+        continue;
+      }
+
       const quantityKg = Number(commitment.quantity_kg || 0);
       const amountCents = Math.round(quantityKg * finalPricePerKg * 100);
       const currency = (commitment.charge_currency || lot.currency || "usd").toLowerCase();
@@ -240,7 +238,7 @@ async function settleDeadlines(request: Request) {
           await createTransfer({
             amountCents: split.hubAmount,
             currency,
-            destinationAccountId: hubOwnerProfile.stripe_connect_account_id,
+            destinationAccountId: hubDestinationAccount,
             sourceChargeId: paymentIntent.latest_charge,
             commitmentId: commitment.id,
             role: "hub",
