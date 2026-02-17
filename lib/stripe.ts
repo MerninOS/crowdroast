@@ -88,10 +88,12 @@ export async function createSetupCheckoutSession(params: {
   cancelUrl: string;
   commitmentId: string;
   lotId: string;
+  currency: string;
 }) {
   return stripeRequest<StripeCheckoutSession>("/checkout/sessions", {
     mode: "setup",
     customer: params.customerId,
+    currency: params.currency.toLowerCase(),
     success_url: params.successUrl,
     cancel_url: params.cancelUrl,
     "metadata[commitment_id]": params.commitmentId,

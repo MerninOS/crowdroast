@@ -5,6 +5,11 @@ import {
 } from "@/lib/stripe";
 import { NextResponse } from "next/server";
 
+function isMissingStripeConnectColumn(error: { message?: string } | null) {
+  if (!error?.message) return false;
+  return error.message.includes("stripe_connect_account_id");
+}
+
 export async function POST(request: Request) {
   const supabase = await createClient();
   const {
@@ -15,14 +20,48 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: profile, error: profileError } = await supabase
+  const { data: existingProfile, error: profileError } = await supabase
     .from("profiles")
-    .select("id, role, email, stripe_connect_account_id")
+    .select("id, role, email")
     .eq("id", user.id)
-    .single();
+    .maybeSingle();
 
-  if (profileError || !profile) {
-    return NextResponse.json({ error: "Profile not found" }, { status: 404 });
+  if (profileError) {
+    return NextResponse.json({ error: profileError.message }, { status: 500 });
+  }
+
+  let profile = existingProfile;
+
+  if (!profile) {
+    const fallbackRole = user.user_metadata?.role as
+      | "buyer"
+      | "seller"
+      | "hub_owner"
+      | undefined;
+
+    const { data: upserted, error: upsertError } = await supabase
+      .from("profiles")
+      .upsert(
+        {
+          id: user.id,
+          role: fallbackRole || "buyer",
+          email: user.email || null,
+          contact_name:
+            (user.user_metadata?.full_name as string | undefined) || null,
+        },
+        { onConflict: "id" }
+      )
+      .select("id, role, email")
+      .single();
+
+    if (upsertError || !upserted) {
+      return NextResponse.json(
+        { error: upsertError?.message || "Unable to create profile" },
+        { status: 500 }
+      );
+    }
+
+    profile = upserted;
   }
 
   if (profile.role !== "seller" && profile.role !== "hub_owner") {
@@ -40,7 +79,30 @@ export async function POST(request: Request) {
     );
   }
 
-  let accountId = profile.stripe_connect_account_id as string | null;
+  const {
+    data: stripeProfile,
+    error: stripeProfileError,
+  } = await supabase
+    .from("profiles")
+    .select("stripe_connect_account_id")
+    .eq("id", profile.id)
+    .maybeSingle();
+
+  if (isMissingStripeConnectColumn(stripeProfileError)) {
+    return NextResponse.json(
+      {
+        error:
+          "Stripe Connect is not enabled in the database yet. Run scripts/005_stripe_connect_settlement.sql.",
+      },
+      { status: 500 }
+    );
+  }
+
+  if (stripeProfileError) {
+    return NextResponse.json({ error: stripeProfileError.message }, { status: 500 });
+  }
+
+  let accountId = stripeProfile?.stripe_connect_account_id || null;
   if (!accountId) {
     const account = await createExpressConnectedAccount({
       email: profile.email,
@@ -49,10 +111,24 @@ export async function POST(request: Request) {
 
     accountId = account.id;
 
-    await supabase
+    const { error: persistError } = await supabase
       .from("profiles")
       .update({ stripe_connect_account_id: accountId })
       .eq("id", profile.id);
+
+    if (isMissingStripeConnectColumn(persistError)) {
+      return NextResponse.json(
+        {
+          error:
+            "Stripe Connect is not enabled in the database yet. Run scripts/005_stripe_connect_settlement.sql.",
+        },
+        { status: 500 }
+      );
+    }
+
+    if (persistError) {
+      return NextResponse.json({ error: persistError.message }, { status: 500 });
+    }
   }
 
   const basePath =
