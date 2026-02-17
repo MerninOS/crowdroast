@@ -24,7 +24,7 @@ function computeSplit(amountCents: number) {
   return { sellerAmount, hubAmount, platformAmount };
 }
 
-export async function POST(request: Request) {
+async function settleDeadlines(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ error: "Missing CRON_SECRET" }, { status: 500 });
@@ -305,4 +305,12 @@ export async function POST(request: Request) {
     },
     { status: 200 }
   );
+}
+
+export async function POST(request: Request) {
+  return settleDeadlines(request);
+}
+
+export async function GET(request: Request) {
+  return settleDeadlines(request);
 }
