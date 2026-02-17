@@ -42,7 +42,7 @@ export async function POST(request: Request) {
   const { data: dueLots, error: dueLotsError } = await admin
     .from("lots")
     .select(
-      "id, seller_id, hub_id, status, currency, committed_quantity_kg, min_commitment_kg, commitment_deadline, settlement_status"
+      "id, seller_id, hub_id, status, currency, price_per_kg, committed_quantity_kg, min_commitment_kg, commitment_deadline, settlement_status"
     )
     .lte("commitment_deadline", nowIso)
     .eq("settlement_status", "pending")
@@ -155,7 +155,7 @@ export async function POST(request: Request) {
     const { data: commitments, error: commitmentsError } = await admin
       .from("commitments")
       .select(
-        "id, status, payment_status, charge_amount_cents, charge_currency, stripe_customer_id, stripe_payment_method_id"
+        "id, status, payment_status, quantity_kg, charge_amount_cents, charge_currency, stripe_customer_id, stripe_payment_method_id"
       )
       .eq("lot_id", lot.id)
       .neq("payment_status", "charge_succeeded");
@@ -167,10 +167,35 @@ export async function POST(request: Request) {
 
     let failedCount = 0;
     let succeededCount = 0;
+    const { data: tiers } = await admin
+      .from("pricing_tiers")
+      .select("min_quantity_kg, price_per_kg")
+      .eq("lot_id", lot.id)
+      .order("min_quantity_kg", { ascending: false });
+
+    let finalPricePerKg = Number(lot.price_per_kg || 0);
+    for (const tier of tiers || []) {
+      if (Number(lot.committed_quantity_kg || 0) >= Number(tier.min_quantity_kg || 0)) {
+        finalPricePerKg = Number(tier.price_per_kg || finalPricePerKg);
+        break;
+      }
+    }
 
     for (const commitment of commitments || []) {
-      const amountCents = Number(commitment.charge_amount_cents || 0);
+      const quantityKg = Number(commitment.quantity_kg || 0);
+      const amountCents = Math.round(quantityKg * finalPricePerKg * 100);
       const currency = (commitment.charge_currency || lot.currency || "usd").toLowerCase();
+      const totalPrice = amountCents / 100;
+
+      await admin
+        .from("commitments")
+        .update({
+          price_per_kg: finalPricePerKg,
+          total_price: totalPrice,
+          charge_amount_cents: amountCents,
+          charge_currency: currency,
+        })
+        .eq("id", commitment.id);
 
       if (!commitment.stripe_customer_id || !commitment.stripe_payment_method_id || amountCents <= 0) {
         failedCount += 1;
@@ -227,6 +252,10 @@ export async function POST(request: Request) {
           .update({
             status: "confirmed",
             payment_status: "charge_succeeded",
+            price_per_kg: finalPricePerKg,
+            total_price: totalPrice,
+            charge_amount_cents: amountCents,
+            charge_currency: currency,
             stripe_payment_intent_id: paymentIntent.id,
             stripe_charge_id: paymentIntent.latest_charge,
             charged_at: nowIso,
@@ -241,6 +270,10 @@ export async function POST(request: Request) {
           .from("commitments")
           .update({
             payment_status: "charge_failed",
+            price_per_kg: finalPricePerKg,
+            total_price: totalPrice,
+            charge_amount_cents: amountCents,
+            charge_currency: currency,
             payment_error:
               chargeError instanceof Error ? chargeError.message : "Charge failed",
           })
