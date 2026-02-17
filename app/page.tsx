@@ -103,7 +103,7 @@ export default function HomePage() {
                 icon: Package,
                 title: "Buyers Commit",
                 description:
-                  "Buyers browse curated lots, request samples, and commit to quantities. Pool demand with other buyers to unlock volume discounts.",
+                  "Buyers browse curated lots, attend hub cuppings, and commit to quantities. Pool demand with other buyers to unlock volume discounts.",
               },
               {
                 icon: BarChart3,
@@ -215,7 +215,7 @@ export default function HomePage() {
                 icon: Users,
                 title: "Roasters & Buyers",
                 description:
-                  "Get invited to a hub, browse curated lots, request samples, and commit to purchases. Pool demand with other buyers for volume discounts.",
+                  "Get invited to a hub, browse curated lots, join cuppings, and commit to purchases. Pool demand with other buyers for volume discounts.",
                 cta: "Join as Buyer",
               },
             ].map((role) => (

@@ -35,8 +35,8 @@ const navByRole = {
       icon: ShoppingCart,
     },
     {
-      href: "/dashboard/buyer/samples",
-      label: "Samples",
+      href: "/dashboard/buyer/cuppings",
+      label: "Cuppings",
       icon: FlaskConical,
     },
     { href: "/dashboard/buyer/claims", label: "Claims", icon: FileWarning },

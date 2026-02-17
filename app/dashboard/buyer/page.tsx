@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ShoppingCart, FlaskConical, DollarSign, Coffee, Warehouse } from "lucide-react";
+import { ShoppingCart, CalendarClock, DollarSign, Coffee, Warehouse } from "lucide-react";
 import Link from "next/link";
 
 export default async function BuyerOverview() {
@@ -23,10 +23,16 @@ export default async function BuyerOverview() {
     .select("id, status, total_price")
     .eq("buyer_id", user.id);
 
-  const { data: samples } = await supabase
-    .from("sample_requests")
-    .select("id, status")
-    .eq("buyer_id", user.id);
+  const hubIds = (memberships || []).map((m: any) => m.hub_id);
+  const nowIso = new Date().toISOString();
+  const { data: cuppings } =
+    hubIds.length > 0
+      ? await supabase
+          .from("cupping_events")
+          .select("id")
+          .in("hub_id", hubIds)
+          .gte("scheduled_at", nowIso)
+      : { data: [] };
 
   const totalCommitments = commitments?.length || 0;
   const activeCommitments =
@@ -35,7 +41,7 @@ export default async function BuyerOverview() {
     commitments
       ?.filter((c) => c.status !== "cancelled")
       .reduce((sum, c) => sum + (c.total_price || 0), 0) || 0;
-  const totalSamples = samples?.length || 0;
+  const upcomingCuppings = cuppings?.length || 0;
   const hubCount = memberships?.length || 0;
 
   const stats = [
@@ -64,10 +70,10 @@ export default async function BuyerOverview() {
       bg: "bg-secondary",
     },
     {
-      label: "Samples",
-      value: totalSamples,
-      sub: "requested",
-      icon: FlaskConical,
+      label: "Cuppings",
+      value: upcomingCuppings,
+      sub: "upcoming",
+      icon: CalendarClock,
       color: "text-muted-foreground",
       bg: "bg-secondary",
     },

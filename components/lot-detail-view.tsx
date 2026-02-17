@@ -27,14 +27,22 @@ import {
   Check,
 } from "lucide-react";
 import Link from "next/link";
-import type { Lot, PricingTier, Commitment } from "@/lib/types";
+import type { Lot, PricingTier, Commitment, UserRole } from "@/lib/types";
 import { CommitmentForm } from "@/components/commitment-form";
 import { SampleRequestButton } from "@/components/sample-request-button";
 
 interface LotDetailProps {
   lot: Lot;
   userId: string | null;
+  viewerRole?: UserRole | null;
   hubId?: string | null;
+  hasRequestedSample?: boolean;
+  defaultDeliveryDetails?: {
+    address?: string | null;
+    city?: string | null;
+    state?: string | null;
+    country?: string | null;
+  } | null;
   pricingTiers?: PricingTier[];
   commitments?: Commitment[];
   backHref?: string;
@@ -44,7 +52,10 @@ interface LotDetailProps {
 export function LotDetailView({
   lot,
   userId,
+  viewerRole,
   hubId,
+  hasRequestedSample = false,
+  defaultDeliveryDetails,
   pricingTiers = [],
   commitments = [],
   backHref,
@@ -103,7 +114,11 @@ export function LotDetailView({
   const remaining = lot.total_quantity_kg - lot.committed_quantity_kg;
   const isOwner = userId === lot.seller_id;
   const canCommit =
-    userId && !isOwner && lot.status === "active" && remaining > 0;
+    userId &&
+    !isOwner &&
+    viewerRole === "buyer" &&
+    lot.status === "active" &&
+    remaining > 0;
 
   return (
     <div>
@@ -564,11 +579,12 @@ export function LotDetailView({
                 />
               )}
 
-              {userId && !isOwner && (
+              {userId && !isOwner && viewerRole === "hub_owner" && (
                 <SampleRequestButton
                   lotId={lot.id}
-                  userId={userId}
                   hubId={hubId || undefined}
+                  hasRequested={hasRequestedSample}
+                  defaultDeliveryDetails={defaultDeliveryDetails}
                 />
               )}
 

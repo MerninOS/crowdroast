@@ -30,7 +30,7 @@ export default async function SellerSamplesPage() {
 
   const { data: samples } = await supabase
     .from("sample_requests")
-    .select("*, buyer:profiles!sample_requests_buyer_id_fkey(company_name, contact_name)")
+    .select("*, requester:profiles!sample_requests_buyer_id_fkey(company_name, contact_name)")
     .in("lot_id", lotIds.length > 0 ? lotIds : ["00000000-0000-0000-0000-000000000000"])
     .order("created_at", { ascending: false });
 
@@ -40,7 +40,7 @@ export default async function SellerSamplesPage() {
     <div>
       <div className="mb-8">
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">Sample Requests</h1>
-        <p className="text-sm text-muted-foreground mt-1">Manage incoming sample requests from buyers.</p>
+        <p className="text-sm text-muted-foreground mt-1">Manage incoming sample requests from hub owners.</p>
       </div>
 
       {items.length === 0 ? (
@@ -63,7 +63,7 @@ export default async function SellerSamplesPage() {
                       {lotMap[s.lot_id] || "Unknown"}
                     </p>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      {s.buyer?.company_name || s.buyer?.contact_name || "Buyer"}
+                      {s.requester?.company_name || s.requester?.contact_name || "Hub Owner"}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -85,8 +85,8 @@ export default async function SellerSamplesPage() {
                       </p>
                     </div>
                   </div>
-                  {s.status === "pending" && (
-                    <SampleActionButtons sampleId={s.id} />
+                  {s.status !== "rejected" && s.status !== "delivered" && (
+                    <SampleActionButtons sampleId={s.id} currentStatus={s.status} />
                   )}
                 </div>
               </CardContent>

@@ -19,6 +19,12 @@ export default async function BuyerLotDetailPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/auth/login");
 
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
   // Verify buyer is a member of the hub
   if (hubId) {
     const { data: membership } = await supabase
@@ -78,6 +84,7 @@ export default async function BuyerLotDetailPage({
       <LotDetailView
         lot={lot as unknown as Lot}
         userId={user.id}
+        viewerRole={profile?.role || "buyer"}
         hubId={hubId || null}
         pricingTiers={(pricingTiers as unknown as PricingTier[]) || []}
         commitments={(commitments as unknown as Commitment[]) || []}
