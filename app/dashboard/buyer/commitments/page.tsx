@@ -207,11 +207,15 @@ export default async function BuyerCommitmentsPage({
                         <p className="mt-2 text-sm text-red-700">
                           We couldn&apos;t complete your charge{c.payment_error ? `: ${c.payment_error}` : "."}
                         </p>
-                      ) : (
-                        <p className="mt-2 text-sm text-muted-foreground">
-                          Settlement is processing for this campaign.
-                        </p>
-                      )}
+                    ) : c.lot?.settlement_status === "failed" ? (
+                      <p className="mt-2 text-sm text-red-700">
+                        Settlement failed for this campaign. We will retry automatically.
+                      </p>
+                    ) : (
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        Settlement is processing for this campaign.
+                      </p>
+                    )}
                     </div>
                   )}
                   <p className="mt-2 text-xs text-muted-foreground">

@@ -45,8 +45,8 @@ async function settleDeadlines(request: Request) {
       "id, seller_id, status, currency, price_per_kg, committed_quantity_kg, min_commitment_kg, commitment_deadline, settlement_status"
     )
     .lte("commitment_deadline", nowIso)
-    .eq("settlement_status", "pending")
-    .in("status", ["active", "fully_committed"]);
+    .in("settlement_status", ["pending", "failed"])
+    .in("status", ["active", "fully_committed", "closed"]);
 
   if (dueLotsError) {
     return NextResponse.json({ error: dueLotsError.message }, { status: 500 });
