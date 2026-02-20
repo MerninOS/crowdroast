@@ -123,7 +123,7 @@ export function LotDetailView({
   return (
     <div>
       <Link
-        href={backHref || (hubId ? "/dashboard/buyer/browse" : "/marketplace")}
+        href={backHref || (hubId ? "/dashboard/buyer" : "/marketplace")}
         className="mb-6 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
       >
         <ArrowLeft className="h-4 w-4" />
@@ -152,6 +152,29 @@ export function LotDetailView({
                   lot.seller.contact_name ||
                   "Seller"}
               </p>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <div className="overflow-hidden rounded-xl border bg-muted/20">
+              <img
+                src={lot.images?.[0] || "/placeholder.jpg"}
+                alt={lot.title}
+                className="h-72 w-full object-cover"
+              />
+            </div>
+            {lot.images && lot.images.length > 1 && (
+              <div className="grid gap-3 sm:grid-cols-3">
+                {lot.images.slice(1, 4).map((url, idx) => (
+                  <div key={`${url}-${idx}`} className="overflow-hidden rounded-lg border bg-muted/20">
+                    <img
+                      src={url}
+                      alt={`${lot.title} supporting image ${idx + 1}`}
+                      className="h-28 w-full object-cover"
+                    />
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 

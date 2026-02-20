@@ -115,6 +115,10 @@ export interface StripeAccountLink {
   url: string;
 }
 
+export interface StripeLoginLink {
+  url: string;
+}
+
 export async function createStripeCustomer(email?: string | null) {
   return stripeRequest<StripeCustomer>("/customers", {
     email: email || undefined,
@@ -220,6 +224,12 @@ export async function createAccountOnboardingLink(params: {
     refresh_url: params.refreshUrl,
     return_url: params.returnUrl,
   });
+}
+
+export async function createExpressDashboardLoginLink(params: {
+  accountId: string;
+}) {
+  return stripeRequest<StripeLoginLink>(`/accounts/${params.accountId}/login_links`, {});
 }
 
 function parseStripeSignature(signatureHeader: string) {

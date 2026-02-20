@@ -49,11 +49,8 @@ export default function LoginPage() {
     <div className="flex min-h-svh w-full items-center justify-center bg-secondary/30 p-4 md:p-10">
       <div className="w-full max-w-sm">
         <div className="flex flex-col gap-6">
-          <div className="flex items-center justify-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <Coffee className="h-4 w-4" />
-            </div>
-            <span className="text-xl font-semibold text-foreground">CrowdRoast</span>
+          <div className="flex items-center justify-center">
+            <img src="/crowdroast_logo.svg" alt="CrowdRoast" className="h-24" />
           </div>
           <Card className="shadow-md">
             <CardHeader>

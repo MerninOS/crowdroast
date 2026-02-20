@@ -22,11 +22,15 @@ export function StripeConnectButton({
         throw new Error(payload?.error || "Failed to start Stripe onboarding");
       }
 
-      if (!payload?.onboarding_url) {
-        throw new Error("Stripe onboarding URL not returned");
+      const redirectUrl =
+        (payload?.dashboard_url as string | undefined) ||
+        (payload?.onboarding_url as string | undefined);
+
+      if (!redirectUrl) {
+        throw new Error("Stripe redirect URL not returned");
       }
 
-      window.location.href = payload.onboarding_url as string;
+      window.location.href = redirectUrl;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to open Stripe onboarding");
     } finally {

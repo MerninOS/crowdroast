@@ -171,6 +171,13 @@ export default async function BuyerBrowsePage() {
                       href={`/dashboard/buyer/lot/${lot.id}?hub=${hubId}`}
                     >
                       <Card className="h-full shadow-sm transition-shadow hover:shadow-md cursor-pointer group">
+                        <div className="overflow-hidden rounded-t-lg border-b bg-muted/30">
+                          <img
+                            src={lot.images?.[0] || "/placeholder.jpg"}
+                            alt={lot.title}
+                            className="h-40 w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                          />
+                        </div>
                         <CardHeader className="pb-3">
                           <div className="flex items-start justify-between gap-2">
                             <CardTitle className="text-base leading-snug group-hover:text-primary transition-colors">

@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { ArrowLeft, Plus, Trash2, Lock, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { use } from "react";
+import { LotImageUploader } from "@/components/lot-image-uploader";
 
 interface TierRow {
   min_quantity_kg: string;
@@ -35,6 +36,9 @@ export default function EditLotPage({
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [sellerId, setSellerId] = useState("");
+  const [headerImageUrl, setHeaderImageUrl] = useState("");
+  const [supportingImages, setSupportingImages] = useState<string[]>([]);
   const [hasCommitments, setHasCommitments] = useState(false);
   const [commitmentCount, setCommitmentCount] = useState(0);
   const [form, setForm] = useState({
@@ -60,6 +64,12 @@ export default function EditLotPage({
 
   useEffect(() => {
     const load = async () => {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      setSellerId(user?.id || "");
+
       const res = await fetch(`/api/lots/${id}`);
       if (!res.ok) {
         toast.error("Failed to load lot");
@@ -70,6 +80,9 @@ export default function EditLotPage({
       const lot = data.lot;
       setHasCommitments(data.has_commitments);
       setCommitmentCount(data.commitment_count);
+      const existingImages = (lot.images || []) as string[];
+      setHeaderImageUrl(existingImages[0] || "");
+      setSupportingImages(existingImages.slice(1));
 
       setForm({
         title: lot.title || "",
@@ -176,6 +189,7 @@ export default function EditLotPage({
         certifications: form.certifications
           ? form.certifications.split(",").map((s) => s.trim())
           : [],
+        images: [headerImageUrl, ...supportingImages].filter(Boolean),
         pricing_tiers: tiers.map((t) => ({
           min_quantity_kg: Number.parseFloat(t.min_quantity_kg),
           price_per_kg: Number.parseFloat(t.price_per_kg),
@@ -542,6 +556,25 @@ export default function EditLotPage({
                     No volume discounts. Add tiers to incentivize group buying.
                   </p>
                 )}
+              </div>
+
+              <Separator />
+
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold text-foreground">Lot Images</h3>
+                <p className="text-sm text-muted-foreground">
+                  Set a header image and supporting gallery for buyers and hub owners.
+                </p>
+                <LotImageUploader
+                  sellerId={sellerId}
+                  headerImageUrl={headerImageUrl}
+                  supportingImages={supportingImages}
+                  onChange={({ headerImageUrl: nextHeader, supportingImages: nextSupporting }) => {
+                    setHeaderImageUrl(nextHeader);
+                    setSupportingImages(nextSupporting);
+                  }}
+                  disabled={hasCommitments || isLoading}
+                />
               </div>
 
               <Separator />

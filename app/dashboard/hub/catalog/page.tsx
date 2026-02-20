@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -21,6 +22,8 @@ import type { Hub, Lot } from "@/lib/types";
 
 export default function HubCatalogPage() {
   const [hubs, setHubs] = useState<Hub[]>([]);
+  const [isHubsLoading, setIsHubsLoading] = useState(true);
+  const [isCatalogLoading, setIsCatalogLoading] = useState(false);
   const [selectedHubId, setSelectedHubId] = useState<string>("");
   const [allLots, setAllLots] = useState<Lot[]>([]);
   const [hubLotIds, setHubLotIds] = useState<Set<string>>(new Set());
@@ -45,6 +48,7 @@ export default function HubCatalogPage() {
       if (hubList.length > 0) {
         setSelectedHubId(hubList[0].id);
       }
+      setIsHubsLoading(false);
     };
     load();
   }, []);
@@ -52,6 +56,7 @@ export default function HubCatalogPage() {
   useEffect(() => {
     if (!selectedHubId) return;
     const loadCatalog = async () => {
+      setIsCatalogLoading(true);
       const supabase = createClient();
 
       // Fetch all active lots from sellers
@@ -70,6 +75,7 @@ export default function HubCatalogPage() {
         .eq("hub_id", selectedHubId);
 
       setHubLotIds(new Set((existingHubLots || []).map((hl: { lot_id: string }) => hl.lot_id)));
+      setIsCatalogLoading(false);
     };
     loadCatalog();
   }, [selectedHubId]);
@@ -145,7 +151,29 @@ export default function HubCatalogPage() {
         </div>
       )}
 
-      {hubs.length === 0 ? (
+      {isHubsLoading || (selectedHubId && isCatalogLoading) ? (
+        <div className="space-y-4">
+          <div className="rounded-lg border p-4">
+            <Skeleton className="h-4 w-56" />
+          </div>
+          {Array.from({ length: 4 }).map((_, idx) => (
+            <Card key={`catalog-skeleton-${idx}`} className="shadow-sm">
+              <CardHeader className="flex flex-row items-start justify-between gap-4">
+                <div className="min-w-0 flex-1 space-y-2">
+                  <Skeleton className="h-5 w-48" />
+                  <Skeleton className="h-4 w-40" />
+                  <Skeleton className="h-3 w-32" />
+                </div>
+                <Skeleton className="h-8 w-28" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="mb-2 h-4 w-44" />
+                <Skeleton className="h-2 w-full" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : hubs.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center py-12">
             <Coffee className="h-12 w-12 text-muted-foreground/50 mb-4" />
@@ -170,7 +198,14 @@ export default function HubCatalogPage() {
             const seller = lot.seller as unknown as { company_name: string | null; contact_name: string | null } | null;
 
             return (
-              <Card key={lot.id} className={`shadow-sm ${inHub ? "border-primary/30 bg-primary/[0.02]" : ""}`}>
+              <Card key={lot.id} className={`shadow-sm ${inHub ? "border-emerald-200 bg-emerald-50/40" : ""}`}>
+                <div className="overflow-hidden rounded-t-lg border-b bg-muted/30">
+                  <img
+                    src={lot.images?.[0] || "/placeholder.jpg"}
+                    alt={lot.title}
+                    className="h-40 w-full object-cover"
+                  />
+                </div>
                 <CardHeader className="flex flex-row items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <Link href={`/dashboard/hub/catalog/${lot.id}?hub=${selectedHubId}`} className="hover:underline">
@@ -187,11 +222,12 @@ export default function HubCatalogPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     {inHub && (
-                      <Badge className="bg-primary/10 text-primary">In Catalog</Badge>
+                      <Badge className="border-emerald-200 bg-emerald-100 text-emerald-800">In Catalog</Badge>
                     )}
                     <Button
                       size="sm"
                       variant={inHub ? "outline" : "default"}
+                      className={inHub ? "border-emerald-300 text-emerald-800 hover:bg-emerald-50" : "bg-emerald-600 text-white hover:bg-emerald-700"}
                       disabled={loading === lot.id}
                       onClick={() => toggleLot(lot.id, !inHub)}
                     >
@@ -220,7 +256,7 @@ export default function HubCatalogPage() {
                         </span>
                         <span className="font-medium">{pct}%</span>
                       </div>
-                      <Progress value={pct} className="h-2" />
+                      <Progress value={pct} className="h-2 bg-emerald-100" indicatorClassName="bg-emerald-600" />
                     </div>
                     {lot.score && (
                       <Badge variant="secondary" className="shrink-0">

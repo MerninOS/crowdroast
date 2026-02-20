@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -39,6 +40,8 @@ type CuppingEventItem = {
 export default function HubSamplesPage() {
   const router = useRouter();
   const [hubs, setHubs] = useState<Hub[]>([]);
+  const [isHubsLoading, setIsHubsLoading] = useState(true);
+  const [isSamplesLoading, setIsSamplesLoading] = useState(false);
   const [selectedHubId, setSelectedHubId] = useState<string>("");
   const [samples, setSamples] = useState<any[]>([]);
   const [events, setEvents] = useState<CuppingEventItem[]>([]);
@@ -67,6 +70,7 @@ export default function HubSamplesPage() {
       if (hubList.length > 0) {
         setSelectedHubId(hubList[0].id);
       }
+      setIsHubsLoading(false);
     };
     load();
   }, []);
@@ -74,6 +78,7 @@ export default function HubSamplesPage() {
   useEffect(() => {
     if (!selectedHubId) return;
     const load = async () => {
+      setIsSamplesLoading(true);
       const supabase = createClient();
       const { data: sampleData } = await supabase
         .from("sample_requests")
@@ -109,6 +114,7 @@ export default function HubSamplesPage() {
       } else {
         setEventSampleMap({});
       }
+      setIsSamplesLoading(false);
     };
     load();
   }, [selectedHubId]);
@@ -290,7 +296,36 @@ export default function HubSamplesPage() {
         </Card>
       )}
 
-      {samples.length === 0 ? (
+      {isHubsLoading || (selectedHubId && isSamplesLoading) ? (
+        <div className="space-y-3">
+          {Array.from({ length: 4 }).map((_, idx) => (
+            <Card key={`sample-skeleton-${idx}`} className="shadow-sm">
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <Skeleton className="h-4 w-44" />
+                    <Skeleton className="h-3 w-36" />
+                  </div>
+                  <Skeleton className="h-6 w-20 rounded-full" />
+                </div>
+                <div className="mt-3 flex items-center gap-4">
+                  <div className="space-y-1">
+                    <Skeleton className="h-3 w-14" />
+                    <Skeleton className="h-4 w-16" />
+                  </div>
+                  <div className="space-y-1">
+                    <Skeleton className="h-3 w-14" />
+                    <Skeleton className="h-4 w-36" />
+                  </div>
+                </div>
+                <div className="mt-4 flex justify-end">
+                  <Skeleton className="h-9 w-32" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : samples.length === 0 ? (
         <Card className="shadow-sm">
           <CardContent className="flex flex-col items-center py-10 px-4">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-secondary text-muted-foreground mb-4">

@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import {
   createAccountOnboardingLink,
+  createExpressDashboardLoginLink,
   createExpressConnectedAccount,
 } from "@/lib/stripe";
 import { NextResponse } from "next/server";
@@ -103,6 +104,7 @@ export async function POST(request: Request) {
   }
 
   let accountId = stripeProfile?.stripe_connect_account_id || null;
+  const isExistingAccount = Boolean(accountId);
   if (!accountId) {
     const account = await createExpressConnectedAccount({
       email: profile.email,
@@ -138,11 +140,22 @@ export async function POST(request: Request) {
   const returnUrl = `${origin}${basePath}?stripe_connect=return`;
   const refreshUrl = `${origin}${basePath}?stripe_connect=refresh`;
 
+  if (isExistingAccount) {
+    const loginLink = await createExpressDashboardLoginLink({ accountId });
+    return NextResponse.json(
+      { account_id: accountId, dashboard_url: loginLink.url },
+      { status: 200 }
+    );
+  }
+
   const accountLink = await createAccountOnboardingLink({
     accountId,
     refreshUrl,
     returnUrl,
   });
 
-  return NextResponse.json({ account_id: accountId, onboarding_url: accountLink.url }, { status: 200 });
+  return NextResponse.json(
+    { account_id: accountId, onboarding_url: accountLink.url },
+    { status: 200 }
+  );
 }

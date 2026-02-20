@@ -105,6 +105,7 @@ export async function PATCH(
     commitment_deadline,
     flavor_notes,
     certifications,
+    images,
     pricing_tiers,
   } = body;
 
@@ -129,6 +130,7 @@ export async function PATCH(
       commitment_deadline: commitment_deadline || null,
       flavor_notes: flavor_notes || [],
       certifications: certifications || [],
+      images: images || [],
       updated_at: new Date().toISOString(),
     })
     .eq("id", id)
