@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
+import { LotImageUploader } from "@/components/lot-image-uploader";
 
 interface TierRow {
   min_quantity_kg: string;
@@ -26,7 +27,10 @@ interface TierRow {
 
 export default function CreateLotPage() {
   const router = useRouter();
+  const [sellerId, setSellerId] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
+  const [headerImageUrl, setHeaderImageUrl] = useState("");
+  const [supportingImages, setSupportingImages] = useState<string[]>([]);
   const [form, setForm] = useState({
     title: "",
     origin_country: "",
@@ -48,6 +52,17 @@ export default function CreateLotPage() {
   });
 
   const [tiers, setTiers] = useState<TierRow[]>([]);
+
+  useEffect(() => {
+    const loadUser = async () => {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      setSellerId(user?.id || "");
+    };
+    void loadUser();
+  }, []);
 
   const update = (key: string, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -147,6 +162,7 @@ export default function CreateLotPage() {
         certifications: form.certifications
           ? form.certifications.split(",").map((s) => s.trim())
           : [],
+        images: [headerImageUrl, ...supportingImages].filter(Boolean),
         status: "active",
       })
       .select("id")
@@ -521,6 +537,25 @@ export default function CreateLotPage() {
                   purchases.
                 </p>
               )}
+            </div>
+
+            <Separator />
+
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-foreground">Lot Images</h3>
+              <p className="text-sm text-muted-foreground">
+                Add a header image and supporting images. Images are stored in Supabase Storage and shown to buyers and hubs.
+              </p>
+              <LotImageUploader
+                sellerId={sellerId}
+                headerImageUrl={headerImageUrl}
+                supportingImages={supportingImages}
+                onChange={({ headerImageUrl: nextHeader, supportingImages: nextSupporting }) => {
+                  setHeaderImageUrl(nextHeader);
+                  setSupportingImages(nextSupporting);
+                }}
+                disabled={isLoading}
+              />
             </div>
 
             <Separator />

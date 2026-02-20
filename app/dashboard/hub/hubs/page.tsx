@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -23,6 +24,7 @@ import type { Hub } from "@/lib/types";
 
 export default function HubManagementPage() {
   const [hubs, setHubs] = useState<Hub[]>([]);
+  const [isPageLoading, setIsPageLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [form, setForm] = useState({
@@ -49,6 +51,7 @@ export default function HubManagementPage() {
         .eq("owner_id", user.id)
         .order("created_at", { ascending: false });
       setHubs((data as Hub[]) || []);
+      setIsPageLoading(false);
     };
     load();
   }, []);
@@ -97,7 +100,7 @@ export default function HubManagementPage() {
         <h1 className="text-2xl font-bold text-foreground">My Hubs</h1>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button>
+            <Button variant="outline">
               <Plus className="mr-2 h-4 w-4" />
               Add Hub
             </Button>
@@ -159,7 +162,22 @@ export default function HubManagementPage() {
         </Dialog>
       </div>
 
-      {hubs.length === 0 ? (
+      {isPageLoading ? (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {Array.from({ length: 4 }).map((_, idx) => (
+            <Card key={`hub-skeleton-${idx}`}>
+              <CardHeader>
+                <Skeleton className="h-5 w-40" />
+                <Skeleton className="h-4 w-28" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="mb-2 h-4 w-24" />
+                <Skeleton className="h-2 w-full" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : hubs.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center py-12">
             <Warehouse className="h-12 w-12 text-muted-foreground/50 mb-4" />

@@ -31,12 +31,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { Plus, UserPlus, Users, Trash2 } from "lucide-react";
 import type { Hub, HubMember } from "@/lib/types";
 
 export default function HubMembersPage() {
   const [hubs, setHubs] = useState<Hub[]>([]);
+  const [isHubsLoading, setIsHubsLoading] = useState(true);
+  const [isMembersLoading, setIsMembersLoading] = useState(false);
   const [selectedHubId, setSelectedHubId] = useState<string>("");
   const [members, setMembers] = useState<(HubMember & { profile?: { company_name: string | null; contact_name: string | null; email: string | null } })[]>([]);
   const [open, setOpen] = useState(false);
@@ -62,6 +65,7 @@ export default function HubMembersPage() {
       if (hubList.length > 0) {
         setSelectedHubId(hubList[0].id);
       }
+      setIsHubsLoading(false);
     };
     load();
   }, []);
@@ -69,6 +73,7 @@ export default function HubMembersPage() {
   useEffect(() => {
     if (!selectedHubId) return;
     const loadMembers = async () => {
+      setIsMembersLoading(true);
       const supabase = createClient();
       const { data } = await supabase
         .from("hub_members")
@@ -77,6 +82,7 @@ export default function HubMembersPage() {
         .order("joined_at", { ascending: false });
 
       setMembers((data || []) as any);
+      setIsMembersLoading(false);
     };
     loadMembers();
   }, [selectedHubId]);
@@ -180,7 +186,7 @@ export default function HubMembersPage() {
           )}
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-              <Button disabled={!selectedHubId}>
+              <Button variant="outline" disabled={!selectedHubId}>
                 <UserPlus className="mr-2 h-4 w-4" />
                 Add Buyer
               </Button>
@@ -220,7 +226,45 @@ export default function HubMembersPage() {
         </div>
       )}
 
-      {!selectedHubId ? (
+      {isHubsLoading || (selectedHubId && isMembersLoading) ? (
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name / Email</TableHead>
+                  <TableHead>Company</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Joined</TableHead>
+                  <TableHead className="w-[80px]">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {Array.from({ length: 5 }).map((_, idx) => (
+                  <TableRow key={`member-skeleton-${idx}`}>
+                    <TableCell>
+                      <Skeleton className="h-4 w-40" />
+                      <Skeleton className="mt-1 h-3 w-32" />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton className="h-4 w-28" />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton className="h-6 w-20 rounded-full" />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton className="h-4 w-24" />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton className="h-8 w-8" />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      ) : !selectedHubId ? (
         <Card>
           <CardContent className="flex flex-col items-center py-12">
             <Users className="h-12 w-12 text-muted-foreground/50 mb-4" />

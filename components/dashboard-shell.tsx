@@ -7,7 +7,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import {
-  Coffee,
   LayoutDashboard,
   Package,
   ShoppingCart,
@@ -28,7 +27,6 @@ import type { Profile } from "@/lib/types";
 const navByRole = {
   buyer: [
     { href: "/dashboard/buyer", label: "Overview", icon: LayoutDashboard },
-    { href: "/dashboard/buyer/browse", label: "Browse Lots", icon: Coffee },
     {
       href: "/dashboard/buyer/commitments",
       label: "Commitments",
@@ -91,8 +89,8 @@ function NavLink({
       onClick={onClick}
       className={`flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-colors active:opacity-80 ${
         isActive
-          ? "bg-primary text-primary-foreground shadow-sm"
-          : "text-muted-foreground hover:bg-secondary hover:text-foreground active:bg-secondary"
+          ? "text-primary"
+          : "text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted"
       }`}
     >
       <Icon className="h-4 w-4 shrink-0" />
@@ -150,16 +148,11 @@ export function DashboardShell({
       : role.charAt(0).toUpperCase() + role.slice(1);
 
   return (
-    <div className="flex min-h-svh bg-background">
+    <div className="flex min-h-svh bg-white">
       {/* Desktop sidebar */}
-      <aside className="hidden w-[260px] shrink-0 border-r bg-card lg:flex lg:flex-col shadow-sm">
-        <div className="flex h-14 items-center gap-2.5 border-b px-5">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <Coffee className="h-3.5 w-3.5" />
-          </div>
-          <span className="text-base font-semibold tracking-tight text-foreground">
-            CrowdRoast
-          </span>
+      <aside className="hidden w-[260px] shrink-0 border-r bg-white lg:flex lg:flex-col">
+        <div className="flex h-14 items-center border-b px-5">
+          <img src="/crowdroast_logo.svg" alt="CrowdRoast" className="h-24" />
         </div>
 
         <div className="px-3 pt-3 pb-1">
@@ -176,7 +169,7 @@ export function DashboardShell({
               label={item.label}
               icon={item.icon}
               isActive={
-                pathname === item.href 
+                pathname === item.href
               }
             />
           ))}
@@ -223,18 +216,12 @@ export function DashboardShell({
 
       {/* Mobile drawer */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-[280px] bg-card shadow-xl transition-transform duration-200 ease-out lg:hidden ${
-          mobileOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
+        className={`fixed inset-y-0 left-0 z-50 w-[280px] bg-white shadow-xl transition-transform duration-200 ease-out lg:hidden ${mobileOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
       >
         <div className="flex h-14 items-center justify-between border-b px-4">
-          <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              <Coffee className="h-3.5 w-3.5" />
-            </div>
-            <span className="text-base font-semibold text-foreground">
-              CrowdRoast
-            </span>
+          <div className="flex items-center">
+            <img src="/crowdroast_logo.svg" alt="CrowdRoast" className="h-12" />
           </div>
           <button
             type="button"
@@ -269,7 +256,7 @@ export function DashboardShell({
           ))}
         </nav>
 
-        <div className="absolute bottom-0 left-0 right-0 border-t bg-card p-3">
+        <div className="absolute bottom-0 left-0 right-0 border-t bg-white p-3">
           <div className="flex items-center gap-3 rounded-lg px-3 py-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-muted-foreground">
               <UserIcon className="h-3.5 w-3.5" />
@@ -294,7 +281,7 @@ export function DashboardShell({
       {/* Main content */}
       <div className="flex flex-1 flex-col min-w-0">
         {/* Mobile top bar */}
-        <header className="flex h-14 items-center justify-between border-b bg-card px-4 shadow-sm lg:hidden">
+        <header className="flex h-14 items-center justify-between border-b bg-white px-4 lg:hidden">
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
@@ -303,16 +290,13 @@ export function DashboardShell({
           >
             <Menu className="h-5 w-5" />
           </button>
-          <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              <Coffee className="h-3.5 w-3.5" />
-            </div>
-            <span className="font-semibold text-foreground">CrowdRoast</span>
+          <div className="flex items-center">
+            <img src="/crowdroast_logo.svg" alt="CrowdRoast" className="h-12" />
           </div>
           <div className="w-11" />
         </header>
 
-        <main className="flex-1 overflow-auto">
+        <main className="flex-1 overflow-auto bg-white">
           <div className="mx-auto max-w-6xl p-4 md:p-6 lg:p-8">
             {children}
           </div>
