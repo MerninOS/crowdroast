@@ -12,9 +12,8 @@ export default function SignUpSuccessPage() {
     <div className="flex min-h-svh w-full items-center justify-center p-6 md:p-10">
       <div className="w-full max-w-sm">
         <div className="flex flex-col gap-6">
-          <div className="flex items-center justify-center gap-2">
-            <Coffee className="h-8 w-8 text-primary" />
-            <span className="text-2xl font-bold text-primary">CrowdRoast</span>
+          <div className="flex items-center justify-center">
+            <img src="/crowdroast_logo.svg" alt="CrowdRoast" className="h-24" />
           </div>
           <Card>
             <CardHeader className="text-center">

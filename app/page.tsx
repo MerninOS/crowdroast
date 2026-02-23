@@ -15,7 +15,20 @@ import {
 } from "lucide-react";
 
 export default function HomePage() {
-  const logos = Array.from({ length: 10 });
+  const logos = [
+    "/crowdroast_logo.svg",
+    "/crowdroast_logo.svg",
+    "/crowdroast_logo.svg",
+    "/crowdroast_logo.svg",
+    "/crowdroast_logo.svg",
+    "/crowdroast_logo.svg",
+    "/crowdroast_logo.svg",
+    "/crowdroast_logo.svg",
+    "/crowdroast_logo.svg",
+    "/crowdroast_logo.svg",
+    "/crowdroast_logo.svg",
+    "/crowdroast_logo.svg",
+  ];
 
   return (
     <div className="flex min-h-svh flex-col bg-background">
@@ -66,7 +79,7 @@ export default function HomePage() {
           <div className="relative">
             <div className="overflow-hidden rounded-2xl border bg-muted/40 p-2">
               <img
-                src="/placeholder.jpg"
+                src="https://qqgpcaumfptnlstwjklv.supabase.co/storage/v1/object/public/landing_page_assets/Coffee-berries-in-hand.jpg"
                 alt="Roasters evaluating green coffee"
                 className="h-[420px] w-full rounded-xl object-cover"
                 style={{ animation: "fadeIn .9s ease both .2s" }}
@@ -95,14 +108,12 @@ export default function HomePage() {
           <div className="marquee-track flex min-w-max items-center gap-10 px-4">
             {logos.map((_, idx) => (
               <div key={`logo-a-${idx}`} className="flex items-center gap-3 opacity-80">
-                <img src="/crowdroast_logo.svg" alt="CrowdRoast" className="h-8 w-auto" />
-                <span className="text-sm font-medium text-muted-foreground">CrowdRoast Network</span>
+                <img src={_} alt="CrowdRoast" className="h-8 w-auto" />
               </div>
             ))}
             {logos.map((_, idx) => (
               <div key={`logo-b-${idx}`} className="flex items-center gap-3 opacity-80">
-                <img src="/crowdroast_logo.svg" alt="CrowdRoast" className="h-8 w-auto" />
-                <span className="text-sm font-medium text-muted-foreground">CrowdRoast Network</span>
+                <img src={_} alt="CrowdRoast" className="h-8 w-auto" />
               </div>
             ))}
           </div>
@@ -161,7 +172,7 @@ export default function HomePage() {
         <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-2">
           <div className="overflow-hidden rounded-2xl border bg-card p-2">
             <img
-              src="/placeholder.jpg"
+              src="https://qqgpcaumfptnlstwjklv.supabase.co/storage/v1/object/public/landing_page_assets/ripe-coffee-cherries-on-branch-of-coffee-tree-1024x576.jpg"
               alt="Green coffee lots ready for shipment"
               className="h-[360px] w-full rounded-xl object-cover"
             />
@@ -257,13 +268,8 @@ export default function HomePage() {
       {/* Footer */}
       <footer className="border-t bg-card px-4 py-6">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 md:flex-row">
-          <div className="flex items-center gap-2">
-            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              <Coffee className="h-3 w-3" />
-            </div>
-            <span className="text-sm font-semibold text-foreground">
-              CrowdRoast
-            </span>
+          <div className="flex items-center justify-center">
+            <img src="/crowdroast_logo.svg" alt="CrowdRoast" className="h-24" />
           </div>
           <p className="text-xs text-muted-foreground">
             The specialty coffee marketplace. Built with care.
