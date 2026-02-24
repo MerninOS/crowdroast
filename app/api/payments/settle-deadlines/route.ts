@@ -24,6 +24,12 @@ async function settleDeadlines(request: Request) {
     return NextResponse.json({ error: "Missing CRON_SECRET" }, { status: 500 });
   }
 
+  const bearer = getBearerToken(request.headers.get("authorization"));
+  const headerSecret = request.headers.get("x-cron-secret");
+  if (bearer !== cronSecret && headerSecret !== cronSecret) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const adminEmail = getConfiguredAdminEmail();
   if (!adminEmail) {
     return NextResponse.json(
@@ -33,28 +39,33 @@ async function settleDeadlines(request: Request) {
   }
 
   const admin = createAdminClient();
-  const { data: platformProfile, error: platformProfileError } = await admin
+  const { data: payoutProfiles, error: payoutProfilesError } = await admin
     .from("profiles")
-    .select("stripe_connect_account_id")
-    .ilike("email", adminEmail)
-    .maybeSingle();
+    .select("email, stripe_connect_account_id")
+    .not("stripe_connect_account_id", "is", null);
 
-  if (platformProfileError) {
-    return NextResponse.json({ error: platformProfileError.message }, { status: 500 });
+  if (payoutProfilesError) {
+    return NextResponse.json({ error: payoutProfilesError.message }, { status: 500 });
   }
 
-  const crowdroastDestinationAccount = platformProfile?.stripe_connect_account_id || null;
+  const normalizedAdminEmail = adminEmail.trim().toLowerCase();
+  const profileMatch = (payoutProfiles || []).find(
+    (profile) => (profile.email || "").trim().toLowerCase() === normalizedAdminEmail
+  );
+
+  // Backward-compatible fallback while transitioning off env-configured platform account.
+  const legacyFallbackAccount = process.env.CROWDROAST_STRIPE_CONNECT_ACCOUNT_ID || null;
+  const crowdroastDestinationAccount =
+    profileMatch?.stripe_connect_account_id || legacyFallbackAccount;
+
   if (!crowdroastDestinationAccount) {
     return NextResponse.json(
-      { error: "Admin Stripe Connect account is not connected for platform payouts" },
+      {
+        error:
+          "Admin Stripe Connect account is not connected for platform payouts (and no legacy fallback account is configured).",
+      },
       { status: 500 }
     );
-  }
-
-  const bearer = getBearerToken(request.headers.get("authorization"));
-  const headerSecret = request.headers.get("x-cron-secret");
-  if (bearer !== cronSecret && headerSecret !== cronSecret) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const nowIso = new Date().toISOString();
