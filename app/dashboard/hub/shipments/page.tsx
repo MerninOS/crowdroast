@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Truck } from "lucide-react";
 import { ShipmentStatusButtons } from "@/components/shipment-status-buttons";
+import { UnitWeightText } from "@/components/unit-value";
 
 const statusStyles: Record<string, string> = {
   pending: "bg-amber-50 text-amber-700 border-amber-200",
@@ -74,7 +75,9 @@ export default async function HubShipmentsPage() {
                       {s.weight_kg && (
                         <div>
                           <p className="text-xs text-muted-foreground">Weight</p>
-                          <p className="font-medium text-foreground">{s.weight_kg} kg</p>
+                          <p className="font-medium text-foreground">
+                            <UnitWeightText kg={s.weight_kg} />
+                          </p>
                         </div>
                       )}
                       <div>

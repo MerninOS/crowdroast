@@ -21,6 +21,13 @@ import { ArrowLeft, Plus, Trash2, Lock, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { use } from "react";
 import { LotImageUploader } from "@/components/lot-image-uploader";
+import { useUnitPreference } from "@/components/unit-provider";
+import {
+  fromDisplayPricePerUnit,
+  fromDisplayWeight,
+  toDisplayPricePerUnit,
+  toDisplayWeight,
+} from "@/lib/units";
 
 interface TierRow {
   min_quantity_kg: string;
@@ -32,6 +39,7 @@ export default function EditLotPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const { unit } = useUnitPreference();
   const { id } = use(params);
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
@@ -96,9 +104,15 @@ export default function EditLotPage({
         crop_year: lot.crop_year || "",
         score: lot.score?.toString() || "",
         description: lot.description || "",
-        total_quantity_kg: lot.total_quantity_kg?.toString() || "",
-        min_commitment_kg: lot.min_commitment_kg?.toString() || "",
-        price_per_kg: lot.price_per_kg?.toString() || "",
+        total_quantity_kg: lot.total_quantity_kg
+          ? toDisplayWeight(lot.total_quantity_kg, unit).toString()
+          : "",
+        min_commitment_kg: lot.min_commitment_kg
+          ? toDisplayWeight(lot.min_commitment_kg, unit).toString()
+          : "",
+        price_per_kg: lot.price_per_kg
+          ? toDisplayPricePerUnit(lot.price_per_kg, unit).toString()
+          : "",
         commitment_deadline: lot.commitment_deadline
           ? lot.commitment_deadline.slice(0, 16)
           : "",
@@ -109,15 +123,15 @@ export default function EditLotPage({
       setTiers(
         (data.pricing_tiers || []).map(
           (t: { min_quantity_kg: number; price_per_kg: number }) => ({
-            min_quantity_kg: t.min_quantity_kg.toString(),
-            price_per_kg: t.price_per_kg.toString(),
+            min_quantity_kg: toDisplayWeight(t.min_quantity_kg, unit).toString(),
+            price_per_kg: toDisplayPricePerUnit(t.price_per_kg, unit).toString(),
           })
         )
       );
       setInitialLoading(false);
     };
     load();
-  }, [id, router]);
+  }, [id, router, unit]);
 
   const update = (key: string, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -142,14 +156,19 @@ export default function EditLotPage({
     e.preventDefault();
     setIsLoading(true);
 
-    const basePrice = Number.parseFloat(form.price_per_kg);
-    const minTotal = Number.parseFloat(form.min_commitment_kg);
-    const maxTotal = Number.parseFloat(form.total_quantity_kg);
+    const enteredBasePrice = Number.parseFloat(form.price_per_kg);
+    const enteredMinTotal = Number.parseFloat(form.min_commitment_kg);
+    const enteredMaxTotal = Number.parseFloat(form.total_quantity_kg);
+    const basePrice = fromDisplayPricePerUnit(enteredBasePrice, unit);
+    const minTotal = fromDisplayWeight(enteredMinTotal, unit);
+    const maxTotal = fromDisplayWeight(enteredMaxTotal, unit);
 
     // Validate tiers
     for (let i = 0; i < tiers.length; i++) {
-      const tierQty = Number.parseFloat(tiers[i].min_quantity_kg);
-      const tierPrice = Number.parseFloat(tiers[i].price_per_kg);
+      const enteredTierQty = Number.parseFloat(tiers[i].min_quantity_kg);
+      const enteredTierPrice = Number.parseFloat(tiers[i].price_per_kg);
+      const tierQty = fromDisplayWeight(enteredTierQty, unit);
+      const tierPrice = fromDisplayPricePerUnit(enteredTierPrice, unit);
       if (!tierQty || !tierPrice) {
         toast.error(`Tier ${i + 1}: quantity and price are required`);
         setIsLoading(false);
@@ -157,21 +176,21 @@ export default function EditLotPage({
       }
       if (tierQty <= minTotal) {
         toast.error(
-          `Tier ${i + 1}: quantity (${tierQty} kg) must be above the minimum trigger (${minTotal} kg)`
+          `Tier ${i + 1}: quantity (${enteredTierQty} ${unit}) must be above the minimum trigger (${enteredMinTotal} ${unit})`
         );
         setIsLoading(false);
         return;
       }
       if (tierQty > maxTotal) {
         toast.error(
-          `Tier ${i + 1}: quantity (${tierQty} kg) cannot exceed the maximum (${maxTotal} kg)`
+          `Tier ${i + 1}: quantity (${enteredTierQty} ${unit}) cannot exceed the maximum (${enteredMaxTotal} ${unit})`
         );
         setIsLoading(false);
         return;
       }
       if (tierPrice >= basePrice) {
         toast.error(
-          `Tier ${i + 1}: price must be lower than the base price ($${basePrice.toFixed(2)}/kg)`
+          `Tier ${i + 1}: price must be lower than the base price ($${enteredBasePrice.toFixed(2)}/${unit})`
         );
         setIsLoading(false);
         return;
@@ -191,8 +210,8 @@ export default function EditLotPage({
           : [],
         images: [headerImageUrl, ...supportingImages].filter(Boolean),
         pricing_tiers: tiers.map((t) => ({
-          min_quantity_kg: Number.parseFloat(t.min_quantity_kg),
-          price_per_kg: Number.parseFloat(t.price_per_kg),
+          min_quantity_kg: fromDisplayWeight(Number.parseFloat(t.min_quantity_kg), unit),
+          price_per_kg: fromDisplayPricePerUnit(Number.parseFloat(t.price_per_kg), unit),
         })),
       }),
     });
@@ -399,11 +418,14 @@ export default function EditLotPage({
                 <h3 className="text-lg font-semibold text-foreground">
                   Pricing & Quantity
                 </h3>
+                <p className="text-xs font-medium text-foreground">
+                  Inputs in this section use {unit.toUpperCase()} and ${`/`}{unit}.
+                </p>
 
                 <div className="grid gap-4 sm:grid-cols-3">
                   <div className="grid gap-2">
                     <Label htmlFor="min_commitment_kg">
-                      Min Total to Trigger (kg) *
+                      Min Total to Trigger ({unit}) *
                     </Label>
                     <Input
                       id="min_commitment_kg"
@@ -418,7 +440,7 @@ export default function EditLotPage({
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="total_quantity_kg">
-                      Max Available (kg) *
+                      Max Available ({unit}) *
                     </Label>
                     <Input
                       id="total_quantity_kg"
@@ -432,7 +454,7 @@ export default function EditLotPage({
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="price_per_kg">Base Price ($/kg) *</Label>
+                    <Label htmlFor="price_per_kg">Base Price ($/{unit}) *</Label>
                     <Input
                       id="price_per_kg"
                       type="number"
@@ -470,7 +492,7 @@ export default function EditLotPage({
                       Volume Discount Tiers
                     </h3>
                     <p className="text-sm text-muted-foreground">
-                      Lower the price per kg at higher total quantities.
+                      Lower the price per {unit} at higher total quantities.
                     </p>
                   </div>
                   <Button
@@ -493,12 +515,12 @@ export default function EditLotPage({
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {minQty > 0
-                          ? `${minQty.toLocaleString()} kg`
+                          ? `${minQty.toLocaleString()} ${unit}`
                           : "Set minimum above"}
                       </p>
                     </div>
                     <p className="text-lg font-bold text-foreground">
-                      {basePrice > 0 ? `$${basePrice.toFixed(2)}/kg` : "--"}
+                      {basePrice > 0 ? `$${basePrice.toFixed(2)}/${unit}` : "--"}
                     </p>
                   </div>
                 </div>
@@ -521,7 +543,7 @@ export default function EditLotPage({
                     </div>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div className="grid gap-2">
-                        <Label>When total reaches (kg)</Label>
+                        <Label>When total reaches ({unit})</Label>
                         <Input
                           type="number"
                           min={minQty + 1}
@@ -533,7 +555,7 @@ export default function EditLotPage({
                         />
                       </div>
                       <div className="grid gap-2">
-                        <Label>Price per kg ($)</Label>
+                        <Label>Price per {unit} ($)</Label>
                         <Input
                           type="number"
                           step="0.01"

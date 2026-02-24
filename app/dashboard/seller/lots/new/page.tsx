@@ -19,6 +19,11 @@ import { toast } from "sonner";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { LotImageUploader } from "@/components/lot-image-uploader";
+import { useUnitPreference } from "@/components/unit-provider";
+import {
+  fromDisplayPricePerUnit,
+  fromDisplayWeight,
+} from "@/lib/units";
 
 interface TierRow {
   min_quantity_kg: string;
@@ -26,6 +31,7 @@ interface TierRow {
 }
 
 export default function CreateLotPage() {
+  const { unit } = useUnitPreference();
   const router = useRouter();
   const [sellerId, setSellerId] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
@@ -97,14 +103,19 @@ export default function CreateLotPage() {
       return;
     }
 
-    const basePrice = Number.parseFloat(form.price_per_kg);
-    const minTotal = Number.parseFloat(form.min_commitment_kg);
-    const maxTotal = Number.parseFloat(form.total_quantity_kg);
+    const enteredBasePrice = Number.parseFloat(form.price_per_kg);
+    const enteredMinTotal = Number.parseFloat(form.min_commitment_kg);
+    const enteredMaxTotal = Number.parseFloat(form.total_quantity_kg);
+    const basePrice = fromDisplayPricePerUnit(enteredBasePrice, unit);
+    const minTotal = fromDisplayWeight(enteredMinTotal, unit);
+    const maxTotal = fromDisplayWeight(enteredMaxTotal, unit);
 
     // Validate tiers
     for (let i = 0; i < tiers.length; i++) {
-      const tierQty = Number.parseFloat(tiers[i].min_quantity_kg);
-      const tierPrice = Number.parseFloat(tiers[i].price_per_kg);
+      const enteredTierQty = Number.parseFloat(tiers[i].min_quantity_kg);
+      const enteredTierPrice = Number.parseFloat(tiers[i].price_per_kg);
+      const tierQty = fromDisplayWeight(enteredTierQty, unit);
+      const tierPrice = fromDisplayPricePerUnit(enteredTierPrice, unit);
       if (!tierQty || !tierPrice) {
         toast.error(`Tier ${i + 1}: quantity and price are required`);
         setIsLoading(false);
@@ -112,21 +123,21 @@ export default function CreateLotPage() {
       }
       if (tierQty <= minTotal) {
         toast.error(
-          `Tier ${i + 1}: quantity (${tierQty} kg) must be above the minimum trigger (${minTotal} kg)`
+          `Tier ${i + 1}: quantity (${enteredTierQty} ${unit}) must be above the minimum trigger (${enteredMinTotal} ${unit})`
         );
         setIsLoading(false);
         return;
       }
       if (tierQty > maxTotal) {
         toast.error(
-          `Tier ${i + 1}: quantity (${tierQty} kg) cannot exceed the maximum (${maxTotal} kg)`
+          `Tier ${i + 1}: quantity (${enteredTierQty} ${unit}) cannot exceed the maximum (${enteredMaxTotal} ${unit})`
         );
         setIsLoading(false);
         return;
       }
       if (tierPrice >= basePrice) {
         toast.error(
-          `Tier ${i + 1}: price must be lower than the base price ($${basePrice.toFixed(2)}/kg)`
+          `Tier ${i + 1}: price must be lower than the base price ($${enteredBasePrice.toFixed(2)}/${unit})`
         );
         setIsLoading(false);
         return;
@@ -178,8 +189,8 @@ export default function CreateLotPage() {
     if (tiers.length > 0) {
       const tierRows = tiers.map((t) => ({
         lot_id: lot.id,
-        min_quantity_kg: Number.parseFloat(t.min_quantity_kg),
-        price_per_kg: Number.parseFloat(t.price_per_kg),
+        min_quantity_kg: fromDisplayWeight(Number.parseFloat(t.min_quantity_kg), unit),
+        price_per_kg: fromDisplayPricePerUnit(Number.parseFloat(t.price_per_kg), unit),
       }));
       const { error: tierError } = await supabase
         .from("pricing_tiers")
@@ -350,14 +361,17 @@ export default function CreateLotPage() {
               </h3>
               <p className="text-sm text-muted-foreground">
                 Set a minimum total quantity for the sale to trigger, a maximum
-                quantity available, and a base price per kg. Then add volume
+                quantity available, and a base price per {unit}. Then add volume
                 discount tiers to incentivize larger group purchases.
+              </p>
+              <p className="text-xs font-medium text-foreground">
+                Inputs in this section use {unit.toUpperCase()} and ${`/`}{unit}.
               </p>
 
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="grid gap-2">
                   <Label htmlFor="min_commitment_kg">
-                    Min Total to Trigger (kg) *
+                    Min Total to Trigger ({unit}) *
                   </Label>
                   <Input
                     id="min_commitment_kg"
@@ -374,7 +388,7 @@ export default function CreateLotPage() {
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="total_quantity_kg">
-                    Max Available (kg) *
+                    Max Available ({unit}) *
                   </Label>
                   <Input
                     id="total_quantity_kg"
@@ -390,7 +404,7 @@ export default function CreateLotPage() {
                   </p>
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="price_per_kg">Base Price ($/kg) *</Label>
+                  <Label htmlFor="price_per_kg">Base Price ($/{unit}) *</Label>
                   <Input
                     id="price_per_kg"
                     type="number"
@@ -436,7 +450,7 @@ export default function CreateLotPage() {
                     Volume Discount Tiers
                   </h3>
                   <p className="text-sm text-muted-foreground">
-                    Lower the price per kg as buyers commit to more total
+                    Lower the price per {unit} as buyers commit to more total
                     quantity. Each tier&apos;s quantity must be between the
                     minimum trigger and maximum available.
                   </p>
@@ -460,13 +474,13 @@ export default function CreateLotPage() {
                       Base Tier (minimum)
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {minQty > 0
-                        ? `${minQty.toLocaleString()} kg`
+                        {minQty > 0
+                        ? `${minQty.toLocaleString()} ${unit}`
                         : "Set minimum above"}
                     </p>
                   </div>
                   <p className="text-lg font-bold text-foreground">
-                    {basePrice > 0 ? `$${basePrice.toFixed(2)}/kg` : "--"}
+                    {basePrice > 0 ? `$${basePrice.toFixed(2)}/${unit}` : "--"}
                   </p>
                 </div>
               </div>
@@ -492,7 +506,7 @@ export default function CreateLotPage() {
                   </div>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="grid gap-2">
-                      <Label>When total reaches (kg)</Label>
+                      <Label>When total reaches ({unit})</Label>
                       <Input
                         type="number"
                         min={minQty + 1}
@@ -505,7 +519,7 @@ export default function CreateLotPage() {
                       />
                     </div>
                     <div className="grid gap-2">
-                      <Label>Price per kg ($)</Label>
+                      <Label>Price per {unit} ($)</Label>
                       <Input
                         type="number"
                         step="0.01"
@@ -523,9 +537,9 @@ export default function CreateLotPage() {
                     <p className="text-xs text-muted-foreground">
                       If total commitments reach{" "}
                       {Number.parseFloat(tier.min_quantity_kg).toLocaleString()}{" "}
-                      kg, everyone pays $
-                      {Number.parseFloat(tier.price_per_kg).toFixed(2)}/kg
-                      instead of ${basePrice.toFixed(2)}/kg
+                      {unit}, everyone pays $
+                      {Number.parseFloat(tier.price_per_kg).toFixed(2)}/{unit}
+                      instead of ${basePrice.toFixed(2)}/{unit}
                     </p>
                   )}
                 </div>

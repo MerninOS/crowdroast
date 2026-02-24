@@ -23,6 +23,7 @@ import {
 import { useState, useEffect, useCallback } from "react";
 import type { User } from "@supabase/supabase-js";
 import type { Profile } from "@/lib/types";
+import { UnitToggle } from "@/components/unit-toggle";
 
 const navByRole = {
   buyer: [
@@ -280,6 +281,10 @@ export function DashboardShell({
 
       {/* Main content */}
       <div className="flex flex-1 flex-col min-w-0">
+        <header className="hidden h-14 items-center justify-end border-b bg-white px-6 lg:flex">
+          <UnitToggle />
+        </header>
+
         {/* Mobile top bar */}
         <header className="flex h-14 items-center justify-between border-b bg-white px-4 lg:hidden">
           <button
@@ -293,7 +298,7 @@ export function DashboardShell({
           <div className="flex items-center">
             <img src="/crowdroast_logo.svg" alt="CrowdRoast" className="h-12" />
           </div>
-          <div className="w-11" />
+          <UnitToggle />
         </header>
 
         <main className="flex-1 overflow-auto bg-white">

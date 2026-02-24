@@ -36,8 +36,11 @@ import {
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
 import type { Claim, Commitment, ClaimType } from "@/lib/types";
+import { useUnitPreference } from "@/components/unit-provider";
+import { formatUnitWeight } from "@/lib/units";
 
 export default function BuyerClaimsPage() {
+  const { unit } = useUnitPreference();
   const [claims, setClaims] = useState<(Claim & { commitment?: Commitment })[]>([]);
   const [commitments, setCommitments] = useState<Commitment[]>([]);
   const [open, setOpen] = useState(false);
@@ -130,7 +133,7 @@ export default function BuyerClaimsPage() {
                   <SelectContent>
                     {commitments.map((c) => (
                       <SelectItem key={c.id} value={c.id}>
-                        {c.quantity_kg}kg - ${c.total_price}
+                        {formatUnitWeight(c.quantity_kg, unit)} {unit} - ${c.total_price}
                       </SelectItem>
                     ))}
                   </SelectContent>

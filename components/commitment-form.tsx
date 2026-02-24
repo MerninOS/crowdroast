@@ -7,6 +7,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+import { useUnitPreference } from "@/components/unit-provider";
+import {
+  fromDisplayWeight,
+  toDisplayPricePerUnit,
+  toDisplayWeight,
+} from "@/lib/units";
 
 export function CommitmentForm({
   lotId,
@@ -23,14 +29,22 @@ export function CommitmentForm({
   const [notes, setNotes] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
+  const { unit } = useUnitPreference();
 
-  const qty = Number.parseFloat(quantity) || 0;
-  const total = qty * activePrice;
+  const enteredQty = Number.parseFloat(quantity) || 0;
+  const qtyKg = fromDisplayWeight(enteredQty, unit);
+  const total = qtyKg * activePrice;
+  const maxInSelectedUnit = toDisplayWeight(maxKg, unit);
+  const displayPrice = toDisplayPricePerUnit(activePrice, unit);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (qty <= 0 || qty > maxKg) {
-      toast.error(`Quantity must be between 1 and ${maxKg} kg`);
+    if (qtyKg <= 0 || qtyKg > maxKg) {
+      toast.error(
+        `Quantity must be between 1 and ${maxInSelectedUnit.toLocaleString(undefined, {
+          maximumFractionDigits: 1,
+        })} ${unit}`
+      );
       return;
     }
 
@@ -41,7 +55,7 @@ export function CommitmentForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lot_id: lotId,
-          quantity_kg: qty,
+          quantity_kg: qtyKg,
           notes,
           hub_id: hubId,
         }),
@@ -67,19 +81,26 @@ export function CommitmentForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid gap-2">
-        <Label htmlFor="qty">Quantity (kg)</Label>
+        <Label htmlFor="qty">Quantity ({unit})</Label>
         <Input
           id="qty"
           type="number"
           min={1}
-          max={maxKg}
+          max={maxInSelectedUnit}
           step="0.1"
           value={quantity}
           onChange={(e) => setQuantity(e.target.value)}
           required
         />
         <p className="text-xs text-muted-foreground">
-          Max {maxKg.toLocaleString()} kg remaining
+          Max{" "}
+          {maxInSelectedUnit.toLocaleString(undefined, {
+            maximumFractionDigits: 1,
+          })}{" "}
+          {unit} remaining
+        </p>
+        <p className="text-xs font-medium text-foreground">
+          You are entering quantity in {unit.toUpperCase()}.
         </p>
       </div>
       <div className="grid gap-2">
@@ -95,7 +116,8 @@ export function CommitmentForm({
       <div className="rounded-lg bg-muted p-3">
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">
-            {qty.toLocaleString()} kg x ${activePrice.toFixed(2)}
+            {enteredQty.toLocaleString(undefined, { maximumFractionDigits: 1 })} {unit} x $
+            {displayPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/{unit}
           </span>
           <span className="text-lg font-bold text-foreground">
             ${total.toFixed(2)}

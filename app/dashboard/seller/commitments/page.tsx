@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ShoppingCart } from "lucide-react";
 import type { Commitment } from "@/lib/types";
+import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
 
 const statusStyles: Record<string, string> = {
   pending: "bg-amber-50 text-amber-700 border-amber-200",
@@ -75,11 +76,15 @@ export default async function SellerCommitmentsPage() {
                 <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
                   <div>
                     <p className="text-xs text-muted-foreground">Quantity</p>
-                    <p className="font-medium text-foreground">{c.quantity_kg.toLocaleString()} kg</p>
+                    <p className="font-medium text-foreground">
+                      <UnitWeightText kg={c.quantity_kg} />
+                    </p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Price/kg</p>
-                    <p className="font-medium text-foreground">${c.price_per_kg.toFixed(2)}</p>
+                    <p className="text-xs text-muted-foreground">Price</p>
+                    <p className="font-medium text-foreground">
+                      <UnitPriceText pricePerKg={c.price_per_kg} />
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">Total</p>
