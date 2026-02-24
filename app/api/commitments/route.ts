@@ -107,24 +107,47 @@ export async function POST(request: Request) {
       .eq("id", user.id);
   }
 
-  const { data, error } = await supabase
+  const { data: existingUnpaidCommitment } = await supabase
     .from("commitments")
-    .insert({
-      lot_id,
-      buyer_id: user.id,
-      hub_id: hub_id || null,
-      quantity_kg,
-      price_per_kg: activePricePerKg,
-      total_price,
-      notes: notes || null,
-      status: "pending",
-      payment_status: "pending_setup",
-      charge_amount_cents: chargeAmountCents,
-      charge_currency: (lot.currency || "USD").toLowerCase(),
-      stripe_customer_id: stripeCustomerId,
-    })
-    .select()
-    .single();
+    .select("id")
+    .eq("lot_id", lot_id)
+    .eq("buyer_id", user.id)
+    .is("stripe_payment_intent_id", null)
+    .neq("status", "cancelled")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const commitmentPayload = {
+    lot_id,
+    buyer_id: user.id,
+    hub_id: hub_id || null,
+    quantity_kg,
+    price_per_kg: activePricePerKg,
+    total_price,
+    notes: notes || null,
+    status: "pending",
+    payment_status: "pending_setup",
+    charge_amount_cents: chargeAmountCents,
+    charge_currency: (lot.currency || "USD").toLowerCase(),
+    stripe_customer_id: stripeCustomerId,
+    stripe_checkout_session_id: null,
+    stripe_setup_intent_id: null,
+    stripe_payment_method_id: null,
+    stripe_payment_intent_id: null,
+    stripe_charge_id: null,
+    payment_error: null,
+    charged_at: null,
+  };
+
+  const commitmentQuery = existingUnpaidCommitment
+    ? supabase
+        .from("commitments")
+        .update(commitmentPayload)
+        .eq("id", existingUnpaidCommitment.id)
+    : supabase.from("commitments").insert(commitmentPayload);
+
+  const { data, error } = await commitmentQuery.select().single();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

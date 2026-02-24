@@ -156,6 +156,7 @@ export default async function BuyerCommitmentsPage({
       "*, lot:lots!commitments_lot_id_fkey(id, title, origin_country, settlement_status, commitment_deadline, currency, committed_quantity_kg, price_per_kg)"
     )
     .eq("buyer_id", user.id)
+    .not("stripe_payment_intent_id", "is", null)
     .order("created_at", { ascending: false });
 
   const items = (commitments || []) as Commitment[];

@@ -63,6 +63,7 @@ export default async function HubLotDetailPage({
       "*, buyer:profiles!commitments_buyer_id_fkey(company_name, contact_name)"
     )
     .eq("lot_id", id)
+    .not("stripe_payment_intent_id", "is", null)
     .order("created_at", { ascending: true });
 
   const existingSampleRequest = hubId
