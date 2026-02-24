@@ -18,6 +18,11 @@ function getBearerToken(header: string | null) {
   return token || null;
 }
 
+function isMissingPlatformSettingsTable(error: { message?: string } | null) {
+  if (!error?.message) return false;
+  return error.message.includes("platform_settings");
+}
+
 async function settleDeadlines(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
@@ -39,6 +44,16 @@ async function settleDeadlines(request: Request) {
   }
 
   const admin = createAdminClient();
+  const { data: platformSettings, error: platformSettingsError } = await admin
+    .from("platform_settings")
+    .select("platform_connect_account_id")
+    .eq("id", 1)
+    .maybeSingle();
+
+  if (platformSettingsError && !isMissingPlatformSettingsTable(platformSettingsError)) {
+    return NextResponse.json({ error: platformSettingsError.message }, { status: 500 });
+  }
+
   const { data: payoutProfiles, error: payoutProfilesError } = await admin
     .from("profiles")
     .select("email, stripe_connect_account_id")
@@ -56,13 +71,15 @@ async function settleDeadlines(request: Request) {
   // Backward-compatible fallback while transitioning off env-configured platform account.
   const legacyFallbackAccount = process.env.CROWDROAST_STRIPE_CONNECT_ACCOUNT_ID || null;
   const crowdroastDestinationAccount =
-    profileMatch?.stripe_connect_account_id || legacyFallbackAccount;
+    platformSettings?.platform_connect_account_id ||
+    profileMatch?.stripe_connect_account_id ||
+    legacyFallbackAccount;
 
   if (!crowdroastDestinationAccount) {
     return NextResponse.json(
       {
         error:
-          "Admin Stripe Connect account is not connected for platform payouts (and no legacy fallback account is configured).",
+          "Platform payout account is not configured in platform_settings, admin profile, or legacy env fallback.",
       },
       { status: 500 }
     );

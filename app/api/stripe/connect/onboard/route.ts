@@ -4,6 +4,7 @@ import {
   createExpressDashboardLoginLink,
   createExpressConnectedAccount,
 } from "@/lib/stripe";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdminEmail } from "@/lib/auth/admin";
 import { NextResponse } from "next/server";
 
@@ -133,6 +134,34 @@ export async function POST(request: Request) {
 
     if (persistError) {
       return NextResponse.json({ error: persistError.message }, { status: 500 });
+    }
+  }
+
+  if (isAdmin) {
+    try {
+      const adminClient = createAdminClient();
+      const { error: settingsError } = await adminClient
+        .from("platform_settings")
+        .upsert(
+          {
+            id: 1,
+            platform_connect_account_id: accountId,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "id" }
+        );
+
+      if (settingsError) {
+        throw settingsError;
+      }
+    } catch {
+      return NextResponse.json(
+        {
+          error:
+            "Failed to persist platform payout destination. Run scripts/013_platform_payout_settings.sql.",
+        },
+        { status: 500 }
+      );
     }
   }
 
