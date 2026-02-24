@@ -19,8 +19,11 @@ import { toast } from "sonner";
 import { Plus, Check, Coffee, X } from "lucide-react";
 import Link from "next/link";
 import type { Hub, Lot } from "@/lib/types";
+import { useUnitPreference } from "@/components/unit-provider";
+import { formatUnitPrice, formatUnitWeight } from "@/lib/units";
 
 export default function HubCatalogPage() {
+  const { unit } = useUnitPreference();
   const [hubs, setHubs] = useState<Hub[]>([]);
   const [isHubsLoading, setIsHubsLoading] = useState(true);
   const [isCatalogLoading, setIsCatalogLoading] = useState(false);
@@ -213,8 +216,8 @@ export default function HubCatalogPage() {
                     </Link>
                     <p className="text-sm text-muted-foreground mt-1">
                       {lot.origin_country}
-                      {lot.region ? `, ${lot.region}` : ""} &middot; $
-                      {lot.price_per_kg.toFixed(2)}/kg
+                      {lot.region ? `, ${lot.region}` : ""} &middot;{" "}
+                      {formatUnitPrice(lot.price_per_kg, unit, lot.currency || "USD")}/{unit}
                     </p>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       Seller: {seller?.company_name || seller?.contact_name || "Unknown"}
@@ -252,7 +255,7 @@ export default function HubCatalogPage() {
                     <div className="flex-1">
                       <div className="flex items-center justify-between text-sm mb-1">
                         <span className="text-muted-foreground">
-                          {lot.committed_quantity_kg.toLocaleString()} / {lot.total_quantity_kg.toLocaleString()} kg committed
+                          {formatUnitWeight(lot.committed_quantity_kg, unit)} / {formatUnitWeight(lot.total_quantity_kg, unit)} {unit} committed
                         </span>
                         <span className="font-medium">{pct}%</span>
                       </div>

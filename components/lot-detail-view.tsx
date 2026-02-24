@@ -30,6 +30,8 @@ import Link from "next/link";
 import type { Lot, PricingTier, Commitment, UserRole } from "@/lib/types";
 import { CommitmentForm } from "@/components/commitment-form";
 import { SampleRequestButton } from "@/components/sample-request-button";
+import { useUnitPreference } from "@/components/unit-provider";
+import { formatUnitPrice, formatUnitWeight } from "@/lib/units";
 
 interface LotDetailProps {
   lot: Lot;
@@ -61,6 +63,7 @@ export function LotDetailView({
   backHref,
   backLabel,
 }: LotDetailProps) {
+  const { unit } = useUnitPreference();
   const sortedTiers = [...pricingTiers].sort(
     (a, b) => a.min_quantity_kg - b.min_quantity_kg
   );
@@ -75,7 +78,7 @@ export function LotDetailView({
     ...sortedTiers.map((t) => ({
       min_quantity_kg: t.min_quantity_kg,
       price_per_kg: t.price_per_kg,
-      label: `${t.min_quantity_kg.toLocaleString()} kg`,
+      label: `${formatUnitWeight(t.min_quantity_kg, unit)} ${unit}`,
     })),
   ];
 
@@ -198,13 +201,14 @@ export function LotDetailView({
                     {" "}
                     Only{" "}
                     <span className="font-semibold text-foreground">
-                      {(
-                        nextTier.min_quantity_kg - lot.committed_quantity_kg
-                      ).toLocaleString()}{" "}
-                      kg
+                      {formatUnitWeight(
+                        nextTier.min_quantity_kg - lot.committed_quantity_kg,
+                        unit
+                      )}{" "}
+                      {unit}
                     </span>{" "}
-                    more needed to unlock $
-                    {nextTier.price_per_kg.toFixed(2)}/kg!
+                    more needed to unlock{" "}
+                    {formatUnitPrice(nextTier.price_per_kg, unit, lot.currency || "USD")}/{unit}!
                   </>
                 )}
               </CardDescription>
@@ -262,7 +266,7 @@ export function LotDetailView({
                           <p
                             className={`text-sm font-medium ${isActive ? "text-primary" : "text-foreground"}`}
                           >
-                            {tier.min_quantity_kg.toLocaleString()} kg
+                            {formatUnitWeight(tier.min_quantity_kg, unit)} {unit}
                           </p>
                           <p className="text-xs text-muted-foreground">
                             {tier.label}
@@ -277,9 +281,9 @@ export function LotDetailView({
                       <p
                         className={`text-lg font-bold ${isActive ? "text-primary" : "text-foreground"}`}
                       >
-                        ${tier.price_per_kg.toFixed(2)}
+                        {formatUnitPrice(tier.price_per_kg, unit, lot.currency || "USD")}
                         <span className="text-xs font-normal text-muted-foreground">
-                          /kg
+                          /{unit}
                         </span>
                       </p>
                     </div>
@@ -309,8 +313,8 @@ export function LotDetailView({
                     })}
                   </div>
                   <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
-                    <span>0 kg</span>
-                    <span>{lot.total_quantity_kg.toLocaleString()} kg</span>
+                    <span>0 {unit}</span>
+                    <span>{formatUnitWeight(lot.total_quantity_kg, unit)} {unit}</span>
                   </div>
                 </div>
               )}
@@ -447,7 +451,7 @@ export function LotDetailView({
                       </div>
                       <div className="text-right">
                         <p className="text-sm font-semibold text-foreground">
-                          {c.quantity_kg.toLocaleString()} kg
+                          {formatUnitWeight(c.quantity_kg, unit)} {unit}
                         </p>
                       </div>
                     </div>
@@ -466,21 +470,20 @@ export function LotDetailView({
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="text-2xl">
-                    ${activePrice.toFixed(2)}
+                    {formatUnitPrice(activePrice, unit, lot.currency || "USD")}
                     <span className="text-sm font-normal text-muted-foreground">
-                      {" "}
-                      / kg
+                      / {unit}
                     </span>
                   </CardTitle>
                   <CardDescription>
                     {sortedTiers.length > 0
                       ? "Current price (may decrease with more buyers)"
-                      : `${lot.currency || "USD"} per kilogram`}
+                      : `${lot.currency || "USD"} per ${unit}`}
                   </CardDescription>
                 </div>
                 {lot.price_per_kg !== activePrice && (
                   <Badge variant="secondary" className="text-xs line-through opacity-60">
-                    ${lot.price_per_kg.toFixed(2)}
+                    {formatUnitPrice(lot.price_per_kg, unit, lot.currency || "USD")}
                   </Badge>
                 )}
               </div>
@@ -507,10 +510,10 @@ export function LotDetailView({
                 />
                 <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
                   <span>
-                    {lot.committed_quantity_kg.toLocaleString()} kg committed
+                    {formatUnitWeight(lot.committed_quantity_kg, unit)} {unit} committed
                   </span>
                   <span>
-                    {lot.min_commitment_kg.toLocaleString()} kg needed
+                    {formatUnitWeight(lot.min_commitment_kg, unit)} {unit} needed
                   </span>
                 </div>
               </div>
@@ -518,13 +521,14 @@ export function LotDetailView({
               {!isTriggered && (
                 <p className="text-xs text-muted-foreground bg-muted/50 rounded-lg p-3">
                   This sale only triggers if{" "}
-                  {lot.min_commitment_kg.toLocaleString()} kg total is committed
+                  {formatUnitWeight(lot.min_commitment_kg, unit)} {unit} total is committed
                   by the deadline. Still need{" "}
                   <span className="font-semibold text-foreground">
-                    {(
-                      lot.min_commitment_kg - lot.committed_quantity_kg
-                    ).toLocaleString()}{" "}
-                    kg
+                    {formatUnitWeight(
+                      lot.min_commitment_kg - lot.committed_quantity_kg,
+                      unit
+                    )}{" "}
+                    {unit}
                   </span>{" "}
                   more.
                 </p>
@@ -550,10 +554,10 @@ export function LotDetailView({
                 <Progress value={capacityPercent} className="h-2" />
                 <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
                   <span>
-                    {remaining.toLocaleString()} kg remaining
+                    {formatUnitWeight(remaining, unit)} {unit} remaining
                   </span>
                   <span>
-                    {lot.total_quantity_kg.toLocaleString()} kg max
+                    {formatUnitWeight(lot.total_quantity_kg, unit)} {unit} max
                   </span>
                 </div>
               </div>

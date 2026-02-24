@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Coffee, TrendingDown, Clock } from "lucide-react";
 import Link from "next/link";
+import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
 
 export default async function BuyerBrowsePage() {
   const supabase = await createClient();
@@ -202,14 +203,17 @@ export default async function BuyerBrowsePage() {
                           <div className="flex items-baseline justify-between">
                             <div>
                               <span className="text-xl font-bold text-foreground">
-                                ${currentPrice.toFixed(2)}
-                              </span>
-                              <span className="text-xs text-muted-foreground">
-                                /kg
+                                <UnitPriceText
+                                  pricePerKg={currentPrice}
+                                  currency={lot.currency || "USD"}
+                                />
                               </span>
                               {currentPrice !== lot.price_per_kg && (
                                 <span className="ml-2 text-sm text-muted-foreground line-through">
-                                  ${lot.price_per_kg.toFixed(2)}
+                                  <UnitPriceText
+                                    pricePerKg={lot.price_per_kg}
+                                    currency={lot.currency || "USD"}
+                                  />
                                 </span>
                               )}
                             </div>
@@ -220,7 +224,11 @@ export default async function BuyerBrowsePage() {
                                   className="gap-1 text-xs text-primary border-primary/30"
                                 >
                                   <TrendingDown className="h-3 w-3" />
-                                  As low as ${lowestPrice.toFixed(2)}
+                                  As low as{" "}
+                                  <UnitPriceText
+                                    pricePerKg={lowestPrice}
+                                    currency={lot.currency || "USD"}
+                                  />
                                 </Badge>
                               )}
                           </div>
@@ -234,8 +242,8 @@ export default async function BuyerBrowsePage() {
                                   : `${triggerPct}% to trigger`}
                               </span>
                               <span className="text-muted-foreground">
-                                {lot.committed_quantity_kg.toLocaleString()}{" "}
-                                / {lot.min_commitment_kg.toLocaleString()} kg
+                                <UnitWeightText kg={lot.committed_quantity_kg} /> /{" "}
+                                <UnitWeightText kg={lot.min_commitment_kg} />
                               </span>
                             </div>
                             <Progress

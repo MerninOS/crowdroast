@@ -7,6 +7,7 @@ import Link from "next/link";
 import { ShoppingCart } from "lucide-react";
 import type { Commitment, CommitmentPaymentStatus, CommitmentStatus } from "@/lib/types";
 import { getCheckoutSession, getSetupIntent } from "@/lib/stripe";
+import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
 
 const statusStyles: Record<string, string> = {
   pending: "bg-amber-50 text-amber-700 border-amber-200",
@@ -278,12 +279,17 @@ export default async function BuyerCommitmentsPage({
                   <div className="mt-3 grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
                     <div>
                       <p className="text-xs text-muted-foreground">Total Committed</p>
-                      <p className="font-semibold text-foreground">{group.totalCommittedKg.toLocaleString()} kg</p>
+                      <p className="font-semibold text-foreground">
+                        <UnitWeightText kg={group.totalCommittedKg} />
+                      </p>
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">Current Price/kg</p>
+                      <p className="text-xs text-muted-foreground">Current Price</p>
                       <p className="font-semibold text-foreground">
-                        {formatMoney(group.currentPricePerKg, group.displayCurrency)}
+                        <UnitPriceText
+                          pricePerKg={group.currentPricePerKg}
+                          currency={group.displayCurrency}
+                        />
                       </p>
                     </div>
                     <div>
@@ -310,13 +316,16 @@ export default async function BuyerCommitmentsPage({
                           <div>
                             <p className="text-xs text-muted-foreground">Coffee Secured</p>
                             <p className="font-semibold text-foreground">
-                              {group.securedKg.toLocaleString()} kg
+                              <UnitWeightText kg={group.securedKg} />
                             </p>
                           </div>
                           <div>
-                            <p className="text-xs text-muted-foreground">Final Price/kg</p>
+                            <p className="text-xs text-muted-foreground">Final Price</p>
                             <p className="font-semibold text-foreground">
-                              {formatMoney(group.finalPricePerKg, group.displayCurrency)}
+                              <UnitPriceText
+                                pricePerKg={group.finalPricePerKg}
+                                currency={group.displayCurrency}
+                              />
                             </p>
                           </div>
                         </div>
@@ -378,12 +387,17 @@ export default async function BuyerCommitmentsPage({
                                 <div className="mt-2 grid grid-cols-3 gap-3 text-sm">
                                   <div>
                                     <p className="text-xs text-muted-foreground">Quantity</p>
-                                    <p className="font-medium text-foreground">{Number(c.quantity_kg).toLocaleString()} kg</p>
+                                    <p className="font-medium text-foreground">
+                                      <UnitWeightText kg={Number(c.quantity_kg)} />
+                                    </p>
                                   </div>
                                   <div>
-                                    <p className="text-xs text-muted-foreground">Price/kg</p>
+                                    <p className="text-xs text-muted-foreground">Price</p>
                                     <p className="font-medium text-foreground">
-                                      {formatMoney(Number(c.price_per_kg || 0), c.charge_currency || group.displayCurrency)}
+                                      <UnitPriceText
+                                        pricePerKg={Number(c.price_per_kg || 0)}
+                                        currency={c.charge_currency || group.displayCurrency}
+                                      />
                                     </p>
                                   </div>
                                   <div>

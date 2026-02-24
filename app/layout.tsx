@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "sonner";
+import { UnitProvider } from "@/components/unit-provider";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const jetbrainsMono = JetBrains_Mono({
@@ -34,8 +35,10 @@ export default function RootLayout({
         suppressHydrationWarning
         className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}
       >
-        {children}
-        <Toaster richColors position="top-right" />
+        <UnitProvider>
+          {children}
+          <Toaster richColors position="top-right" />
+        </UnitProvider>
       </body>
     </html>
   );

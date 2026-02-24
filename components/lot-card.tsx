@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -9,8 +11,11 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { MapPin, Mountain, Star } from "lucide-react";
 import type { Lot } from "@/lib/types";
+import { useUnitPreference } from "@/components/unit-provider";
+import { formatUnitPrice, formatUnitWeight } from "@/lib/units";
 
 export function LotCard({ lot }: { lot: Lot }) {
+  const { unit } = useUnitPreference();
   const commitPercent =
     lot.total_quantity_kg > 0
       ? Math.round((lot.committed_quantity_kg / lot.total_quantity_kg) * 100)
@@ -81,17 +86,17 @@ export function LotCard({ lot }: { lot: Lot }) {
             </div>
             <Progress value={commitPercent} className="h-2" />
             <p className="text-xs text-muted-foreground">
-              {remaining.toLocaleString()} kg remaining of{" "}
-              {lot.total_quantity_kg.toLocaleString()} kg
+              {formatUnitWeight(remaining, unit)} {unit} remaining of{" "}
+              {formatUnitWeight(lot.total_quantity_kg, unit)} {unit}
             </p>
           </div>
         </CardContent>
         <CardFooter className="flex items-center justify-between border-t bg-muted/30 px-6 py-3">
           <div>
             <p className="text-lg font-bold text-foreground">
-              ${lot.price_per_kg.toFixed(2)}
+              {formatUnitPrice(lot.price_per_kg, unit, lot.currency || "USD")}
               <span className="text-xs font-normal text-muted-foreground">
-                /kg
+                /{unit}
               </span>
             </p>
           </div>

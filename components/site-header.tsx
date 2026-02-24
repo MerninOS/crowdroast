@@ -17,7 +17,7 @@ export function SiteHeader() {
     const supabase = createClient();
     supabase.auth
       .getUser()
-      .then(({ data }) => setUser(data.user))
+      .then(({ data }: { data: { user: User | null } }) => setUser(data.user))
       .catch(() => {});
   }, []);
 

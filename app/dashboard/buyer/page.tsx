@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Clock, Coffee, Target, TrendingDown, Warehouse } from "lucide-react";
 import Link from "next/link";
+import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
 
 function getHubName(memberships: any[], hubId: string) {
   const membership = memberships.find((m: any) => m.hub_id === hubId);
@@ -171,17 +172,20 @@ export default async function BuyerOverview({
             label: "Trigger campaign",
             targetKg: minCommitment,
             remainingKg: Math.max(0, minCommitment - committed),
+            nextPricePerKg: null as number | null,
           }
         : nextTier
           ? {
-              label: `Next tier: $${Number(nextTier.price_per_kg).toFixed(2)}/kg`,
+              label: "Next tier",
               targetKg: Number(nextTier.min_quantity_kg),
               remainingKg: Math.max(0, Number(nextTier.min_quantity_kg) - committed),
+              nextPricePerKg: Number(nextTier.price_per_kg),
             }
           : {
               label: "Best tier reached",
               targetKg: committed,
               remainingKg: 0,
+              nextPricePerKg: null as number | null,
             };
 
     const milestoneTargets = [minCommitment, ...tiers.map((t: any) => Number(t.min_quantity_kg))]
@@ -316,13 +320,19 @@ export default async function BuyerOverview({
                       <div className="space-y-3">
                         <div>
                           <p className="text-xl font-bold text-foreground">
-                            ${card.currentPrice.toFixed(2)}
-                            <span className="ml-1 text-xs font-normal text-muted-foreground">/kg</span>
+                            <UnitPriceText
+                              pricePerKg={card.currentPrice}
+                              currency={card.lot.currency || "USD"}
+                            />
                           </p>
                           {card.lowestPrice < card.currentPrice && (
                             <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
                               <TrendingDown className="h-3 w-3" />
-                              As low as ${card.lowestPrice.toFixed(2)}/kg
+                              As low as{" "}
+                              <UnitPriceText
+                                pricePerKg={card.lowestPrice}
+                                currency={card.lot.currency || "USD"}
+                              />
                             </p>
                           )}
                         </div>
@@ -338,7 +348,8 @@ export default async function BuyerOverview({
                           <div className="mb-1.5 flex items-center justify-between text-xs">
                             <span className="text-muted-foreground">Funding Progress</span>
                             <span className="text-muted-foreground">
-                              {Number(card.lot.committed_quantity_kg).toLocaleString()} / {Number(card.progressTextTarget).toLocaleString()} kg
+                              <UnitWeightText kg={Number(card.lot.committed_quantity_kg)} /> /{" "}
+                              <UnitWeightText kg={Number(card.progressTextTarget)} />
                             </span>
                           </div>
                           <Progress value={card.progressPct} className="h-2" />
@@ -352,10 +363,18 @@ export default async function BuyerOverview({
                           <p className="flex items-center gap-1 text-sm font-medium text-foreground">
                             <Target className="h-3.5 w-3.5" />
                             {card.nextMilestone.label}
+                            {card.nextMilestone.nextPricePerKg !== null && (
+                              <span className="text-muted-foreground">
+                                (<UnitPriceText
+                                  pricePerKg={card.nextMilestone.nextPricePerKg}
+                                  currency={card.lot.currency || "USD"}
+                                />)
+                              </span>
+                            )}
                           </p>
                           {card.nextMilestone.remainingKg > 0 ? (
                             <p className="mt-1 text-xs text-muted-foreground">
-                              {card.nextMilestone.remainingKg.toLocaleString()} kg needed
+                              <UnitWeightText kg={card.nextMilestone.remainingKg} /> needed
                             </p>
                           ) : (
                             <p className="mt-1 text-xs text-muted-foreground">No further milestone remaining</p>

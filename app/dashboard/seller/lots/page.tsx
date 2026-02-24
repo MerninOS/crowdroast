@@ -7,6 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { Plus, Pencil, Package } from "lucide-react";
 import Link from "next/link";
 import type { Lot } from "@/lib/types";
+import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
 
 const statusStyles: Record<string, string> = {
   active: "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -82,8 +83,11 @@ export default async function SellerLotsPage() {
                       </Link>
                       <p className="text-xs text-muted-foreground mt-0.5">
                         {lot.origin_country}
-                        {lot.region ? `, ${lot.region}` : ""} &middot; $
-                        {lot.price_per_kg.toFixed(2)}/kg
+                        {lot.region ? `, ${lot.region}` : ""} &middot;{" "}
+                        <UnitPriceText
+                          pricePerKg={lot.price_per_kg}
+                          currency={lot.currency || "USD"}
+                        />
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -101,7 +105,8 @@ export default async function SellerLotsPage() {
                   <div className="mt-3">
                     <div className="flex items-center justify-between text-xs mb-1.5">
                       <span className="text-muted-foreground">
-                        {lot.committed_quantity_kg.toLocaleString()} / {lot.total_quantity_kg.toLocaleString()} kg
+                        <UnitWeightText kg={lot.committed_quantity_kg} /> /{" "}
+                        <UnitWeightText kg={lot.total_quantity_kg} />
                       </span>
                       <span className="font-medium text-foreground">{pct}%</span>
                     </div>

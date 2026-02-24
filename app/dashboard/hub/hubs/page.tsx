@@ -21,8 +21,11 @@ import {
 import { toast } from "sonner";
 import { Plus, Warehouse } from "lucide-react";
 import type { Hub } from "@/lib/types";
+import { useUnitPreference } from "@/components/unit-provider";
+import { formatUnitWeight, fromDisplayWeight } from "@/lib/units";
 
 export default function HubManagementPage() {
+  const { unit } = useUnitPreference();
   const [hubs, setHubs] = useState<Hub[]>([]);
   const [isPageLoading, setIsPageLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -78,7 +81,9 @@ export default function HubManagementPage() {
         city: form.city || null,
         state: form.state || null,
         country: form.country || null,
-        capacity_kg: form.capacity_kg ? Number.parseFloat(form.capacity_kg) : 0,
+        capacity_kg: form.capacity_kg
+          ? fromDisplayWeight(Number.parseFloat(form.capacity_kg), unit)
+          : 0,
       })
       .select()
       .single();
@@ -146,13 +151,16 @@ export default function HubManagementPage() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label>Capacity (kg)</Label>
+                <Label>Capacity ({unit})</Label>
                 <Input
                   type="number"
                   value={form.capacity_kg}
                   onChange={(e) => update("capacity_kg", e.target.value)}
-                  placeholder="10000"
+                  placeholder={unit === "kg" ? "10000" : "22046"}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Capacity input is in {unit.toUpperCase()}.
+                </p>
               </div>
               <Button type="submit" className="w-full" disabled={isLoading}>
                 {isLoading ? "Creating..." : "Create Hub"}
@@ -203,7 +211,7 @@ export default function HubManagementPage() {
                   <div className="flex items-center justify-between text-sm mb-2">
                     <span className="text-muted-foreground">Capacity</span>
                     <span className="font-medium">
-                      {hub.used_capacity_kg.toLocaleString()} / {hub.capacity_kg.toLocaleString()} kg
+                      {formatUnitWeight(hub.used_capacity_kg, unit)} / {formatUnitWeight(hub.capacity_kg, unit)} {unit}
                     </span>
                   </div>
                   <Progress value={pct} className="h-2" />
