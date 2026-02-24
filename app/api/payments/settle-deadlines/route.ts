@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getConfiguredAdminEmail } from "@/lib/auth/admin";
 import {
   createRefund,
   createTransfer,
@@ -23,10 +24,29 @@ async function settleDeadlines(request: Request) {
     return NextResponse.json({ error: "Missing CRON_SECRET" }, { status: 500 });
   }
 
-  const crowdroastDestinationAccount = process.env.CROWDROAST_STRIPE_CONNECT_ACCOUNT_ID;
+  const adminEmail = getConfiguredAdminEmail();
+  if (!adminEmail) {
+    return NextResponse.json(
+      { error: "Missing ADMIN_EMAIL for platform payout destination" },
+      { status: 500 }
+    );
+  }
+
+  const admin = createAdminClient();
+  const { data: platformProfile, error: platformProfileError } = await admin
+    .from("profiles")
+    .select("stripe_connect_account_id")
+    .ilike("email", adminEmail)
+    .maybeSingle();
+
+  if (platformProfileError) {
+    return NextResponse.json({ error: platformProfileError.message }, { status: 500 });
+  }
+
+  const crowdroastDestinationAccount = platformProfile?.stripe_connect_account_id || null;
   if (!crowdroastDestinationAccount) {
     return NextResponse.json(
-      { error: "Missing CROWDROAST_STRIPE_CONNECT_ACCOUNT_ID" },
+      { error: "Admin Stripe Connect account is not connected for platform payouts" },
       { status: 500 }
     );
   }
@@ -37,7 +57,6 @@ async function settleDeadlines(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const admin = createAdminClient();
   const nowIso = new Date().toISOString();
 
   const { data: dueLots, error: dueLotsError } = await admin

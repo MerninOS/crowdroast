@@ -13,18 +13,9 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Coffee } from "lucide-react";
-import type { UserRole } from "@/lib/types";
 
 export default function SignUpPage() {
   const [email, setEmail] = useState("");
@@ -32,7 +23,6 @@ export default function SignUpPage() {
   const [repeatPassword, setRepeatPassword] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [contactName, setContactName] = useState("");
-  const [role, setRole] = useState<UserRole>("buyer");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
@@ -58,7 +48,7 @@ export default function SignUpPage() {
             process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ||
             `${window.location.origin}/dashboard`,
           data: {
-            role,
+            role: "buyer",
             company_name: companyName,
             contact_name: contactName,
           },
@@ -90,26 +80,9 @@ export default function SignUpPage() {
             <CardContent>
               <form onSubmit={handleSignUp} suppressHydrationWarning>
                 <div className="flex flex-col gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="role">I am a</Label>
-                    <Select
-                      value={role}
-                      onValueChange={(v) => setRole(v as UserRole)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="buyer">
-                          Buyer / Roaster
-                        </SelectItem>
-                        <SelectItem value="seller">
-                          Seller / Producer
-                        </SelectItem>
-                        <SelectItem value="hub_owner">Hub Owner</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <p className="rounded-md border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
+                    Signup creates a buyer account. Seller and hub-owner access is granted by admin approval.
+                  </p>
                   <div className="grid gap-2">
                     <Label htmlFor="company">Company Name</Label>
                     <Input
