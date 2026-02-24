@@ -5,6 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { useUnitPreference } from "@/components/unit-provider";
@@ -28,6 +36,7 @@ export function CommitmentForm({
   const [quantity, setQuantity] = useState("1");
   const [notes, setNotes] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const router = useRouter();
   const { unit } = useUnitPreference();
 
@@ -37,16 +46,20 @@ export function CommitmentForm({
   const maxInSelectedUnit = toDisplayWeight(maxKg, unit);
   const displayPrice = toDisplayPricePerUnit(activePrice, unit);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const validateQuantity = () => {
     if (qtyKg <= 0 || qtyKg > maxKg) {
       toast.error(
         `Quantity must be between 1 and ${maxInSelectedUnit.toLocaleString(undefined, {
           maximumFractionDigits: 1,
         })} ${unit}`
       );
-      return;
+      return false;
     }
+    return true;
+  };
+
+  const submitCommitment = async () => {
+    if (!validateQuantity()) return;
 
     setIsLoading(true);
     try {
@@ -69,13 +82,20 @@ export function CommitmentForm({
         window.location.href = payload.checkout_url as string;
         return;
       }
-      toast.success("Commitment created. Add your card to finalize setup.");
+      toast.success("Commitment created.");
+      setConfirmOpen(false);
       router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validateQuantity()) return;
+    setConfirmOpen(true);
   };
 
   return (
@@ -124,12 +144,58 @@ export function CommitmentForm({
           </span>
         </div>
         <p className="text-xs text-muted-foreground mt-1">
-          Final price may be lower if more buyers commit before deadline
+          You will be charged now and funds are held until the deadline
         </p>
       </div>
       <Button type="submit" className="w-full" disabled={isLoading}>
         {isLoading ? "Submitting..." : "Commit to Purchase"}
       </Button>
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Commitment</DialogTitle>
+            <DialogDescription>
+              Your card is charged immediately when you commit. Funds are held until the lot deadline.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2 text-sm">
+            <p>
+              Quantity:{" "}
+              <span className="font-medium">
+                {enteredQty.toLocaleString(undefined, { maximumFractionDigits: 1 })} {unit}
+              </span>
+            </p>
+            <p>
+              Price at commitment:{" "}
+              <span className="font-medium">
+                ${displayPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/{unit}
+              </span>
+            </p>
+            <p>
+              Charged now: <span className="font-medium">${total.toFixed(2)}</span>
+            </p>
+            <p className="text-muted-foreground">
+              If the lot unlocks a lower final tier by deadline, you will be refunded the difference before payouts are distributed.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setConfirmOpen(false)}
+              disabled={isLoading}
+            >
+              Cancel
+            </Button>
+            <Button type="button" onClick={submitCommitment} disabled={isLoading}>
+              {isLoading ? "Processing..." : "Confirm and Charge"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </form>
   );
 }

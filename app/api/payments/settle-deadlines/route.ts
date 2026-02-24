@@ -1,13 +1,14 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
-  createAndConfirmPaymentIntent,
+  createRefund,
   createTransfer,
 } from "@/lib/stripe";
+import {
+  computeChargeAdjustment,
+  computeSplit,
+  getFinalPricePerKg,
+} from "@/lib/payments/settlement-logic";
 import { NextResponse } from "next/server";
-
-const SELLER_SHARE_BPS = 9000; // 90%
-const HUB_SHARE_BPS = 200; // 2%
-const TOTAL_BPS = 10000;
 
 function getBearerToken(header: string | null) {
   if (!header) return null;
@@ -16,18 +17,18 @@ function getBearerToken(header: string | null) {
   return token || null;
 }
 
-function computeSplit(amountCents: number) {
-  const sellerAmount = Math.floor((amountCents * SELLER_SHARE_BPS) / TOTAL_BPS);
-  const hubAmount = Math.floor((amountCents * HUB_SHARE_BPS) / TOTAL_BPS);
-  const platformAmount = amountCents - sellerAmount - hubAmount;
-
-  return { sellerAmount, hubAmount, platformAmount };
-}
-
 async function settleDeadlines(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ error: "Missing CRON_SECRET" }, { status: 500 });
+  }
+
+  const crowdroastDestinationAccount = process.env.CROWDROAST_STRIPE_CONNECT_ACCOUNT_ID;
+  if (!crowdroastDestinationAccount) {
+    return NextResponse.json(
+      { error: "Missing CROWDROAST_STRIPE_CONNECT_ACCOUNT_ID" },
+      { status: 500 }
+    );
   }
 
   const bearer = getBearerToken(request.headers.get("authorization"));
@@ -58,26 +59,90 @@ async function settleDeadlines(request: Request) {
     const minimumMet = Number(lot.committed_quantity_kg) >= Number(lot.min_commitment_kg);
 
     if (!minimumMet) {
-      await admin
+      const { data: lotCommitments, error: lotCommitmentsError } = await admin
         .from("commitments")
-        .update({
-          status: "cancelled",
-          payment_status: "cancelled",
-          payment_error: "Lot minimum not met by deadline",
-        })
-        .eq("lot_id", lot.id)
-        .neq("payment_status", "charge_succeeded");
+        .select("id, payment_status, stripe_payment_intent_id")
+        .eq("lot_id", lot.id);
+
+      if (lotCommitmentsError) {
+        await admin
+          .from("lots")
+          .update({
+            settlement_status: "failed",
+            settlement_processed_at: nowIso,
+          })
+          .eq("id", lot.id);
+
+        results.push({
+          lot_id: lot.id,
+          outcome: "failed",
+          error: lotCommitmentsError.message,
+        });
+        continue;
+      }
+
+      let refundedCount = 0;
+      let refundFailedCount = 0;
+
+      for (const commitment of lotCommitments || []) {
+        if (
+          commitment.payment_status === "charge_succeeded" &&
+          commitment.stripe_payment_intent_id
+        ) {
+          try {
+            await createRefund({
+              paymentIntentId: commitment.stripe_payment_intent_id,
+              commitmentId: commitment.id,
+              idempotencySuffix: "minimum-not-met",
+            });
+
+            await admin
+              .from("commitments")
+              .update({
+                status: "cancelled",
+                payment_status: "cancelled",
+                payment_error: "Refunded: lot minimum not met by deadline",
+              })
+              .eq("id", commitment.id);
+
+            refundedCount += 1;
+          } catch (refundError) {
+            refundFailedCount += 1;
+            await admin
+              .from("commitments")
+              .update({
+                payment_error:
+                  refundError instanceof Error ? refundError.message : "Refund failed",
+              })
+              .eq("id", commitment.id);
+          }
+        } else {
+          await admin
+            .from("commitments")
+            .update({
+              status: "cancelled",
+              payment_status: "cancelled",
+              payment_error: "Cancelled: lot minimum not met by deadline",
+            })
+            .eq("id", commitment.id);
+        }
+      }
 
       await admin
         .from("lots")
         .update({
           status: "closed",
-          settlement_status: "minimum_not_met",
+          settlement_status: refundFailedCount > 0 ? "failed" : "minimum_not_met",
           settlement_processed_at: nowIso,
         })
         .eq("id", lot.id);
 
-      results.push({ lot_id: lot.id, outcome: "minimum_not_met" });
+      results.push({
+        lot_id: lot.id,
+        outcome: refundFailedCount > 0 ? "failed" : "minimum_not_met",
+        commitments_refunded: refundedCount,
+        refunds_failed: refundFailedCount,
+      });
       continue;
     }
 
@@ -104,35 +169,42 @@ async function settleDeadlines(request: Request) {
       continue;
     }
 
-    const { data: commitments, error: commitmentsError } = await admin
+    const { data: unpaidCommitments } = await admin
       .from("commitments")
-      .select(
-        "id, status, payment_status, hub_id, quantity_kg, charge_amount_cents, charge_currency, stripe_customer_id, stripe_payment_method_id"
-      )
+      .select("id")
       .eq("lot_id", lot.id)
-      .neq("payment_status", "charge_succeeded");
+      .neq("payment_status", "charge_succeeded")
+      .neq("status", "cancelled");
 
-    if (commitmentsError) {
-      results.push({ lot_id: lot.id, outcome: "failed", error: commitmentsError.message });
-      continue;
-    }
-
-    let failedCount = 0;
-    let succeededCount = 0;
-    const hubConnectAccountByHubId = new Map<string, string | null>();
     const { data: tiers } = await admin
       .from("pricing_tiers")
       .select("min_quantity_kg, price_per_kg")
       .eq("lot_id", lot.id)
       .order("min_quantity_kg", { ascending: false });
 
-    let finalPricePerKg = Number(lot.price_per_kg || 0);
-    for (const tier of tiers || []) {
-      if (Number(lot.committed_quantity_kg || 0) >= Number(tier.min_quantity_kg || 0)) {
-        finalPricePerKg = Number(tier.price_per_kg || finalPricePerKg);
-        break;
-      }
+    const finalPricePerKg = getFinalPricePerKg(
+      lot.price_per_kg,
+      lot.committed_quantity_kg,
+      tiers || []
+    );
+
+    const { data: commitments, error: commitmentsError } = await admin
+      .from("commitments")
+      .select(
+        "id, status, payment_status, hub_id, quantity_kg, total_price, charge_amount_cents, charge_currency, stripe_charge_id, stripe_payment_intent_id"
+      )
+      .eq("lot_id", lot.id)
+      .eq("payment_status", "charge_succeeded")
+      .neq("status", "confirmed");
+
+    if (commitmentsError) {
+      results.push({ lot_id: lot.id, outcome: "failed", error: commitmentsError.message });
+      continue;
     }
+
+    let failedCount = unpaidCommitments?.length || 0;
+    let succeededCount = 0;
+    const hubConnectAccountByHubId = new Map<string, string | null>();
 
     for (const commitment of commitments || []) {
       const commitmentHubId = commitment.hub_id;
@@ -141,7 +213,6 @@ async function settleDeadlines(request: Request) {
         await admin
           .from("commitments")
           .update({
-            payment_status: "charge_failed",
             payment_error: "Missing hub_id on commitment",
           })
           .eq("id", commitment.id);
@@ -173,62 +244,54 @@ async function settleDeadlines(request: Request) {
         await admin
           .from("commitments")
           .update({
-            payment_status: "charge_failed",
             payment_error: "Hub owner is missing stripe_connect_account_id",
           })
           .eq("id", commitment.id);
         continue;
       }
 
-      const quantityKg = Number(commitment.quantity_kg || 0);
-      const amountCents = Math.round(quantityKg * finalPricePerKg * 100);
+      const amountCents = Number(commitment.charge_amount_cents || 0);
       const currency = (commitment.charge_currency || lot.currency || "usd").toLowerCase();
-      const totalPrice = amountCents / 100;
 
-      await admin
-        .from("commitments")
-        .update({
-          price_per_kg: finalPricePerKg,
-          total_price: totalPrice,
-          charge_amount_cents: amountCents,
-          charge_currency: currency,
-        })
-        .eq("id", commitment.id);
-
-      if (!commitment.stripe_customer_id || !commitment.stripe_payment_method_id || amountCents <= 0) {
+      if (!commitment.stripe_charge_id || amountCents <= 0) {
         failedCount += 1;
         await admin
           .from("commitments")
           .update({
-            payment_status: "charge_failed",
-            payment_error: "Missing payment method, customer, or amount",
+            payment_error: "Missing successful charge data for settlement transfer",
           })
           .eq("id", commitment.id);
         continue;
       }
 
       try {
-        const paymentIntent = await createAndConfirmPaymentIntent({
-          amountCents,
-          currency,
-          customerId: commitment.stripe_customer_id,
-          paymentMethodId: commitment.stripe_payment_method_id,
-          commitmentId: commitment.id,
-          lotId: lot.id,
+        const { finalAmountCents, refundAmountCents } = computeChargeAdjustment({
+          quantityKg: commitment.quantity_kg,
+          committedTotalPrice: commitment.total_price,
+          finalPricePerKg,
         });
 
-        if (paymentIntent.status !== "succeeded" || !paymentIntent.latest_charge) {
-          throw new Error(`Payment intent not succeeded (status: ${paymentIntent.status})`);
+        if (refundAmountCents > 0) {
+          if (!commitment.stripe_payment_intent_id) {
+            throw new Error("Missing payment intent for price-adjustment refund");
+          }
+
+          await createRefund({
+            paymentIntentId: commitment.stripe_payment_intent_id,
+            amountCents: refundAmountCents,
+            commitmentId: commitment.id,
+            idempotencySuffix: "price-adjustment",
+          });
         }
 
-        const split = computeSplit(amountCents);
+        const split = computeSplit(finalAmountCents);
 
         if (split.sellerAmount > 0) {
           await createTransfer({
             amountCents: split.sellerAmount,
             currency,
             destinationAccountId: sellerProfile.stripe_connect_account_id,
-            sourceChargeId: paymentIntent.latest_charge,
+            sourceChargeId: commitment.stripe_charge_id,
             commitmentId: commitment.id,
             role: "seller",
           });
@@ -239,9 +302,20 @@ async function settleDeadlines(request: Request) {
             amountCents: split.hubAmount,
             currency,
             destinationAccountId: hubDestinationAccount,
-            sourceChargeId: paymentIntent.latest_charge,
+            sourceChargeId: commitment.stripe_charge_id,
             commitmentId: commitment.id,
             role: "hub",
+          });
+        }
+
+        if (split.platformAmount > 0) {
+          await createTransfer({
+            amountCents: split.platformAmount,
+            currency,
+            destinationAccountId: crowdroastDestinationAccount,
+            sourceChargeId: commitment.stripe_charge_id,
+            commitmentId: commitment.id,
+            role: "crowdroast",
           });
         }
 
@@ -249,31 +323,20 @@ async function settleDeadlines(request: Request) {
           .from("commitments")
           .update({
             status: "confirmed",
-            payment_status: "charge_succeeded",
-            price_per_kg: finalPricePerKg,
-            total_price: totalPrice,
-            charge_amount_cents: amountCents,
+            charge_amount_cents: finalAmountCents,
             charge_currency: currency,
-            stripe_payment_intent_id: paymentIntent.id,
-            stripe_charge_id: paymentIntent.latest_charge,
-            charged_at: nowIso,
             payment_error: null,
           })
           .eq("id", commitment.id);
 
         succeededCount += 1;
-      } catch (chargeError) {
+      } catch (transferError) {
         failedCount += 1;
         await admin
           .from("commitments")
           .update({
-            payment_status: "charge_failed",
-            price_per_kg: finalPricePerKg,
-            total_price: totalPrice,
-            charge_amount_cents: amountCents,
-            charge_currency: currency,
             payment_error:
-              chargeError instanceof Error ? chargeError.message : "Charge failed",
+              transferError instanceof Error ? transferError.message : "Transfer failed",
           })
           .eq("id", commitment.id);
       }

@@ -37,7 +37,8 @@ export async function GET(
   const { count } = await supabase
     .from("commitments")
     .select("id", { count: "exact", head: true })
-    .eq("lot_id", id);
+    .eq("lot_id", id)
+    .not("stripe_payment_intent_id", "is", null);
 
   return NextResponse.json({
     lot,
@@ -77,7 +78,8 @@ export async function PATCH(
   const { count } = await supabase
     .from("commitments")
     .select("id", { count: "exact", head: true })
-    .eq("lot_id", id);
+    .eq("lot_id", id)
+    .not("stripe_payment_intent_id", "is", null);
 
   if ((count || 0) > 0) {
     return NextResponse.json(

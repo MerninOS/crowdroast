@@ -6,7 +6,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import Link from "next/link";
 import { ShoppingCart } from "lucide-react";
 import type { Commitment, CommitmentPaymentStatus, CommitmentStatus } from "@/lib/types";
-import { getCheckoutSession, getSetupIntent } from "@/lib/stripe";
+import { getCheckoutSession, getPaymentIntent } from "@/lib/stripe";
 import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
 
 const statusStyles: Record<string, string> = {
@@ -26,10 +26,10 @@ const paymentStatusStyles: Record<CommitmentPaymentStatus, string> = {
 };
 
 const paymentStatusLabels: Record<CommitmentPaymentStatus, string> = {
-  pending_setup: "Card Setup Needed",
-  setup_complete: "Card Ready",
-  charge_succeeded: "Charged",
-  charge_failed: "Charge Failed",
+  pending_setup: "Payment Pending",
+  setup_complete: "Payment Method Saved",
+  charge_succeeded: "Funds Held",
+  charge_failed: "Payment Failed",
   cancelled: "Cancelled",
 };
 
@@ -88,27 +88,45 @@ async function syncPendingSetupCommitments(
 
     try {
       const session = await getCheckoutSession(sessionId);
-      const setupIntentId = session.setup_intent || null;
-      let paymentMethodId = session.payment_method || null;
-      let customerId = session.customer || null;
+      if (session.mode === "payment") {
+        let latestCharge: string | null = null;
+        if (session.payment_intent) {
+          try {
+            const paymentIntent = await getPaymentIntent(session.payment_intent);
+            latestCharge = paymentIntent.latest_charge || null;
+          } catch {
+            latestCharge = null;
+          }
+        }
 
-      if (!paymentMethodId && setupIntentId) {
-        const setupIntent = await getSetupIntent(setupIntentId);
-        paymentMethodId = setupIntent.payment_method || null;
-        customerId = customerId || setupIntent.customer || null;
-      }
-
-      if (setupIntentId || paymentMethodId) {
-        await supabase
-          .from("commitments")
-          .update({
-            payment_status: "setup_complete",
-            stripe_setup_intent_id: setupIntentId,
-            stripe_payment_method_id: paymentMethodId,
-            stripe_customer_id: customerId,
-          })
-          .eq("id", commitment.id)
-          .eq("buyer_id", buyerId);
+        if (session.payment_status === "paid") {
+          await supabase
+            .from("commitments")
+            .update({
+              payment_status: "charge_succeeded",
+              stripe_customer_id: session.customer || null,
+              stripe_payment_intent_id: session.payment_intent || null,
+              stripe_charge_id: latestCharge,
+              charged_at: new Date().toISOString(),
+              payment_error: null,
+            })
+            .eq("id", commitment.id)
+            .eq("buyer_id", buyerId);
+        }
+      } else {
+        const setupIntentId = session.setup_intent || null;
+        if (setupIntentId || session.payment_method) {
+          await supabase
+            .from("commitments")
+            .update({
+              payment_status: "setup_complete",
+              stripe_setup_intent_id: setupIntentId,
+              stripe_payment_method_id: session.payment_method || null,
+              stripe_customer_id: session.customer || null,
+            })
+            .eq("id", commitment.id)
+            .eq("buyer_id", buyerId);
+        }
       }
     } catch {
       // Best-effort sync fallback when webhook hasn't updated yet.
@@ -119,16 +137,16 @@ async function syncPendingSetupCommitments(
 export default async function BuyerCommitmentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ payment_setup?: string }>;
+  searchParams: Promise<{ payment_setup?: string; payment?: string }>;
 }) {
-  const { payment_setup: paymentSetup } = await searchParams;
+  const { payment_setup: paymentSetup, payment } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/auth/login");
 
-  if (paymentSetup === "success") {
+  if (paymentSetup === "success" || payment === "success") {
     await syncPendingSetupCommitments(supabase, user.id);
   }
 
@@ -138,6 +156,7 @@ export default async function BuyerCommitmentsPage({
       "*, lot:lots!commitments_lot_id_fkey(id, title, origin_country, settlement_status, commitment_deadline, currency, committed_quantity_kg, price_per_kg)"
     )
     .eq("buyer_id", user.id)
+    .not("stripe_payment_intent_id", "is", null)
     .order("created_at", { ascending: false });
 
   const items = (commitments || []) as Commitment[];
@@ -208,8 +227,13 @@ export default async function BuyerCommitmentsPage({
           c.charge_amount_cents !== null ? c.charge_amount_cents / 100 : Number(c.total_price || 0);
         return sum + commitmentTotal;
       }, 0);
+      const paidAtCommitmentAmount = succeeded.reduce(
+        (sum, c) => sum + Number(c.total_price || 0),
+        0
+      );
       const securedKg = succeeded.reduce((sum, c) => sum + Number(c.quantity_kg || 0), 0);
       const finalPricePerKg = securedKg > 0 ? paidAmount / securedKg : currentPricePerKg;
+      const refundedAmount = Math.max(0, paidAtCommitmentAmount - paidAmount);
 
       return {
         ...group,
@@ -220,8 +244,10 @@ export default async function BuyerCommitmentsPage({
         currentPricePerKg,
         totalAtCurrentPrice,
         paidAmount,
+        paidAtCommitmentAmount,
         securedKg,
         finalPricePerKg,
+        refundedAmount,
       };
     })
     .sort((a, b) => {
@@ -308,18 +334,31 @@ export default async function BuyerCommitmentsPage({
                       {group.securedKg > 0 ? (
                         <div className="mt-2 grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
                           <div>
-                            <p className="text-xs text-muted-foreground">You Paid</p>
+                            <p className="text-xs text-muted-foreground">Paid at Commitment</p>
+                            <p className="font-semibold text-foreground">
+                              {formatMoney(group.paidAtCommitmentAmount, group.displayCurrency)}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Final Paid Amount</p>
                             <p className="font-semibold text-foreground">
                               {formatMoney(group.paidAmount, group.displayCurrency)}
                             </p>
                           </div>
                           <div>
-                            <p className="text-xs text-muted-foreground">Coffee Secured</p>
+                            <p className="text-xs text-muted-foreground">Refunded Before Payout</p>
                             <p className="font-semibold text-foreground">
-                              <UnitWeightText kg={group.securedKg} />
+                              {formatMoney(group.refundedAmount, group.displayCurrency)}
                             </p>
                           </div>
-                          <div>
+                          <div className="sm:col-span-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div>
+                              <p className="text-xs text-muted-foreground">Coffee Secured</p>
+                              <p className="font-semibold text-foreground">
+                                <UnitWeightText kg={group.securedKg} />
+                              </p>
+                            </div>
+                            <div>
                             <p className="text-xs text-muted-foreground">Final Price</p>
                             <p className="font-semibold text-foreground">
                               <UnitPriceText
@@ -327,11 +366,12 @@ export default async function BuyerCommitmentsPage({
                                 currency={group.displayCurrency}
                               />
                             </p>
+                            </div>
                           </div>
                         </div>
                       ) : group.lot?.settlement_status === "minimum_not_met" ? (
                         <p className="mt-2 text-sm text-muted-foreground">
-                          This campaign did not reach its minimum commitment. Your card was not charged.
+                          This campaign did not reach its minimum commitment. Your payment was refunded.
                         </p>
                       ) : group.commitments.some((c) => c.payment_status === "charge_failed") ? (
                         <p className="mt-2 text-sm text-red-700">
@@ -392,7 +432,7 @@ export default async function BuyerCommitmentsPage({
                                     </p>
                                   </div>
                                   <div>
-                                    <p className="text-xs text-muted-foreground">Price</p>
+                                    <p className="text-xs text-muted-foreground">Commit Price</p>
                                     <p className="font-medium text-foreground">
                                       <UnitPriceText
                                         pricePerKg={Number(c.price_per_kg || 0)}
@@ -401,12 +441,52 @@ export default async function BuyerCommitmentsPage({
                                     </p>
                                   </div>
                                   <div>
-                                    <p className="text-xs text-muted-foreground">Total</p>
+                                    <p className="text-xs text-muted-foreground">Paid at Commit</p>
                                     <p className="font-semibold text-foreground">
                                       {formatMoney(Number(c.total_price || 0), c.charge_currency || group.displayCurrency)}
                                     </p>
                                   </div>
                                 </div>
+
+                                {group.lot?.settlement_status !== "pending" && c.payment_status === "charge_succeeded" && (
+                                  <div className="mt-2 grid grid-cols-3 gap-3 text-sm">
+                                    <div>
+                                      <p className="text-xs text-muted-foreground">Final Price</p>
+                                      <p className="font-medium text-foreground">
+                                        <UnitPriceText
+                                          pricePerKg={group.currentPricePerKg}
+                                          currency={c.charge_currency || group.displayCurrency}
+                                        />
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <p className="text-xs text-muted-foreground">Final Paid</p>
+                                      <p className="font-medium text-foreground">
+                                        {formatMoney(
+                                          c.charge_amount_cents !== null
+                                            ? c.charge_amount_cents / 100
+                                            : Number(c.total_price || 0),
+                                          c.charge_currency || group.displayCurrency
+                                        )}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <p className="text-xs text-muted-foreground">Refund</p>
+                                      <p className="font-medium text-foreground">
+                                        {formatMoney(
+                                          Math.max(
+                                            0,
+                                            Number(c.total_price || 0) -
+                                              (c.charge_amount_cents !== null
+                                                ? c.charge_amount_cents / 100
+                                                : Number(c.total_price || 0))
+                                          ),
+                                          c.charge_currency || group.displayCurrency
+                                        )}
+                                      </p>
+                                    </div>
+                                  </div>
+                                )}
 
                                 {c.payment_status === "charge_failed" && c.payment_error && (
                                   <p className="mt-2 text-xs text-red-700">Charge issue: {c.payment_error}</p>
