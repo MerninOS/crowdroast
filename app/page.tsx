@@ -143,13 +143,13 @@ export default function HomePage() {
                 icon: Handshake,
                 title: "2. Commit your quantity",
                 description:
-                  "Set your kg amount, lock your card setup, and join other roasters in the same campaign.",
+                  "Set your kg amount, pay at commitment, and join other roasters in the same campaign.",
               },
               {
                 icon: CircleDollarSign,
                 title: "3. Pay final campaign price",
                 description:
-                  "When the deadline hits, everyone pays the final unlocked tier. If minimum is not met, no charge.",
+                  "Funds are held until the deadline, then distributed on success. If minimum is not met, payments are refunded.",
               },
             ].map((item, idx) => (
               <article

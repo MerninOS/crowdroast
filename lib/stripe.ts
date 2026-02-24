@@ -86,6 +86,8 @@ export interface StripeCheckoutSession {
   url: string;
   customer: string | null;
   setup_intent?: string | null;
+  payment_intent?: string | null;
+  payment_status?: string | null;
   mode?: string;
   payment_method?: string | null;
 }
@@ -146,12 +148,42 @@ export async function createSetupCheckoutSession(params: {
   });
 }
 
+export async function createPaymentCheckoutSession(params: {
+  customerId: string;
+  successUrl: string;
+  cancelUrl: string;
+  commitmentId: string;
+  lotId: string;
+  currency: string;
+  amountCents: number;
+  lineItemName: string;
+}) {
+  return stripeRequest<StripeCheckoutSession>("/checkout/sessions", {
+    mode: "payment",
+    customer: params.customerId,
+    success_url: params.successUrl,
+    cancel_url: params.cancelUrl,
+    "line_items[0][quantity]": 1,
+    "line_items[0][price_data][currency]": params.currency.toLowerCase(),
+    "line_items[0][price_data][unit_amount]": params.amountCents,
+    "line_items[0][price_data][product_data][name]": params.lineItemName,
+    "metadata[commitment_id]": params.commitmentId,
+    "metadata[lot_id]": params.lotId,
+    "payment_intent_data[metadata][commitment_id]": params.commitmentId,
+    "payment_intent_data[metadata][lot_id]": params.lotId,
+  });
+}
+
 export async function getCheckoutSession(sessionId: string) {
   return stripeGetRequest<StripeCheckoutSession>(`/checkout/sessions/${sessionId}`);
 }
 
 export async function getSetupIntent(setupIntentId: string) {
   return stripeGetRequest<StripeSetupIntent>(`/setup_intents/${setupIntentId}`);
+}
+
+export async function getPaymentIntent(paymentIntentId: string) {
+  return stripeGetRequest<StripePaymentIntent>(`/payment_intents/${paymentIntentId}`);
 }
 
 export async function createAndConfirmPaymentIntent(params: {
@@ -184,7 +216,7 @@ export async function createTransfer(params: {
   destinationAccountId: string;
   sourceChargeId: string;
   commitmentId: string;
-  role: "seller" | "hub";
+  role: "seller" | "hub" | "crowdroast";
 }) {
   return stripeRequest<StripeTransfer>(
     "/transfers",
@@ -198,6 +230,22 @@ export async function createTransfer(params: {
     },
     `transfer-${params.role}-${params.commitmentId}`
   );
+}
+
+export async function createRefund(params: {
+  paymentIntentId: string;
+  amountCents?: number;
+  commitmentId: string;
+  reason?: "duplicate" | "fraudulent" | "requested_by_customer";
+  idempotencySuffix?: string;
+}) {
+  const suffix = params.idempotencySuffix ? `-${params.idempotencySuffix}` : "";
+  return stripeRequest<{ id: string }>("/refunds", {
+    payment_intent: params.paymentIntentId,
+    amount: params.amountCents,
+    reason: params.reason,
+    "metadata[commitment_id]": params.commitmentId,
+  }, `refund-${params.commitmentId}${suffix}`);
 }
 
 export async function createExpressConnectedAccount(params: {

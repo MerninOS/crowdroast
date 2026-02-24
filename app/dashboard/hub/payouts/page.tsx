@@ -67,7 +67,7 @@ export default async function HubPayoutsPage({
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            CrowdRoast transfers 2% of each successful settlement charge to your connected account.
+            Buyer funds are charged when they commit and held until deadline; on settlement, CrowdRoast transfers your 2% fee to your connected account.
           </p>
           <StripeConnectButton connected={connected} roleLabel="hub" />
         </CardContent>

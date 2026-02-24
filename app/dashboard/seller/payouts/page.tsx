@@ -67,7 +67,7 @@ export default async function SellerPayoutsPage({
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            When a buyer card is charged at settlement, CrowdRoast transfers 90% to your connected account.
+            Buyer funds are charged when they commit and held until deadline; on settlement, CrowdRoast transfers 90% to your connected account.
           </p>
           <StripeConnectButton connected={connected} roleLabel="seller" />
         </CardContent>

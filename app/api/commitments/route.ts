@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import {
-  createSetupCheckoutSession,
+  createPaymentCheckoutSession,
   createStripeCustomer,
 } from "@/lib/stripe";
 import { NextResponse } from "next/server";
@@ -88,6 +88,7 @@ export async function POST(request: Request) {
   }
 
   const total_price = quantity_kg * activePricePerKg;
+  const chargeAmountCents = Math.round(total_price * 100);
 
   const { data: profile } = await supabase
     .from("profiles")
@@ -118,7 +119,7 @@ export async function POST(request: Request) {
       notes: notes || null,
       status: "pending",
       payment_status: "pending_setup",
-      charge_amount_cents: Math.round(total_price * 100),
+      charge_amount_cents: chargeAmountCents,
       charge_currency: (lot.currency || "USD").toLowerCase(),
       stripe_customer_id: stripeCustomerId,
     })
@@ -138,16 +139,18 @@ export async function POST(request: Request) {
   }
 
   try {
-    const successUrl = `${origin}/dashboard/buyer/commitments?payment_setup=success`;
-    const cancelUrl = `${origin}/dashboard/buyer/lot/${lot_id}?payment_setup=cancelled`;
+    const successUrl = `${origin}/dashboard/buyer/commitments?payment=success`;
+    const cancelUrl = `${origin}/dashboard/buyer/lot/${lot_id}?payment=cancelled`;
 
-    const session = await createSetupCheckoutSession({
+    const session = await createPaymentCheckoutSession({
       customerId: stripeCustomerId!,
       successUrl,
       cancelUrl,
       commitmentId: data.id,
       lotId: lot_id,
       currency: lot.currency || "USD",
+      amountCents: chargeAmountCents,
+      lineItemName: `${lot.title} commitment`,
     });
 
     await supabase
@@ -179,7 +182,7 @@ export async function POST(request: Request) {
         error:
           checkoutError instanceof Error
             ? checkoutError.message
-            : "Failed to initialize payment setup",
+            : "Failed to initialize payment checkout",
       },
       { status: 500 }
     );

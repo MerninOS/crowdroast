@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { verifyStripeWebhookSignature } from "@/lib/stripe";
+import { getPaymentIntent, verifyStripeWebhookSignature } from "@/lib/stripe";
 import { NextResponse } from "next/server";
 
 interface StripeEvent {
@@ -30,11 +30,45 @@ export async function POST(request: Request) {
         id: string;
         mode?: string;
         setup_intent?: string | null;
+        payment_intent?: string | null;
+        payment_status?: string | null;
         customer?: string | null;
         payment_method?: string | null;
       };
 
-      if (session.mode === "setup") {
+      if (session.mode === "payment") {
+        const admin = createAdminClient();
+
+        let latestCharge: string | null = null;
+        if (session.payment_intent) {
+          try {
+            const paymentIntent = await getPaymentIntent(session.payment_intent);
+            latestCharge = paymentIntent.latest_charge || null;
+          } catch {
+            latestCharge = null;
+          }
+        }
+
+        const updatePayload: Record<string, unknown> = {
+          stripe_customer_id: session.customer || null,
+          stripe_payment_intent_id: session.payment_intent || null,
+          stripe_charge_id: latestCharge,
+        };
+
+        if (session.payment_status === "paid") {
+          updatePayload.payment_status = "charge_succeeded";
+          updatePayload.charged_at = new Date().toISOString();
+          updatePayload.payment_error = null;
+        } else {
+          updatePayload.payment_status = "charge_failed";
+          updatePayload.payment_error = "Checkout completed without paid status";
+        }
+
+        await admin
+          .from("commitments")
+          .update(updatePayload)
+          .eq("stripe_checkout_session_id", session.id);
+      } else if (session.mode === "setup") {
         const admin = createAdminClient();
 
         const updatePayload: Record<string, unknown> = {
@@ -51,6 +85,29 @@ export async function POST(request: Request) {
           .from("commitments")
           .update(updatePayload)
           .eq("stripe_checkout_session_id", session.id);
+      }
+    }
+
+    if (event.type === "payment_intent.succeeded") {
+      const paymentIntent = event.data.object as {
+        id: string;
+        latest_charge?: string | null;
+        metadata?: { commitment_id?: string };
+      };
+
+      if (paymentIntent.metadata?.commitment_id) {
+        const admin = createAdminClient();
+
+        await admin
+          .from("commitments")
+          .update({
+            payment_status: "charge_succeeded",
+            stripe_payment_intent_id: paymentIntent.id,
+            stripe_charge_id: paymentIntent.latest_charge || null,
+            charged_at: new Date().toISOString(),
+            payment_error: null,
+          })
+          .eq("id", paymentIntent.metadata.commitment_id);
       }
     }
 
