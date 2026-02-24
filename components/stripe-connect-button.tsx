@@ -9,7 +9,7 @@ export function StripeConnectButton({
   roleLabel,
 }: {
   connected: boolean;
-  roleLabel: "seller" | "hub";
+  roleLabel: "seller" | "hub" | "admin";
 }) {
   const [isLoading, setIsLoading] = useState(false);
 

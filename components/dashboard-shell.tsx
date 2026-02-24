@@ -19,11 +19,14 @@ import {
   Menu,
   X,
   User as UserIcon,
+  Shield,
 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import type { User } from "@supabase/supabase-js";
-import type { Profile } from "@/lib/types";
+import type { Profile, UserRole } from "@/lib/types";
 import { UnitToggle } from "@/components/unit-toggle";
+
+type DashboardRole = UserRole | "admin";
 
 const navByRole = {
   buyer: [
@@ -39,6 +42,11 @@ const navByRole = {
       icon: FlaskConical,
     },
     { href: "/dashboard/buyer/claims", label: "Claims", icon: FileWarning },
+    {
+      href: "/dashboard/buyer/access-request",
+      label: "Role Request",
+      icon: UserIcon,
+    },
   ],
   seller: [
     { href: "/dashboard/seller", label: "Overview", icon: LayoutDashboard },
@@ -68,6 +76,15 @@ const navByRole = {
     },
     { href: "/dashboard/hub/payouts", label: "Payouts", icon: CreditCard },
     { href: "/dashboard/hub/shipments", label: "Shipments", icon: Truck },
+  ],
+  admin: [
+    { href: "/dashboard/admin/roles", label: "Roles & Users", icon: Shield },
+    { href: "/dashboard/admin/hubs", label: "Hubs", icon: Warehouse },
+    { href: "/dashboard/admin/invites", label: "Invitations", icon: UserIcon },
+    { href: "/dashboard/admin/requests", label: "Access Requests", icon: ShoppingCart },
+    { href: "/dashboard/admin/claims", label: "Claims", icon: FileWarning },
+    { href: "/dashboard/admin/refunds", label: "Refunds", icon: CreditCard },
+    { href: "/dashboard/admin/payouts", label: "Payouts", icon: CreditCard },
   ],
 };
 
@@ -103,19 +120,18 @@ function NavLink({
 export function DashboardShell({
   user,
   profile,
+  role,
   children,
 }: {
   user: User;
   profile: Profile | null;
+  role: DashboardRole;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const role = (profile?.role ||
-    user.user_metadata?.role ||
-    "buyer") as keyof typeof navByRole;
   const navItems = navByRole[role] || navByRole.buyer;
 
   const closeMobile = useCallback(() => setMobileOpen(false), []);
@@ -146,6 +162,8 @@ export function DashboardShell({
   const roleLabel =
     role === "hub_owner"
       ? "Hub Owner"
+      : role === "admin"
+        ? "Admin"
       : role.charAt(0).toUpperCase() + role.slice(1);
 
   return (

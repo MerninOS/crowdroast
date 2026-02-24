@@ -5,7 +5,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Coffee, Mail } from "lucide-react";
+import { Mail } from "lucide-react";
 
 export default function SignUpSuccessPage() {
   return (
@@ -28,7 +28,9 @@ export default function SignUpSuccessPage() {
             <CardContent>
               <p className="text-center text-sm text-muted-foreground leading-relaxed">
                 Click the link in your email to confirm your account. Once
-                confirmed, you can sign in and start trading specialty coffee.
+                confirmed, you can sign in as a buyer. If you need seller or
+                hub-owner access, submit a role request from your buyer
+                dashboard.
               </p>
             </CardContent>
           </Card>

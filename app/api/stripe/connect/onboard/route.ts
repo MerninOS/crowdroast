@@ -4,6 +4,7 @@ import {
   createExpressDashboardLoginLink,
   createExpressConnectedAccount,
 } from "@/lib/stripe";
+import { isAdminEmail } from "@/lib/auth/admin";
 import { NextResponse } from "next/server";
 
 function isMissingStripeConnectColumn(error: { message?: string } | null) {
@@ -65,9 +66,11 @@ export async function POST(request: Request) {
     profile = upserted;
   }
 
-  if (profile.role !== "seller" && profile.role !== "hub_owner") {
+  const isAdmin = isAdminEmail(user.email);
+
+  if (!isAdmin && profile.role !== "seller" && profile.role !== "hub_owner") {
     return NextResponse.json(
-      { error: "Only sellers and hub owners can onboard payouts" },
+      { error: "Only sellers, hub owners, and admin can onboard payouts" },
       { status: 403 }
     );
   }
@@ -134,7 +137,9 @@ export async function POST(request: Request) {
   }
 
   const basePath =
-    profile.role === "hub_owner"
+    isAdmin
+      ? "/dashboard/admin/payouts"
+      : profile.role === "hub_owner"
       ? "/dashboard/hub/payouts"
       : "/dashboard/seller/payouts";
   const returnUrl = `${origin}${basePath}?stripe_connect=return`;
