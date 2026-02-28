@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdminContext } from "@/lib/auth/admin-route";
-import { isAdminEmail } from "@/lib/auth/admin";
+import { isAdminAccount } from "@/lib/auth/admin";
 
 const ALLOWED_ROLES = new Set(["buyer", "seller", "hub_owner"]);
 
@@ -17,7 +17,9 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const rows = (data || []).filter((profile) => !isAdminEmail(profile.email));
+  const rows = (data || []).filter(
+    (profile) => !isAdminAccount({ email: profile.email, role: profile.role })
+  );
   return NextResponse.json(rows);
 }
 
@@ -38,7 +40,7 @@ export async function PATCH(request: Request) {
 
   const { data: target, error: targetError } = await ctx.admin
     .from("profiles")
-    .select("id, email")
+    .select("id, email, role")
     .eq("id", userId)
     .single();
 
@@ -46,7 +48,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "User not found" }, { status: 404 });
   }
 
-  if (isAdminEmail(target.email)) {
+  if (isAdminAccount({ email: target.email, role: target.role })) {
     return NextResponse.json(
       { error: "Admin account role cannot be changed" },
       { status: 400 }

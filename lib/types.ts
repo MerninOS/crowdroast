@@ -1,4 +1,4 @@
-export type UserRole = "buyer" | "seller" | "hub_owner";
+export type UserRole = "buyer" | "seller" | "hub_owner" | "admin";
 
 export type LotStatus =
   | "draft"

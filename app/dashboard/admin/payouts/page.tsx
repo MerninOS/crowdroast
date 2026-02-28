@@ -1,10 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
-import { redirect } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StripeConnectButton } from "@/components/stripe-connect-button";
 import { AlertCircle, CheckCircle2, Landmark } from "lucide-react";
-import { isAdminEmail } from "@/lib/auth/admin";
 
 export default async function AdminPayoutsPage({
   searchParams,
@@ -17,9 +15,9 @@ export default async function AdminPayoutsPage({
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) redirect("/auth/login");
-  if (!isAdminEmail(user.email)) redirect("/dashboard");
-
+  if (!user) {
+    return null;
+  }
   const { data: profile } = await supabase
     .from("profiles")
     .select("stripe_connect_account_id")

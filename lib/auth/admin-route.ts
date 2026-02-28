@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isAdminEmail } from "@/lib/auth/admin";
+import { isAdminAccount } from "@/lib/auth/admin";
 
 export async function requireAdminContext() {
   const supabase = await createClient();
@@ -15,7 +15,13 @@ export async function requireAdminContext() {
     };
   }
 
-  if (!isAdminEmail(user.email)) {
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (!isAdminAccount({ email: user.email, role: profile?.role })) {
     return {
       error: NextResponse.json({ error: "Forbidden" }, { status: 403 }),
     };
