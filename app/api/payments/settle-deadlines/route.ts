@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getConfiguredAdminEmail } from "@/lib/auth/admin";
+import { getConfiguredAdminEmails } from "@/lib/auth/admin";
 import {
   createRefund,
   createTransfer,
@@ -76,10 +76,10 @@ async function settleDeadlines(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const adminEmail = getConfiguredAdminEmail();
-  if (!adminEmail) {
+  const adminEmails = getConfiguredAdminEmails();
+  if (adminEmails.length === 0) {
     return NextResponse.json(
-      { error: "Missing ADMIN_EMAIL for platform payout destination" },
+      { error: "Missing ADMIN_EMAIL or ADMIN_EMAILS for platform payout destination" },
       { status: 500 }
     );
   }
@@ -104,9 +104,8 @@ async function settleDeadlines(request: Request) {
     return NextResponse.json({ error: payoutProfilesError.message }, { status: 500 });
   }
 
-  const normalizedAdminEmail = adminEmail.trim().toLowerCase();
   const profileMatch = (payoutProfiles || []).find(
-    (profile) => (profile.email || "").trim().toLowerCase() === normalizedAdminEmail
+    (profile) => adminEmails.includes((profile.email || "").trim().toLowerCase())
   );
 
   // Backward-compatible fallback while transitioning off env-configured platform account.

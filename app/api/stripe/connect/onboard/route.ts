@@ -6,7 +6,7 @@ import {
   requestTransferCapabilities,
 } from "@/lib/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isAdminEmail } from "@/lib/auth/admin";
+import { isAdminAccount } from "@/lib/auth/admin";
 import { NextResponse } from "next/server";
 
 function isMissingStripeConnectColumn(error: { message?: string } | null) {
@@ -68,7 +68,7 @@ export async function POST(request: Request) {
     profile = upserted;
   }
 
-  const isAdmin = isAdminEmail(user.email);
+  const isAdmin = isAdminAccount({ email: user.email, role: profile.role });
 
   if (!isAdmin && profile.role !== "seller" && profile.role !== "hub_owner") {
     return NextResponse.json(

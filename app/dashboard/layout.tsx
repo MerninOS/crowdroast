@@ -2,7 +2,7 @@ import React from "react"
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { DashboardShell } from "@/components/dashboard-shell";
-import { isAdminEmail } from "@/lib/auth/admin";
+import { isAdminAccount } from "@/lib/auth/admin";
 
 export default async function DashboardLayout({
   children,
@@ -27,8 +27,10 @@ export default async function DashboardLayout({
     .single();
 
   const baseRole =
-    profile?.role || (user.user_metadata?.role as "buyer" | "seller" | "hub_owner" | undefined) || "buyer";
-  const role = isAdminEmail(user.email) ? "admin" : baseRole;
+    profile?.role ||
+    (user.user_metadata?.role as "buyer" | "seller" | "hub_owner" | "admin" | undefined) ||
+    "buyer";
+  const role = isAdminAccount({ email: user.email, role: baseRole }) ? "admin" : baseRole;
 
   return (
     <DashboardShell

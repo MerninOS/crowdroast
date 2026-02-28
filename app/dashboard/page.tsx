@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { isAdminEmail } from "@/lib/auth/admin";
+import { isAdminAccount } from "@/lib/auth/admin";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -17,11 +17,11 @@ export default async function DashboardPage() {
     .single();
 
   const baseRole = profile?.role || user.user_metadata?.role || "buyer";
-  const role = isAdminEmail(user.email) ? "admin" : baseRole;
+  const role = isAdminAccount({ email: user.email, role: baseRole }) ? "admin" : baseRole;
 
   switch (role) {
     case "admin":
-      redirect("/dashboard/admin");
+      redirect("/dashboard/admin/roles");
     case "seller":
       redirect("/dashboard/seller");
     case "hub_owner":
