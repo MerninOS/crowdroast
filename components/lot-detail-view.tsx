@@ -32,6 +32,7 @@ import { CommitmentForm } from "@/components/commitment-form";
 import { SampleRequestButton } from "@/components/sample-request-button";
 import { useUnitPreference } from "@/components/unit-provider";
 import { formatUnitPrice, formatUnitWeight } from "@/lib/units";
+import { addPlatformFee } from "@/lib/pricing";
 
 interface LotDetailProps {
   lot: Lot;
@@ -208,7 +209,7 @@ export function LotDetailView({
                       {unit}
                     </span>{" "}
                     more needed to unlock{" "}
-                    {formatUnitPrice(nextTier.price_per_kg, unit, lot.currency || "USD")}/{unit}!
+                    {formatUnitPrice(addPlatformFee(nextTier.price_per_kg), unit, lot.currency || "USD")}/{unit}!
                   </>
                 )}
               </CardDescription>
@@ -281,7 +282,7 @@ export function LotDetailView({
                       <p
                         className={`text-lg font-bold ${isActive ? "text-primary" : "text-foreground"}`}
                       >
-                        {formatUnitPrice(tier.price_per_kg, unit, lot.currency || "USD")}
+                        {formatUnitPrice(addPlatformFee(tier.price_per_kg), unit, lot.currency || "USD")}
                         <span className="text-xs font-normal text-muted-foreground">
                           /{unit}
                         </span>
@@ -470,20 +471,20 @@ export function LotDetailView({
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="text-2xl">
-                    {formatUnitPrice(activePrice, unit, lot.currency || "USD")}
+                    {formatUnitPrice(addPlatformFee(activePrice), unit, lot.currency || "USD")}
                     <span className="text-sm font-normal text-muted-foreground">
                       / {unit}
                     </span>
                   </CardTitle>
                   <CardDescription>
                     {sortedTiers.length > 0
-                      ? "Current price (may decrease with more buyers)"
-                      : `${lot.currency || "USD"} per ${unit}`}
+                      ? "Current buyer price, including the 10% platform fee"
+                      : `${lot.currency || "USD"} per ${unit}, including the 10% platform fee`}
                   </CardDescription>
                 </div>
                 {lot.price_per_kg !== activePrice && (
                   <Badge variant="secondary" className="text-xs line-through opacity-60">
-                    {formatUnitPrice(lot.price_per_kg, unit, lot.currency || "USD")}
+                    {formatUnitPrice(addPlatformFee(lot.price_per_kg), unit, lot.currency || "USD")}
                   </Badge>
                 )}
               </div>
@@ -588,6 +589,12 @@ export function LotDetailView({
                   </Badge>
                 </div>
               </div>
+
+              <Separator />
+
+              <p className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
+                Buyer pricing includes a 10% platform fee. Sellers still receive the full base price they set for the lot.
+              </p>
 
               <Separator />
 

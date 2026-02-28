@@ -24,6 +24,7 @@ import {
   fromDisplayPricePerUnit,
   fromDisplayWeight,
 } from "@/lib/units";
+import { addPlatformFee } from "@/lib/pricing";
 
 interface TierRow {
   min_quantity_kg: string;
@@ -206,6 +207,7 @@ export default function CreateLotPage() {
   };
 
   const basePrice = Number.parseFloat(form.price_per_kg) || 0;
+  const buyerBasePrice = addPlatformFee(basePrice);
   const minQty = Number.parseFloat(form.min_commitment_kg) || 0;
   const maxQty = Number.parseFloat(form.total_quantity_kg) || 0;
 
@@ -416,7 +418,7 @@ export default function CreateLotPage() {
                     onChange={(e) => update("price_per_kg", e.target.value)}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Price at the minimum trigger quantity
+                    This is the amount you will receive at the minimum trigger quantity. Buyers will see {basePrice > 0 ? `$${buyerBasePrice.toFixed(2)}/${unit}` : "your price plus 10%"}.
                   </p>
                 </div>
               </div>
@@ -483,6 +485,9 @@ export default function CreateLotPage() {
                     {basePrice > 0 ? `$${basePrice.toFixed(2)}/${unit}` : "--"}
                   </p>
                 </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Buyers see {basePrice > 0 ? `$${buyerBasePrice.toFixed(2)}/${unit}` : "--"}, which includes the 10% platform fee. You still receive the full base price above.
+                </p>
               </div>
 
               {tiers.map((tier, idx) => (
@@ -537,9 +542,10 @@ export default function CreateLotPage() {
                     <p className="text-xs text-muted-foreground">
                       If total commitments reach{" "}
                       {Number.parseFloat(tier.min_quantity_kg).toLocaleString()}{" "}
-                      {unit}, everyone pays $
+                      {unit}, you receive $
                       {Number.parseFloat(tier.price_per_kg).toFixed(2)}/{unit}
-                      instead of ${basePrice.toFixed(2)}/{unit}
+                      and buyers pay $
+                      {addPlatformFee(Number.parseFloat(tier.price_per_kg)).toFixed(2)}/{unit}
                     </p>
                   )}
                 </div>

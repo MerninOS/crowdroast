@@ -89,6 +89,36 @@ export async function PATCH(
   }
 
   const body = await request.json();
+  if (
+    typeof body?.status === "string" &&
+    Object.keys(body).length === 1
+  ) {
+    const nextStatus = body.status;
+
+    if (nextStatus !== "active" && nextStatus !== "draft") {
+      return NextResponse.json(
+        { error: "Status must be either active or draft" },
+        { status: 400 }
+      );
+    }
+
+    const { data: updatedStatusLot, error: statusError } = await supabase
+      .from("lots")
+      .update({
+        status: nextStatus,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (statusError) {
+      return NextResponse.json({ error: statusError.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ lot: updatedStatusLot });
+  }
+
   const {
     title,
     origin_country,

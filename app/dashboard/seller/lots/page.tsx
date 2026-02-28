@@ -8,6 +8,8 @@ import { Plus, Pencil, Package } from "lucide-react";
 import Link from "next/link";
 import type { Lot } from "@/lib/types";
 import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
+import { SellerLotCsvUploadModal } from "@/components/seller-lot-csv-upload-modal";
+import { SellerLotStatusToggle } from "@/components/seller-lot-status-toggle";
 
 const statusStyles: Record<string, string> = {
   active: "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -37,12 +39,15 @@ export default async function SellerLotsPage() {
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">My Lots</h1>
           <p className="text-sm text-muted-foreground mt-1">Manage your coffee lot listings.</p>
         </div>
-        <Button asChild className="w-full sm:w-auto shadow-sm">
-          <Link href="/dashboard/seller/lots/new">
-            <Plus className="mr-2 h-4 w-4" />
-            Create Lot
-          </Link>
-        </Button>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+          <SellerLotCsvUploadModal />
+          <Button asChild className="w-full sm:w-auto shadow-sm">
+            <Link href="/dashboard/seller/lots/new">
+              <Plus className="mr-2 h-4 w-4" />
+              Create Lot
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {myLots.length === 0 ? (
@@ -54,9 +59,12 @@ export default async function SellerLotsPage() {
             <p className="text-sm text-muted-foreground">
               You haven&apos;t created any lots yet.
             </p>
-            <Button asChild className="mt-4" size="sm">
-              <Link href="/dashboard/seller/lots/new">Create Your First Lot</Link>
-            </Button>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+              <SellerLotCsvUploadModal />
+              <Button asChild size="sm">
+                <Link href="/dashboard/seller/lots/new">Create Your First Lot</Link>
+              </Button>
+            </div>
           </CardContent>
         </Card>
       ) : (
@@ -94,6 +102,13 @@ export default async function SellerLotsPage() {
                       <Badge variant="outline" className={`text-xs ${statusStyles[lot.status] || ""}`}>
                         {statusLabel}
                       </Badge>
+                      {(lot.status === "active" || lot.status === "draft") && (
+                        <SellerLotStatusToggle
+                          lotId={lot.id}
+                          currentStatus={lot.status}
+                          hasContributors={Number(lot.committed_quantity_kg || 0) > 0}
+                        />
+                      )}
                       <Button asChild size="sm" variant="outline" className="hidden sm:flex bg-transparent">
                         <Link href={`/dashboard/seller/lots/${lot.id}/edit`}>
                           <Pencil className="mr-1 h-3 w-3" />

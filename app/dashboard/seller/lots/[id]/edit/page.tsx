@@ -28,6 +28,7 @@ import {
   toDisplayPricePerUnit,
   toDisplayWeight,
 } from "@/lib/units";
+import { addPlatformFee } from "@/lib/pricing";
 
 interface TierRow {
   min_quantity_kg: string;
@@ -229,6 +230,7 @@ export default function EditLotPage({
   };
 
   const basePrice = Number.parseFloat(form.price_per_kg) || 0;
+  const buyerBasePrice = addPlatformFee(basePrice);
   const minQty = Number.parseFloat(form.min_commitment_kg) || 0;
   const maxQty = Number.parseFloat(form.total_quantity_kg) || 0;
 
@@ -464,6 +466,9 @@ export default function EditLotPage({
                       value={form.price_per_kg}
                       onChange={(e) => update("price_per_kg", e.target.value)}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      This is the amount you receive. Buyers see {basePrice > 0 ? `$${buyerBasePrice.toFixed(2)}/${unit}` : "your price plus 10%"}.
+                    </p>
                   </div>
                 </div>
 
@@ -523,6 +528,9 @@ export default function EditLotPage({
                       {basePrice > 0 ? `$${basePrice.toFixed(2)}/${unit}` : "--"}
                     </p>
                   </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Buyers see {basePrice > 0 ? `$${buyerBasePrice.toFixed(2)}/${unit}` : "--"}, including the 10% platform fee. You still receive the full base price above.
+                  </p>
                 </div>
 
                 {tiers.map((tier, idx) => (
@@ -570,6 +578,14 @@ export default function EditLotPage({
                         />
                       </div>
                     </div>
+                    {tier.min_quantity_kg && tier.price_per_kg && (
+                      <p className="text-xs text-muted-foreground">
+                        At this tier, you receive $
+                        {Number.parseFloat(tier.price_per_kg).toFixed(2)}/{unit}
+                        and buyers pay $
+                        {addPlatformFee(Number.parseFloat(tier.price_per_kg)).toFixed(2)}/{unit}.
+                      </p>
+                    )}
                   </div>
                 ))}
 

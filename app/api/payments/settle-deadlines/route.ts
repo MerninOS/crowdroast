@@ -10,6 +10,7 @@ import {
 } from "@/lib/stripe";
 import {
   computeChargeAdjustment,
+  computeSellerNetAmountCents,
   computeSplit,
   getFinalPricePerKg,
 } from "@/lib/payments/settlement-logic";
@@ -349,7 +350,7 @@ async function settleDeadlines(request: Request) {
       .eq("lot_id", lot.id)
       .order("min_quantity_kg", { ascending: false });
 
-    const finalPricePerKg = getFinalPricePerKg(
+    const finalSellerPricePerKg = getFinalPricePerKg(
       lot.price_per_kg,
       lot.committed_quantity_kg,
       tiers || []
@@ -516,8 +517,13 @@ async function settleDeadlines(request: Request) {
         const { finalAmountCents, refundAmountCents } = computeChargeAdjustment({
           quantityKg: commitment.quantity_kg,
           committedTotalPrice: commitment.total_price,
-          finalPricePerKg,
+          finalSellerPricePerKg,
         });
+
+        const sellerNetAmountCents = computeSellerNetAmountCents(
+          commitment.quantity_kg,
+          finalSellerPricePerKg
+        );
 
         let existingRefunds: Array<{
           id?: string;
@@ -551,7 +557,10 @@ async function settleDeadlines(request: Request) {
           });
         }
 
-        const split = computeSplit(finalAmountCents);
+        const split = computeSplit({
+          grossAmountCents: finalAmountCents,
+          sellerNetAmountCents,
+        });
         let existingTransfers: Array<{
           amount?: number;
           destination?: string | null;

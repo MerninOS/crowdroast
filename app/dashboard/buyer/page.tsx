@@ -323,6 +323,7 @@ export default async function BuyerOverview({
                             <UnitPriceText
                               pricePerKg={card.currentPrice}
                               currency={card.lot.currency || "USD"}
+                              includePlatformFee
                             />
                           </p>
                           {card.lowestPrice < card.currentPrice && (
@@ -332,6 +333,7 @@ export default async function BuyerOverview({
                               <UnitPriceText
                                 pricePerKg={card.lowestPrice}
                                 currency={card.lot.currency || "USD"}
+                                includePlatformFee
                               />
                             </p>
                           )}
@@ -368,6 +370,7 @@ export default async function BuyerOverview({
                                 (<UnitPriceText
                                   pricePerKg={card.nextMilestone.nextPricePerKg}
                                   currency={card.lot.currency || "USD"}
+                                  includePlatformFee
                                 />)
                               </span>
                             )}

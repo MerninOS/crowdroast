@@ -206,6 +206,7 @@ export default async function BuyerBrowsePage() {
                                 <UnitPriceText
                                   pricePerKg={currentPrice}
                                   currency={lot.currency || "USD"}
+                                  includePlatformFee
                                 />
                               </span>
                               {currentPrice !== lot.price_per_kg && (
@@ -213,6 +214,7 @@ export default async function BuyerBrowsePage() {
                                   <UnitPriceText
                                     pricePerKg={lot.price_per_kg}
                                     currency={lot.currency || "USD"}
+                                    includePlatformFee
                                   />
                                 </span>
                               )}
@@ -228,6 +230,7 @@ export default async function BuyerBrowsePage() {
                                   <UnitPriceText
                                     pricePerKg={lowestPrice}
                                     currency={lot.currency || "USD"}
+                                    includePlatformFee
                                   />
                                 </Badge>
                               )}
