@@ -3,6 +3,7 @@ import {
   createAccountOnboardingLink,
   createExpressDashboardLoginLink,
   createExpressConnectedAccount,
+  requestTransferCapabilities,
 } from "@/lib/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdminEmail } from "@/lib/auth/admin";
@@ -165,6 +166,20 @@ export async function POST(request: Request) {
     }
   }
 
+  const refreshedAccount = await requestTransferCapabilities(accountId);
+  const hasTransferCapability =
+    refreshedAccount.capabilities?.transfers === "active" ||
+    refreshedAccount.capabilities?.crypto_transfers === "active" ||
+    refreshedAccount.capabilities?.legacy_payments === "active";
+  const hasOutstandingRequirements =
+    Boolean(refreshedAccount.requirements?.currently_due?.length) ||
+    Boolean(refreshedAccount.requirements?.past_due?.length);
+  const needsOnboarding =
+    !isExistingAccount ||
+    !hasTransferCapability ||
+    refreshedAccount.details_submitted === false ||
+    hasOutstandingRequirements;
+
   const basePath =
     isAdmin
       ? "/dashboard/admin/payouts"
@@ -174,7 +189,7 @@ export async function POST(request: Request) {
   const returnUrl = `${origin}${basePath}?stripe_connect=return`;
   const refreshUrl = `${origin}${basePath}?stripe_connect=refresh`;
 
-  if (isExistingAccount) {
+  if (!needsOnboarding) {
     const loginLink = await createExpressDashboardLoginLink({ accountId });
     return NextResponse.json(
       { account_id: accountId, dashboard_url: loginLink.url },
