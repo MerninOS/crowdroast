@@ -8,6 +8,7 @@ import { ShoppingCart } from "lucide-react";
 import type { Commitment, CommitmentPaymentStatus, CommitmentStatus } from "@/lib/types";
 import { getCheckoutSession, getPaymentIntent } from "@/lib/stripe";
 import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
+import { addPlatformFee } from "@/lib/pricing";
 
 const statusStyles: Record<string, string> = {
   pending: "bg-amber-50 text-amber-700 border-amber-200",
@@ -219,7 +220,8 @@ export default async function BuyerCommitmentsPage({
 
       const tiers = tiersByLotId[group.lotId] || [];
       const currentPricePerKg = getCurrentLotPrice(group.lot, tiers);
-      const totalAtCurrentPrice = totalCommittedKg * currentPricePerKg;
+      const totalAtCurrentPrice =
+        totalCommittedKg * addPlatformFee(currentPricePerKg);
 
       const succeeded = group.commitments.filter((c) => c.payment_status === "charge_succeeded");
       const paidAmount = succeeded.reduce((sum, c) => {
@@ -232,7 +234,8 @@ export default async function BuyerCommitmentsPage({
         0
       );
       const securedKg = succeeded.reduce((sum, c) => sum + Number(c.quantity_kg || 0), 0);
-      const finalPricePerKg = securedKg > 0 ? paidAmount / securedKg : currentPricePerKg;
+      const finalBuyerPricePerKg =
+        securedKg > 0 ? paidAmount / securedKg : addPlatformFee(currentPricePerKg);
       const refundedAmount = Math.max(0, paidAtCommitmentAmount - paidAmount);
 
       return {
@@ -246,7 +249,7 @@ export default async function BuyerCommitmentsPage({
         paidAmount,
         paidAtCommitmentAmount,
         securedKg,
-        finalPricePerKg,
+        finalBuyerPricePerKg,
         refundedAmount,
       };
     })
@@ -315,6 +318,7 @@ export default async function BuyerCommitmentsPage({
                         <UnitPriceText
                           pricePerKg={group.currentPricePerKg}
                           currency={group.displayCurrency}
+                          includePlatformFee
                         />
                       </p>
                     </div>
@@ -362,7 +366,7 @@ export default async function BuyerCommitmentsPage({
                             <p className="text-xs text-muted-foreground">Final Price</p>
                             <p className="font-semibold text-foreground">
                               <UnitPriceText
-                                pricePerKg={group.finalPricePerKg}
+                                pricePerKg={group.finalBuyerPricePerKg}
                                 currency={group.displayCurrency}
                               />
                             </p>
@@ -437,6 +441,7 @@ export default async function BuyerCommitmentsPage({
                                       <UnitPriceText
                                         pricePerKg={Number(c.price_per_kg || 0)}
                                         currency={c.charge_currency || group.displayCurrency}
+                                        includePlatformFee
                                       />
                                     </p>
                                   </div>
@@ -456,6 +461,7 @@ export default async function BuyerCommitmentsPage({
                                         <UnitPriceText
                                           pricePerKg={group.currentPricePerKg}
                                           currency={c.charge_currency || group.displayCurrency}
+                                          includePlatformFee
                                         />
                                       </p>
                                     </div>

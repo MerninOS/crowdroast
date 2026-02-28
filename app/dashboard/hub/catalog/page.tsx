@@ -21,6 +21,7 @@ import Link from "next/link";
 import type { Hub, Lot } from "@/lib/types";
 import { useUnitPreference } from "@/components/unit-provider";
 import { formatUnitPrice, formatUnitWeight } from "@/lib/units";
+import { addPlatformFee } from "@/lib/pricing";
 
 export default function HubCatalogPage() {
   const { unit } = useUnitPreference();
@@ -217,7 +218,7 @@ export default function HubCatalogPage() {
                     <p className="text-sm text-muted-foreground mt-1">
                       {lot.origin_country}
                       {lot.region ? `, ${lot.region}` : ""} &middot;{" "}
-                      {formatUnitPrice(lot.price_per_kg, unit, lot.currency || "USD")}/{unit}
+                      {formatUnitPrice(addPlatformFee(lot.price_per_kg), unit, lot.currency || "USD")}/{unit}
                     </p>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       Seller: {seller?.company_name || seller?.contact_name || "Unknown"}

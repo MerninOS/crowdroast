@@ -3,6 +3,7 @@ import {
   createPaymentCheckoutSession,
   createStripeCustomer,
 } from "@/lib/stripe";
+import { addPlatformFee } from "@/lib/pricing";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
@@ -77,17 +78,18 @@ export async function POST(request: Request) {
   const newTotal = lot.committed_quantity_kg + quantity_kg;
 
   // Find the highest tier that the new total reaches
-  let activePricePerKg = lot.price_per_kg; // base price
+  let activeSellerPricePerKg = lot.price_per_kg;
   if (tiers && tiers.length > 0) {
     for (const tier of tiers) {
       if (newTotal >= tier.min_quantity_kg) {
-        activePricePerKg = tier.price_per_kg;
+        activeSellerPricePerKg = tier.price_per_kg;
         break; // tiers are sorted desc, so first match is the highest applicable
       }
     }
   }
 
-  const total_price = quantity_kg * activePricePerKg;
+  const activeBuyerPricePerKg = addPlatformFee(activeSellerPricePerKg);
+  const total_price = quantity_kg * activeBuyerPricePerKg;
   const chargeAmountCents = Math.round(total_price * 100);
 
   const { data: profile } = await supabase
@@ -123,7 +125,7 @@ export async function POST(request: Request) {
     buyer_id: user.id,
     hub_id: hub_id || null,
     quantity_kg,
-    price_per_kg: activePricePerKg,
+    price_per_kg: activeSellerPricePerKg,
     total_price,
     notes: notes || null,
     status: "pending",

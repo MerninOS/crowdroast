@@ -21,6 +21,7 @@ import {
   toDisplayPricePerUnit,
   toDisplayWeight,
 } from "@/lib/units";
+import { addPlatformFee } from "@/lib/pricing";
 
 export function CommitmentForm({
   lotId,
@@ -42,9 +43,10 @@ export function CommitmentForm({
 
   const enteredQty = Number.parseFloat(quantity) || 0;
   const qtyKg = fromDisplayWeight(enteredQty, unit);
-  const total = qtyKg * activePrice;
+  const buyerPricePerKg = addPlatformFee(activePrice);
+  const total = qtyKg * buyerPricePerKg;
   const maxInSelectedUnit = toDisplayWeight(maxKg, unit);
-  const displayPrice = toDisplayPricePerUnit(activePrice, unit);
+  const displayPrice = toDisplayPricePerUnit(buyerPricePerKg, unit);
 
   const validateQuantity = () => {
     if (qtyKg <= 0 || qtyKg > maxKg) {
@@ -144,7 +146,7 @@ export function CommitmentForm({
           </span>
         </div>
         <p className="text-xs text-muted-foreground mt-1">
-          You will be charged now and funds are held until the deadline
+          This includes the 10% platform fee. Funds are held until the deadline.
         </p>
       </div>
       <Button type="submit" className="w-full" disabled={isLoading}>
@@ -177,7 +179,7 @@ export function CommitmentForm({
               Charged now: <span className="font-medium">${total.toFixed(2)}</span>
             </p>
             <p className="text-muted-foreground">
-              If the lot unlocks a lower final tier by deadline, you will be refunded the difference before payouts are distributed.
+              This charge includes the 10% platform fee. If the lot unlocks a lower final tier by deadline, you will be refunded the difference before payouts are distributed.
             </p>
           </div>
 

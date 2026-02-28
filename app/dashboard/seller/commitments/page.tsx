@@ -57,7 +57,9 @@ export default async function SellerCommitmentsPage() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {items.map((c) => (
+          {items.map((c) => {
+            const sellerTotal = Number(c.quantity_kg || 0) * Number(c.price_per_kg || 0);
+            return (
             <Card key={c.id} className="shadow-sm">
               <CardContent className="p-4">
                 <div className="flex items-start justify-between gap-3">
@@ -81,22 +83,26 @@ export default async function SellerCommitmentsPage() {
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Price</p>
+                    <p className="text-xs text-muted-foreground">Your Price</p>
                     <p className="font-medium text-foreground">
                       <UnitPriceText pricePerKg={c.price_per_kg} />
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Total</p>
-                    <p className="font-semibold text-foreground">${c.total_price.toLocaleString()}</p>
+                    <p className="text-xs text-muted-foreground">Your Total</p>
+                    <p className="font-semibold text-foreground">${sellerTotal.toLocaleString()}</p>
                   </div>
                 </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Buyer pricing includes the 10% platform fee. Your payout is based on the seller price above.
+                </p>
                 <p className="mt-2 text-xs text-muted-foreground">
                   {new Date(c.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
                 </p>
               </CardContent>
             </Card>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
