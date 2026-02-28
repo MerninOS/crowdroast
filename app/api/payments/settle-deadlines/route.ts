@@ -3,6 +3,10 @@ import { getConfiguredAdminEmail } from "@/lib/auth/admin";
 import {
   createRefund,
   createTransfer,
+  getConnectedAccount,
+  getPaymentIntent,
+  listRefundsForPaymentIntent,
+  listTransfersForSourceCharge,
 } from "@/lib/stripe";
 import {
   computeChargeAdjustment,
@@ -23,7 +27,44 @@ function isMissingPlatformSettingsTable(error: { message?: string } | null) {
   return error.message.includes("platform_settings");
 }
 
+function hasTransferCapability(account: {
+  capabilities?: {
+    transfers?: string;
+    crypto_transfers?: string;
+    legacy_payments?: string;
+  };
+}) {
+  return (
+    account.capabilities?.transfers === "active" ||
+    account.capabilities?.crypto_transfers === "active" ||
+    account.capabilities?.legacy_payments === "active"
+  );
+}
+
+function getExistingTransferAmountForRole(
+  transfers: Array<{
+    amount?: number;
+    destination?: string | null;
+    metadata?: { commitment_id?: string; recipient_role?: string };
+  }>,
+  commitmentId: string,
+  role: "seller" | "hub" | "crowdroast",
+  destinationAccountId: string
+) {
+  return transfers
+    .filter(
+      (transfer) =>
+        (transfer.metadata?.commitment_id === commitmentId &&
+          transfer.metadata?.recipient_role === role) ||
+        transfer.destination === destinationAccountId
+    )
+    .reduce((sum, transfer) => sum + Number(transfer.amount || 0), 0);
+}
+
 async function settleDeadlines(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const debug = searchParams.get("debug") === "1";
+
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ error: "Missing CRON_SECRET" }, { status: 500 });
@@ -85,6 +126,24 @@ async function settleDeadlines(request: Request) {
     );
   }
 
+  try {
+    const platformAccount = await getConnectedAccount(crowdroastDestinationAccount);
+    if (!hasTransferCapability(platformAccount)) {
+      return NextResponse.json(
+        {
+          error:
+            "Platform connected account does not have transfers capability enabled. Complete onboarding from /dashboard/admin/payouts.",
+        },
+        { status: 500 }
+      );
+    }
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to validate platform account capabilities" },
+      { status: 500 }
+    );
+  }
+
   const nowIso = new Date().toISOString();
 
   const { data: dueLots, error: dueLotsError } = await admin
@@ -93,8 +152,7 @@ async function settleDeadlines(request: Request) {
       "id, seller_id, status, currency, price_per_kg, committed_quantity_kg, min_commitment_kg, commitment_deadline, settlement_status"
     )
     .lte("commitment_deadline", nowIso)
-    .in("settlement_status", ["pending", "failed"])
-    .in("status", ["active", "fully_committed", "closed"]);
+    .in("settlement_status", ["pending", "failed"]);
 
   if (dueLotsError) {
     return NextResponse.json({ error: dueLotsError.message }, { status: 500 });
@@ -112,13 +170,15 @@ async function settleDeadlines(request: Request) {
         .eq("lot_id", lot.id);
 
       if (lotCommitmentsError) {
-        await admin
-          .from("lots")
-          .update({
-            settlement_status: "failed",
-            settlement_processed_at: nowIso,
-          })
-          .eq("id", lot.id);
+        if (!debug) {
+          await admin
+            .from("lots")
+            .update({
+              settlement_status: "failed",
+              settlement_processed_at: nowIso,
+            })
+            .eq("id", lot.id);
+        }
 
         results.push({
           lot_id: lot.id,
@@ -130,13 +190,32 @@ async function settleDeadlines(request: Request) {
 
       let refundedCount = 0;
       let refundFailedCount = 0;
+      const debugCommitments: Array<Record<string, unknown>> = [];
 
       for (const commitment of lotCommitments || []) {
+        if (debug) {
+          debugCommitments.push({
+            commitment_id: commitment.id,
+            mode: "minimum_not_met",
+            payment_status: commitment.payment_status,
+            stripe_payment_intent_id: commitment.stripe_payment_intent_id,
+            would_refund:
+              commitment.payment_status === "charge_succeeded" &&
+              Boolean(commitment.stripe_payment_intent_id),
+          });
+          continue;
+        }
+
         if (
           commitment.payment_status === "charge_succeeded" &&
           commitment.stripe_payment_intent_id
         ) {
           try {
+            if (debug) {
+              refundedCount += 1;
+              continue;
+            }
+
             await createRefund({
               paymentIntentId: commitment.stripe_payment_intent_id,
               commitmentId: commitment.id,
@@ -164,31 +243,36 @@ async function settleDeadlines(request: Request) {
               .eq("id", commitment.id);
           }
         } else {
-          await admin
-            .from("commitments")
-            .update({
-              status: "cancelled",
-              payment_status: "cancelled",
-              payment_error: "Cancelled: lot minimum not met by deadline",
-            })
-            .eq("id", commitment.id);
+          if (!debug) {
+            await admin
+              .from("commitments")
+              .update({
+                status: "cancelled",
+                payment_status: "cancelled",
+                payment_error: "Cancelled: lot minimum not met by deadline",
+              })
+              .eq("id", commitment.id);
+          }
         }
       }
 
-      await admin
-        .from("lots")
-        .update({
-          status: "closed",
-          settlement_status: refundFailedCount > 0 ? "failed" : "minimum_not_met",
-          settlement_processed_at: nowIso,
-        })
-        .eq("id", lot.id);
+      if (!debug) {
+        await admin
+          .from("lots")
+          .update({
+            status: "closed",
+            settlement_status: refundFailedCount > 0 ? "failed" : "minimum_not_met",
+            settlement_processed_at: nowIso,
+          })
+          .eq("id", lot.id);
+      }
 
       results.push({
         lot_id: lot.id,
         outcome: refundFailedCount > 0 ? "failed" : "minimum_not_met",
         commitments_refunded: refundedCount,
         refunds_failed: refundFailedCount,
+        ...(debug ? { debug_commitments: debugCommitments } : {}),
       });
       continue;
     }
@@ -200,18 +284,55 @@ async function settleDeadlines(request: Request) {
       .single();
 
     if (!sellerProfile?.stripe_connect_account_id) {
-      await admin
-        .from("lots")
-        .update({
-          settlement_status: "failed",
-          settlement_processed_at: nowIso,
-        })
-        .eq("id", lot.id);
+      if (!debug) {
+        await admin
+          .from("lots")
+          .update({
+            settlement_status: "failed",
+            settlement_processed_at: nowIso,
+          })
+          .eq("id", lot.id);
+      }
 
       results.push({
         lot_id: lot.id,
         outcome: "failed",
         error: "Seller is missing stripe_connect_account_id",
+        ...(debug ? { debug_lot: { seller_id: lot.seller_id } } : {}),
+      });
+      continue;
+    }
+
+    let sellerTransfersEnabled = false;
+    try {
+      const sellerAccount = await getConnectedAccount(sellerProfile.stripe_connect_account_id);
+      sellerTransfersEnabled = hasTransferCapability(sellerAccount);
+    } catch {
+      sellerTransfersEnabled = false;
+    }
+
+    if (!sellerTransfersEnabled) {
+      if (!debug) {
+        await admin
+          .from("lots")
+          .update({
+            settlement_status: "failed",
+            settlement_processed_at: nowIso,
+          })
+          .eq("id", lot.id);
+      }
+
+      results.push({
+        lot_id: lot.id,
+        outcome: "failed",
+        error: "Seller connected account lacks transfers capability",
+        ...(debug
+          ? {
+              debug_lot: {
+                seller_destination_account: sellerProfile.stripe_connect_account_id,
+              },
+            }
+          : {}),
       });
       continue;
     }
@@ -220,7 +341,7 @@ async function settleDeadlines(request: Request) {
       .from("commitments")
       .select("id")
       .eq("lot_id", lot.id)
-      .neq("payment_status", "charge_succeeded")
+      .is("stripe_payment_intent_id", null)
       .neq("status", "cancelled");
 
     const { data: tiers } = await admin
@@ -241,8 +362,9 @@ async function settleDeadlines(request: Request) {
         "id, status, payment_status, hub_id, quantity_kg, total_price, charge_amount_cents, charge_currency, stripe_charge_id, stripe_payment_intent_id"
       )
       .eq("lot_id", lot.id)
-      .eq("payment_status", "charge_succeeded")
-      .neq("status", "confirmed");
+      .not("stripe_payment_intent_id", "is", null)
+      .neq("status", "confirmed")
+      .neq("status", "cancelled");
 
     if (commitmentsError) {
       results.push({ lot_id: lot.id, outcome: "failed", error: commitmentsError.message });
@@ -251,18 +373,27 @@ async function settleDeadlines(request: Request) {
 
     let failedCount = unpaidCommitments?.length || 0;
     let succeededCount = 0;
+    const debugCommitments: Array<Record<string, unknown>> = [];
     const hubConnectAccountByHubId = new Map<string, string | null>();
+    const transferCapabilityByAccount = new Map<string, boolean>();
 
     for (const commitment of commitments || []) {
       const commitmentHubId = commitment.hub_id;
       if (!commitmentHubId) {
         failedCount += 1;
-        await admin
-          .from("commitments")
-          .update({
-            payment_error: "Missing hub_id on commitment",
-          })
-          .eq("id", commitment.id);
+        if (debug) {
+          debugCommitments.push({
+            commitment_id: commitment.id,
+            error: "Missing hub_id on commitment",
+          });
+        } else {
+          await admin
+            .from("commitments")
+            .update({
+              payment_error: "Missing hub_id on commitment",
+            })
+            .eq("id", commitment.id);
+        }
         continue;
       }
 
@@ -288,26 +419,97 @@ async function settleDeadlines(request: Request) {
 
       if (!hubDestinationAccount) {
         failedCount += 1;
-        await admin
-          .from("commitments")
-          .update({
-            payment_error: "Hub owner is missing stripe_connect_account_id",
-          })
-          .eq("id", commitment.id);
+        if (debug) {
+          debugCommitments.push({
+            commitment_id: commitment.id,
+            hub_id: commitmentHubId,
+            error: "Hub owner is missing stripe_connect_account_id",
+          });
+        } else {
+          await admin
+            .from("commitments")
+            .update({
+              payment_error: "Hub owner is missing stripe_connect_account_id",
+            })
+            .eq("id", commitment.id);
+        }
+        continue;
+      }
+
+      let hubTransfersEnabled = transferCapabilityByAccount.get(hubDestinationAccount);
+      if (hubTransfersEnabled === undefined) {
+        try {
+          const hubAccount = await getConnectedAccount(hubDestinationAccount);
+          hubTransfersEnabled = hasTransferCapability(hubAccount);
+        } catch {
+          hubTransfersEnabled = false;
+        }
+        transferCapabilityByAccount.set(hubDestinationAccount, hubTransfersEnabled);
+      }
+
+      if (!hubTransfersEnabled) {
+        failedCount += 1;
+        if (debug) {
+          debugCommitments.push({
+            commitment_id: commitment.id,
+            hub_id: commitmentHubId,
+            hub_destination_account: hubDestinationAccount,
+            error: "Hub owner connected account lacks transfers capability",
+          });
+        } else {
+          await admin
+            .from("commitments")
+            .update({
+              payment_error: "Hub owner connected account lacks transfers capability",
+            })
+            .eq("id", commitment.id);
+        }
         continue;
       }
 
       const amountCents = Number(commitment.charge_amount_cents || 0);
       const currency = (commitment.charge_currency || lot.currency || "usd").toLowerCase();
 
-      if (!commitment.stripe_charge_id || amountCents <= 0) {
+      let stripeChargeId = commitment.stripe_charge_id;
+      let paymentIntentStatus: string | null = null;
+      if (!stripeChargeId && commitment.stripe_payment_intent_id) {
+        try {
+          const paymentIntent = await getPaymentIntent(commitment.stripe_payment_intent_id);
+          stripeChargeId = paymentIntent.latest_charge || null;
+          paymentIntentStatus = paymentIntent.status || null;
+          if (stripeChargeId && !debug) {
+            await admin
+              .from("commitments")
+              .update({
+                stripe_charge_id: stripeChargeId,
+                payment_status: "charge_succeeded",
+              })
+              .eq("id", commitment.id);
+          }
+        } catch {
+          // Keep original flow below; commitment will be marked failed with details.
+        }
+      }
+
+      if (!stripeChargeId || amountCents <= 0) {
         failedCount += 1;
-        await admin
-          .from("commitments")
-          .update({
-            payment_error: "Missing successful charge data for settlement transfer",
-          })
-          .eq("id", commitment.id);
+        if (debug) {
+          debugCommitments.push({
+            commitment_id: commitment.id,
+            stripe_payment_intent_id: commitment.stripe_payment_intent_id,
+            stripe_charge_id: stripeChargeId,
+            charged_amount_cents: amountCents,
+            payment_intent_status: paymentIntentStatus,
+            error: "Missing successful charge data for settlement transfer",
+          });
+        } else {
+          await admin
+            .from("commitments")
+            .update({
+              payment_error: "Missing successful charge data for settlement transfer",
+            })
+            .eq("id", commitment.id);
+        }
         continue;
       }
 
@@ -318,7 +520,26 @@ async function settleDeadlines(request: Request) {
           finalPricePerKg,
         });
 
-        if (refundAmountCents > 0) {
+        let existingRefunds: Array<{
+          id?: string;
+          amount?: number;
+          payment_intent?: string | null;
+          metadata?: { commitment_id?: string };
+        }> = [];
+        if (commitment.stripe_payment_intent_id) {
+          try {
+            const refunds = await listRefundsForPaymentIntent(commitment.stripe_payment_intent_id);
+            existingRefunds = refunds.data || [];
+          } catch {
+            existingRefunds = [];
+          }
+        }
+        const existingRefundAmount = existingRefunds.reduce(
+          (sum, refund) => sum + Number(refund.amount || 0),
+          0
+        );
+
+        if (!debug && refundAmountCents > 0) {
           if (!commitment.stripe_payment_intent_id) {
             throw new Error("Missing payment intent for price-adjustment refund");
           }
@@ -332,35 +553,118 @@ async function settleDeadlines(request: Request) {
         }
 
         const split = computeSplit(finalAmountCents);
+        let existingTransfers: Array<{
+          amount?: number;
+          destination?: string | null;
+          metadata?: { commitment_id?: string; recipient_role?: string };
+        }> = [];
 
-        if (split.sellerAmount > 0) {
+        try {
+          const transfers = await listTransfersForSourceCharge(stripeChargeId);
+          existingTransfers = transfers.data || [];
+        } catch {
+          existingTransfers = [];
+        }
+
+        const existingSellerAmount = getExistingTransferAmountForRole(
+          existingTransfers,
+          commitment.id,
+          "seller",
+          sellerProfile.stripe_connect_account_id
+        );
+        const missingSellerAmount = Math.max(0, split.sellerAmount - existingSellerAmount);
+        if (!debug && missingSellerAmount > 0) {
           await createTransfer({
-            amountCents: split.sellerAmount,
+            amountCents: missingSellerAmount,
             currency,
             destinationAccountId: sellerProfile.stripe_connect_account_id,
-            sourceChargeId: commitment.stripe_charge_id,
+            sourceChargeId: stripeChargeId,
             commitmentId: commitment.id,
             role: "seller",
           });
         }
 
-        if (split.hubAmount > 0) {
+        const existingHubAmount = getExistingTransferAmountForRole(
+          existingTransfers,
+          commitment.id,
+          "hub",
+          hubDestinationAccount
+        );
+        const missingHubAmount = Math.max(0, split.hubAmount - existingHubAmount);
+        if (!debug && missingHubAmount > 0) {
           await createTransfer({
-            amountCents: split.hubAmount,
+            amountCents: missingHubAmount,
             currency,
             destinationAccountId: hubDestinationAccount,
-            sourceChargeId: commitment.stripe_charge_id,
+            sourceChargeId: stripeChargeId,
             commitmentId: commitment.id,
             role: "hub",
           });
         }
 
-        if (split.platformAmount > 0) {
+        const existingPlatformAmount = getExistingTransferAmountForRole(
+          existingTransfers,
+          commitment.id,
+          "crowdroast",
+          crowdroastDestinationAccount
+        );
+        const missingPlatformAmount = Math.max(0, split.platformAmount - existingPlatformAmount);
+        if (debug) {
+          debugCommitments.push({
+            commitment_id: commitment.id,
+            payment_status: commitment.payment_status,
+            payment_intent_status: paymentIntentStatus,
+            stripe_payment_intent_id: commitment.stripe_payment_intent_id,
+            stripe_charge_id: stripeChargeId,
+            charged_amount_cents: amountCents,
+            final_amount_cents: finalAmountCents,
+            refund_amount_cents: refundAmountCents,
+            existing_refund_amount_cents: existingRefundAmount,
+            available_to_transfer_cents: Math.max(
+              0,
+              amountCents - existingRefundAmount
+            ),
+            split,
+            existing_transfer_amounts: {
+              seller: existingSellerAmount,
+              hub: existingHubAmount,
+              crowdroast: existingPlatformAmount,
+              total: existingTransfers.reduce(
+                (sum, transfer) => sum + Number(transfer.amount || 0),
+                0
+              ),
+            },
+            transfer_headroom_cents:
+              amountCents -
+              existingTransfers.reduce(
+                (sum, transfer) => sum + Number(transfer.amount || 0),
+                0
+              ),
+            missing_transfer_amounts: {
+              seller: missingSellerAmount,
+              hub: missingHubAmount,
+              crowdroast: missingPlatformAmount,
+              total:
+                missingSellerAmount + missingHubAmount + missingPlatformAmount,
+            },
+            existing_transfers: existingTransfers,
+            existing_refunds: existingRefunds,
+            destination_accounts: {
+              seller: sellerProfile.stripe_connect_account_id,
+              hub: hubDestinationAccount,
+              crowdroast: crowdroastDestinationAccount,
+            },
+          });
+          succeededCount += 1;
+          continue;
+        }
+
+        if (missingPlatformAmount > 0) {
           await createTransfer({
-            amountCents: split.platformAmount,
+            amountCents: missingPlatformAmount,
             currency,
             destinationAccountId: crowdroastDestinationAccount,
-            sourceChargeId: commitment.stripe_charge_id,
+            sourceChargeId: stripeChargeId,
             commitmentId: commitment.id,
             role: "crowdroast",
           });
@@ -379,30 +683,41 @@ async function settleDeadlines(request: Request) {
         succeededCount += 1;
       } catch (transferError) {
         failedCount += 1;
-        await admin
-          .from("commitments")
-          .update({
-            payment_error:
+        if (debug) {
+          debugCommitments.push({
+            commitment_id: commitment.id,
+            error:
               transferError instanceof Error ? transferError.message : "Transfer failed",
-          })
-          .eq("id", commitment.id);
+          });
+        } else {
+          await admin
+            .from("commitments")
+            .update({
+              payment_error:
+                transferError instanceof Error ? transferError.message : "Transfer failed",
+            })
+            .eq("id", commitment.id);
+        }
       }
     }
 
-    await admin
-      .from("lots")
-      .update({
-        status: "closed",
-        settlement_status: failedCount > 0 ? "failed" : "settled",
-        settlement_processed_at: nowIso,
-      })
-      .eq("id", lot.id);
+    if (!debug) {
+      await admin
+        .from("lots")
+        .update({
+          status: "closed",
+          settlement_status: failedCount > 0 ? "failed" : "settled",
+          settlement_processed_at: nowIso,
+        })
+        .eq("id", lot.id);
+    }
 
     results.push({
       lot_id: lot.id,
       outcome: failedCount > 0 ? "failed" : "settled",
       commitments_succeeded: succeededCount,
       commitments_failed: failedCount,
+      ...(debug ? { debug_commitments: debugCommitments } : {}),
     });
   }
 

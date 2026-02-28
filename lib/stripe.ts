@@ -107,10 +107,40 @@ export interface StripeSetupIntent {
 
 export interface StripeTransfer {
   id: string;
+  amount?: number;
+  destination?: string | null;
+  source_transaction?: string | null;
+  metadata?: {
+    commitment_id?: string;
+    recipient_role?: string;
+  };
+}
+
+export interface StripeRefund {
+  id: string;
+  amount?: number;
+  payment_intent?: string | null;
+  metadata?: {
+    commitment_id?: string;
+  };
 }
 
 export interface StripeAccount {
   id: string;
+  details_submitted?: boolean;
+  charges_enabled?: boolean;
+  payouts_enabled?: boolean;
+  capabilities?: {
+    transfers?: string;
+    crypto_transfers?: string;
+    legacy_payments?: string;
+    card_payments?: string;
+  };
+  requirements?: {
+    currently_due?: string[];
+    eventually_due?: string[];
+    past_due?: string[];
+  };
 }
 
 export interface StripeAccountLink {
@@ -232,6 +262,18 @@ export async function createTransfer(params: {
   );
 }
 
+export async function listTransfersForSourceCharge(sourceChargeId: string) {
+  const transfers = await stripeGetRequest<{ data: StripeTransfer[] }>("/transfers", {
+    limit: 100,
+  });
+
+  return {
+    data: (transfers.data || []).filter(
+      (transfer) => transfer.source_transaction === sourceChargeId
+    ),
+  };
+}
+
 export async function createRefund(params: {
   paymentIntentId: string;
   amountCents?: number;
@@ -248,6 +290,13 @@ export async function createRefund(params: {
   }, `refund-${params.commitmentId}${suffix}`);
 }
 
+export async function listRefundsForPaymentIntent(paymentIntentId: string) {
+  return stripeGetRequest<{ data: StripeRefund[] }>("/refunds", {
+    payment_intent: paymentIntentId,
+    limit: 100,
+  });
+}
+
 export async function createExpressConnectedAccount(params: {
   email?: string | null;
   businessType?: "individual" | "company";
@@ -259,6 +308,17 @@ export async function createExpressConnectedAccount(params: {
     "capabilities[card_payments][requested]": true,
     "capabilities[transfers][requested]": true,
   });
+}
+
+export async function requestTransferCapabilities(accountId: string) {
+  return stripeRequest<StripeAccount>(`/accounts/${accountId}`, {
+    "capabilities[card_payments][requested]": true,
+    "capabilities[transfers][requested]": true,
+  });
+}
+
+export async function getConnectedAccount(accountId: string) {
+  return stripeGetRequest<StripeAccount>(`/accounts/${accountId}`);
 }
 
 export async function createAccountOnboardingLink(params: {
