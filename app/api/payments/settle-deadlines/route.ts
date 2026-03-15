@@ -1,6 +1,12 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getConfiguredAdminEmails } from "@/lib/auth/admin";
 import {
+  sendLotClosedBuyerEmail,
+  sendLotClosedSellerEmail,
+  sendLotClosedHubOwnerEmail,
+  sendLotFailedEmail,
+} from "@/lib/email";
+import {
   createRefund,
   createTransfer,
   getConnectedAccount,
@@ -60,6 +66,182 @@ function getExistingTransferAmountForRole(
         transfer.destination === destinationAccountId
     )
     .reduce((sum, transfer) => sum + Number(transfer.amount || 0), 0);
+}
+
+type AdminClient = ReturnType<typeof createAdminClient>;
+
+// AC-6: Send success emails when a lot settles — fire-and-forget, never throws
+async function sendLotSuccessNotifications(admin: AdminClient, lotId: string): Promise<void> {
+  try {
+    const { data: lot } = await admin
+      .from("lots")
+      .select("id, title, seller_id, committed_quantity_kg, hub_id")
+      .eq("id", lotId)
+      .single();
+    if (!lot) return;
+
+    const { data: seller } = await admin
+      .from("profiles")
+      .select("email, contact_name")
+      .eq("id", lot.seller_id)
+      .single();
+
+    const { data: commitments } = await admin
+      .from("commitments")
+      .select("id, buyer_id, quantity_kg, total_price")
+      .eq("lot_id", lotId)
+      .eq("status", "confirmed");
+
+    const buyerIds = [...new Set((commitments || []).map((c) => c.buyer_id).filter(Boolean))];
+    const { data: buyers } =
+      buyerIds.length > 0
+        ? await admin.from("profiles").select("id, email, contact_name").in("id", buyerIds)
+        : { data: [] };
+    const buyerMap = new Map((buyers || []).map((b) => [b.id, b]));
+
+    let hub: { id: string; name: string; address: string | null; city: string | null; state: string | null; country: string | null; owner_id: string } | null = null;
+    let hubOwner: { email: string | null; contact_name: string | null } | null = null;
+    if (lot.hub_id) {
+      const { data: hubData } = await admin
+        .from("hubs")
+        .select("id, name, address, city, state, country, owner_id")
+        .eq("id", lot.hub_id)
+        .single();
+      hub = hubData;
+      if (hub?.owner_id) {
+        const { data: ownerProfile } = await admin
+          .from("profiles")
+          .select("email, contact_name")
+          .eq("id", hub.owner_id)
+          .single();
+        hubOwner = ownerProfile;
+      }
+    }
+
+    const emailPromises: Promise<unknown>[] = [];
+
+    // AC-6a: buyer emails
+    for (const commitment of commitments || []) {
+      const buyer = buyerMap.get(commitment.buyer_id);
+      if (!buyer?.email) continue;
+      emailPromises.push(
+        sendLotClosedBuyerEmail({
+          buyer: { email: buyer.email, contact_name: buyer.contact_name },
+          lot: { id: lot.id, title: lot.title },
+          commitment: { id: commitment.id, total_price: commitment.total_price, quantity_kg: commitment.quantity_kg },
+        }).catch(console.error)
+      );
+    }
+
+    // AC-6b: seller email
+    if (seller?.email && hub) {
+      emailPromises.push(
+        sendLotClosedSellerEmail({
+          seller: { email: seller.email, contact_name: seller.contact_name },
+          lot: { id: lot.id, title: lot.title, total_quantity_kg: lot.committed_quantity_kg },
+          hub: { name: hub.name, address: hub.address, city: hub.city, state: hub.state, country: hub.country },
+          totalQuantitySoldKg: lot.committed_quantity_kg,
+        }).catch(console.error)
+      );
+    }
+
+    // AC-6c: hub owner email
+    if (hubOwner?.email && hub) {
+      emailPromises.push(
+        sendLotClosedHubOwnerEmail({
+          hubOwner: { email: hubOwner.email, contact_name: hubOwner.contact_name },
+          lot: { id: lot.id, title: lot.title },
+          hubName: hub.name,
+        }).catch(console.error)
+      );
+    }
+
+    await Promise.allSettled(emailPromises);
+  } catch (err) {
+    console.error("sendLotSuccessNotifications error:", err);
+  }
+}
+
+// AC-7: Send failure emails when a lot does not meet minimum — fire-and-forget, never throws
+async function sendLotFailedNotifications(admin: AdminClient, lotId: string): Promise<void> {
+  try {
+    const { data: lot } = await admin
+      .from("lots")
+      .select("id, title, seller_id")
+      .eq("id", lotId)
+      .single();
+    if (!lot) return;
+
+    const { data: seller } = await admin
+      .from("profiles")
+      .select("email, contact_name")
+      .eq("id", lot.seller_id)
+      .single();
+
+    const { data: commitments } = await admin
+      .from("commitments")
+      .select("buyer_id")
+      .eq("lot_id", lotId);
+
+    const buyerIds = [...new Set((commitments || []).map((c) => c.buyer_id).filter(Boolean))];
+    const { data: buyers } =
+      buyerIds.length > 0
+        ? await admin.from("profiles").select("id, email, contact_name").in("id", buyerIds)
+        : { data: [] };
+
+    const { data: hubLots } = await admin
+      .from("hub_lots")
+      .select("hub_id")
+      .eq("lot_id", lotId);
+    const hubIds = [...new Set((hubLots || []).map((h) => h.hub_id))];
+    let hubOwners: Array<{ id: string; email: string | null; contact_name: string | null }> = [];
+    if (hubIds.length > 0) {
+      const { data: hubs } = await admin.from("hubs").select("owner_id").in("id", hubIds);
+      const ownerIds = [...new Set((hubs || []).map((h) => h.owner_id).filter(Boolean))];
+      if (ownerIds.length > 0) {
+        const { data: owners } = await admin
+          .from("profiles")
+          .select("id, email, contact_name")
+          .in("id", ownerIds);
+        hubOwners = owners || [];
+      }
+    }
+
+    const emailPromises: Promise<unknown>[] = [];
+
+    if (seller?.email) {
+      emailPromises.push(
+        sendLotFailedEmail({
+          recipient: { email: seller.email, contact_name: seller.contact_name },
+          lot: { id: lot.id, title: lot.title },
+        }).catch(console.error)
+      );
+    }
+
+    for (const buyer of buyers || []) {
+      if (!buyer.email) continue;
+      emailPromises.push(
+        sendLotFailedEmail({
+          recipient: { email: buyer.email, contact_name: buyer.contact_name },
+          lot: { id: lot.id, title: lot.title },
+        }).catch(console.error)
+      );
+    }
+
+    for (const owner of hubOwners) {
+      if (!owner.email) continue;
+      emailPromises.push(
+        sendLotFailedEmail({
+          recipient: { email: owner.email, contact_name: owner.contact_name },
+          lot: { id: lot.id, title: lot.title },
+        }).catch(console.error)
+      );
+    }
+
+    await Promise.allSettled(emailPromises);
+  } catch (err) {
+    console.error("sendLotFailedNotifications error:", err);
+  }
 }
 
 async function settleDeadlines(request: Request) {
@@ -274,6 +456,9 @@ async function settleDeadlines(request: Request) {
         refunds_failed: refundFailedCount,
         ...(debug ? { debug_commitments: debugCommitments } : {}),
       });
+
+      // AC-7: notify all parties that the campaign failed
+      if (!debug) void sendLotFailedNotifications(admin, lot.id);
       continue;
     }
 
@@ -727,6 +912,9 @@ async function settleDeadlines(request: Request) {
       commitments_failed: failedCount,
       ...(debug ? { debug_commitments: debugCommitments } : {}),
     });
+
+    // AC-6: notify all parties on successful settlement
+    if (!debug && failedCount === 0) void sendLotSuccessNotifications(admin, lot.id);
   }
 
   return NextResponse.json(

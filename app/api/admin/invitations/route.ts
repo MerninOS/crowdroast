@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdminContext } from "@/lib/auth/admin-route";
+import { sendSellerInviteEmail } from "@/lib/email";
 
 const ALLOWED_TARGET_ROLES = new Set(["seller", "hub_owner"]);
 
@@ -45,11 +46,9 @@ export async function POST(request: Request) {
     .eq("status", "pending")
     .maybeSingle();
 
+  // AC-1c: silently skip if already invited (no error, no email)
   if (existingPending) {
-    return NextResponse.json(
-      { error: "A pending invitation already exists for this email and role" },
-      { status: 409 }
-    );
+    return NextResponse.json({ skipped: true }, { status: 200 });
   }
 
   const { data, error } = await ctx.admin
@@ -68,6 +67,25 @@ export async function POST(request: Request) {
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // AC-1: send invitation email; surface delivery failure to the caller
+  if (targetRole === "seller") {
+    const inviterName =
+      contactName ||
+      companyName ||
+      ctx.user.email ||
+      "CrowdRoast";
+    const emailResult = await sendSellerInviteEmail({
+      recipientEmail: email,
+      invitedByName: inviterName,
+    });
+    if (!emailResult.success) {
+      return NextResponse.json(
+        { ...data, email_error: emailResult.error },
+        { status: 201 }
+      );
+    }
   }
 
   return NextResponse.json(data, { status: 201 });

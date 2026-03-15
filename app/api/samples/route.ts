@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { sendSampleRequestEmail } from "@/lib/email";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
@@ -112,6 +113,36 @@ export async function POST(request: Request) {
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // AC-2: notify seller of the sample request
+  const [sellerRes, hubOwnerRes, lotTitleRes] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("email, contact_name")
+      .eq("id", lot.seller_id)
+      .single(),
+    supabase
+      .from("profiles")
+      .select("contact_name, company_name")
+      .eq("id", user.id)
+      .single(),
+    supabase.from("lots").select("title").eq("id", lot_id).single(),
+  ]);
+
+  if (sellerRes.data && hubOwnerRes.data) {
+    await sendSampleRequestEmail({
+      seller: sellerRes.data,
+      hubOwner: hubOwnerRes.data,
+      shippingAddress: shipping_address,
+      sampleItems: [
+        {
+          lotTitle: lotTitleRes.data?.title || "Coffee Lot",
+          quantityGrams: quantity_grams || 100,
+          notes: notes || null,
+        },
+      ],
+    }).catch(console.error);
   }
 
   return NextResponse.json(data, { status: 201 });

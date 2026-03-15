@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { fromDisplayPricePerUnit } from "@/lib/units";
+import { sendNewSellerCoffeesEmail } from "@/lib/email";
 import { NextResponse } from "next/server";
 
 type CsvLotRow = {
@@ -214,10 +215,82 @@ export async function POST(request: Request) {
   const { data, error } = await supabase
     .from("lots")
     .insert(preparedRows)
-    .select("id, title");
+    .select("id, title, origin_country, price_per_kg, currency");
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // AC-4: notify hub owners who have an existing relationship with this seller
+  if (data && data.length > 0) {
+    // Fetch all lot IDs by this seller to find historical hub connections
+    const { data: allSellerLots } = await supabase
+      .from("lots")
+      .select("id")
+      .eq("seller_id", user.id);
+
+    const sellerLotIds = (allSellerLots || []).map((l) => l.id);
+
+    if (sellerLotIds.length > 0) {
+      const connectedOwnerIds = new Set<string>();
+
+      // Path 1: hub owners who added seller's lots to their catalogs
+      const { data: hubLotsData } = await supabase
+        .from("hub_lots")
+        .select("hub_id")
+        .in("lot_id", sellerLotIds);
+
+      if (hubLotsData?.length) {
+        const hubIds = [...new Set(hubLotsData.map((hl) => hl.hub_id))];
+        const { data: hubs } = await supabase
+          .from("hubs")
+          .select("owner_id")
+          .in("id", hubIds);
+        hubs?.forEach((h) => connectedOwnerIds.add(h.owner_id));
+      }
+
+      // Path 2: hub owners who requested samples from seller's lots
+      const { data: sampleData } = await supabase
+        .from("sample_requests")
+        .select("buyer_id")
+        .in("lot_id", sellerLotIds);
+      sampleData?.forEach((sr) => connectedOwnerIds.add(sr.buyer_id));
+
+      if (connectedOwnerIds.size > 0) {
+        const { data: sellerProfile } = await supabase
+          .from("profiles")
+          .select("contact_name, company_name")
+          .eq("id", user.id)
+          .single();
+
+        const sellerName =
+          sellerProfile?.company_name ||
+          sellerProfile?.contact_name ||
+          "A seller";
+
+        const newLots = data.map((l) => ({
+          title: l.title,
+          originCountry: l.origin_country,
+          pricePerKg: l.price_per_kg,
+          currency: (l.currency as string) || "USD",
+        }));
+
+        const { data: ownerProfiles } = await supabase
+          .from("profiles")
+          .select("email, contact_name")
+          .in("id", [...connectedOwnerIds]);
+
+        const emailPromises = (ownerProfiles || []).map((owner) =>
+          sendNewSellerCoffeesEmail({
+            hubOwner: owner,
+            sellerName,
+            newLots,
+          }).catch(console.error)
+        );
+
+        await Promise.allSettled(emailPromises);
+      }
+    }
   }
 
   return NextResponse.json({

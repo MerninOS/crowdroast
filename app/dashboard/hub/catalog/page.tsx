@@ -86,36 +86,26 @@ export default function HubCatalogPage() {
 
   const toggleLot = async (lotId: string, add: boolean) => {
     setLoading(lotId);
-    const supabase = createClient();
 
-    if (add) {
-      const { error } = await supabase
-        .from("hub_lots")
-        .insert({ hub_id: selectedHubId, lot_id: lotId });
+    const res = await fetch("/api/hub-lots", {
+      method: add ? "POST" : "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hub_id: selectedHubId, lot_id: lotId }),
+    });
 
-      if (error) {
-        toast.error(error.message);
-      } else {
-        setHubLotIds((prev) => new Set([...prev, lotId]));
-        toast.success("Lot added to hub catalog");
-      }
+    if (!res.ok) {
+      const result = await res.json();
+      toast.error(result.error || "Something went wrong");
+    } else if (add) {
+      setHubLotIds((prev) => new Set([...prev, lotId]));
+      toast.success("Lot added to hub catalog");
     } else {
-      const { error } = await supabase
-        .from("hub_lots")
-        .delete()
-        .eq("hub_id", selectedHubId)
-        .eq("lot_id", lotId);
-
-      if (error) {
-        toast.error(error.message);
-      } else {
-        setHubLotIds((prev) => {
-          const next = new Set(prev);
-          next.delete(lotId);
-          return next;
-        });
-        toast.success("Lot removed from hub catalog");
-      }
+      setHubLotIds((prev) => {
+        const next = new Set(prev);
+        next.delete(lotId);
+        return next;
+      });
+      toast.success("Lot removed from hub catalog");
     }
     setLoading(null);
   };
