@@ -90,48 +90,22 @@ export default function HubMembersPage() {
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    const supabase = createClient();
 
-    // Check if a profile with this email exists
-    const { data: existingProfile } = await supabase
-      .from("profiles")
-      .select("id, role")
-      .eq("email", inviteEmail)
-      .single();
+    const res = await fetch("/api/hub-members", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hub_id: selectedHubId, email: inviteEmail }),
+    });
 
-    if (existingProfile && existingProfile.role !== "buyer") {
-      toast.error("Only buyers can be added to a hub");
-      setIsLoading(false);
-      return;
-    }
+    const result = await res.json();
 
-    // Check for duplicate
-    const existing = members.find(
-      (m) => m.invited_email === inviteEmail || m.profile?.email === inviteEmail
-    );
-    if (existing) {
-      toast.error("This person is already a member of this hub");
-      setIsLoading(false);
-      return;
-    }
-
-    const { data, error } = await supabase
-      .from("hub_members")
-      .insert({
-        hub_id: selectedHubId,
-        user_id: existingProfile?.id || null,
-        invited_email: inviteEmail,
-        role: "buyer",
-        status: existingProfile ? "active" : "invited",
-      })
-      .select("*, profile:profiles!hub_members_user_id_fkey(company_name, contact_name, email)")
-      .single();
-
-    if (error) {
-      toast.error(error.message);
+    if (!res.ok) {
+      toast.error(result.error || "Failed to add member");
     } else {
-      setMembers((prev) => [data as any, ...prev]);
-      toast.success(existingProfile ? "Buyer added to hub" : "Invitation sent");
+      setMembers((prev) => [result as any, ...prev]);
+      toast.success(
+        result.status === "active" ? "Buyer added to hub" : "Invitation sent"
+      );
       setOpen(false);
       setInviteEmail("");
     }
