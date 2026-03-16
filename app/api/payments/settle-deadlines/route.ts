@@ -556,7 +556,9 @@ async function settleDeadlines(request: Request) {
       continue;
     }
 
-    let failedCount = unpaidCommitments?.length || 0;
+    const unpaidCount = unpaidCommitments?.length || 0;
+    let transferFailedCount = 0;
+    let failedCount = unpaidCount;
     let succeededCount = 0;
     const debugCommitments: Array<Record<string, unknown>> = [];
     const hubConnectAccountByHubId = new Map<string, string | null>();
@@ -566,6 +568,7 @@ async function settleDeadlines(request: Request) {
       const commitmentHubId = commitment.hub_id;
       if (!commitmentHubId) {
         failedCount += 1;
+        transferFailedCount += 1;
         if (debug) {
           debugCommitments.push({
             commitment_id: commitment.id,
@@ -604,6 +607,7 @@ async function settleDeadlines(request: Request) {
 
       if (!hubDestinationAccount) {
         failedCount += 1;
+        transferFailedCount += 1;
         if (debug) {
           debugCommitments.push({
             commitment_id: commitment.id,
@@ -634,6 +638,7 @@ async function settleDeadlines(request: Request) {
 
       if (!hubTransfersEnabled) {
         failedCount += 1;
+        transferFailedCount += 1;
         if (debug) {
           debugCommitments.push({
             commitment_id: commitment.id,
@@ -678,6 +683,7 @@ async function settleDeadlines(request: Request) {
 
       if (!stripeChargeId || amountCents <= 0) {
         failedCount += 1;
+        transferFailedCount += 1;
         if (debug) {
           debugCommitments.push({
             commitment_id: commitment.id,
@@ -876,6 +882,7 @@ async function settleDeadlines(request: Request) {
         succeededCount += 1;
       } catch (transferError) {
         failedCount += 1;
+        transferFailedCount += 1;
         if (debug) {
           debugCommitments.push({
             commitment_id: commitment.id,
@@ -914,7 +921,7 @@ async function settleDeadlines(request: Request) {
     });
 
     // AC-6: notify all parties on successful settlement
-    if (!debug && failedCount === 0) void sendLotSuccessNotifications(admin, lot.id);
+    if (!debug && transferFailedCount === 0) void sendLotSuccessNotifications(admin, lot.id);
   }
 
   return NextResponse.json(
