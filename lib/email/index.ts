@@ -7,7 +7,7 @@
  * Callers are responsible for handling failures (e.g. showing "Failed to deliver" UI).
  */
 
-import { sendEmail, SendEmailResult } from "./transport";
+import { sendEmail, sendEmailBatch, SendEmailResult } from "./transport";
 import { renderSellerInviteHtml } from "./templates/SellerInvite";
 import { renderSampleRequestHtml } from "./templates/SampleRequest";
 import { renderBuyerJoinedHubHtml } from "./templates/BuyerJoinedHub";
@@ -251,6 +251,79 @@ export async function sendLotClosedHubOwnerEmail(
     subject: `Payout incoming — ${params.lot.title} has closed`,
     html,
   });
+}
+
+// ---------------------------------------------------------------------------
+// AC-6 batch: all lot-closed success emails in a single Resend API call
+// ---------------------------------------------------------------------------
+
+export interface LotClosedBatchParams {
+  lot: Pick<Lot, "id" | "title" | "total_quantity_kg">;
+  buyers: Array<{
+    buyer: Pick<Profile, "email" | "contact_name">;
+    commitment: Pick<Commitment, "id" | "total_price" | "quantity_kg">;
+  }>;
+  seller?: Pick<Profile, "email" | "contact_name"> | null;
+  hub?: Pick<Hub, "name" | "address" | "city" | "state" | "country"> | null;
+  hubOwner?: Pick<Profile, "email" | "contact_name"> | null;
+}
+
+export async function sendLotClosedEmailsBatch(
+  params: LotClosedBatchParams
+): Promise<SendEmailResult> {
+  const orderUrl = `${APP_URL}/dashboard/buyer/commitments`;
+  const fulfillmentUrl = `${APP_URL}/dashboard/seller/lots`;
+  const dashboardUrl = `${APP_URL}/dashboard/hub`;
+
+  const payloads: { to: string; subject: string; html: string }[] = [];
+
+  for (const { buyer, commitment } of params.buyers) {
+    if (!buyer.email) continue;
+    payloads.push({
+      to: buyer.email,
+      subject: `Your order for ${params.lot.title} is confirmed`,
+      html: await renderLotClosedBuyerHtml({
+        buyerName: buyer.contact_name || "there",
+        lotTitle: params.lot.title,
+        quantityKg: commitment.quantity_kg,
+        totalPrice: commitment.total_price,
+        currency: "USD",
+        orderUrl,
+      }),
+    });
+  }
+
+  if (params.seller?.email && params.hub) {
+    const hubAddress = [params.hub.address, params.hub.city, params.hub.state, params.hub.country]
+      .filter(Boolean)
+      .join(", ") || "See your dashboard for shipping details";
+    payloads.push({
+      to: params.seller.email,
+      subject: `Your lot ${params.lot.title} has closed — prepare for shipment`,
+      html: await renderLotClosedSellerHtml({
+        sellerName: params.seller.contact_name || "Seller",
+        lotTitle: params.lot.title,
+        totalQuantityKg: params.lot.total_quantity_kg,
+        hubAddress,
+        fulfillmentUrl,
+      }),
+    });
+  }
+
+  if (params.hubOwner?.email && params.hub) {
+    payloads.push({
+      to: params.hubOwner.email,
+      subject: `Payout incoming — ${params.lot.title} has closed`,
+      html: await renderLotClosedHubOwnerHtml({
+        hubOwnerName: params.hubOwner.contact_name || "Hub Owner",
+        lotTitle: params.lot.title,
+        hubName: params.hub.name,
+        dashboardUrl,
+      }),
+    });
+  }
+
+  return sendEmailBatch(payloads);
 }
 
 // ---------------------------------------------------------------------------

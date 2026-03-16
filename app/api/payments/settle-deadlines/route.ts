@@ -1,9 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getConfiguredAdminEmails } from "@/lib/auth/admin";
 import {
-  sendLotClosedBuyerEmail,
-  sendLotClosedSellerEmail,
-  sendLotClosedHubOwnerEmail,
+  sendLotClosedEmailsBatch,
   sendLotFailedEmail,
 } from "@/lib/email";
 import {
@@ -72,25 +70,29 @@ type AdminClient = ReturnType<typeof createAdminClient>;
 
 // AC-6: Send success emails when a lot settles — fire-and-forget, never throws
 async function sendLotSuccessNotifications(admin: AdminClient, lotId: string): Promise<void> {
+  console.log("[sendLotSuccessNotifications] starting for lot", lotId);
   try {
-    const { data: lot } = await admin
+    const { data: lot, error: lotError } = await admin
       .from("lots")
-      .select("id, title, seller_id, committed_quantity_kg, hub_id")
+      .select("id, title, seller_id, committed_quantity_kg")
       .eq("id", lotId)
       .single();
+    console.log("[sendLotSuccessNotifications] lot fetch:", { lot, lotError });
     if (!lot) return;
 
-    const { data: seller } = await admin
+    const { data: seller, error: sellerError } = await admin
       .from("profiles")
       .select("email, contact_name")
       .eq("id", lot.seller_id)
       .single();
+    console.log("[sendLotSuccessNotifications] seller fetch:", { seller: seller?.email, sellerError });
 
-    const { data: commitments } = await admin
+    const { data: commitments, error: commitmentsError } = await admin
       .from("commitments")
       .select("id, buyer_id, quantity_kg, total_price")
       .eq("lot_id", lotId)
       .eq("status", "confirmed");
+    console.log("[sendLotSuccessNotifications] confirmed commitments:", { count: commitments?.length, commitmentsError });
 
     const buyerIds = [...new Set((commitments || []).map((c) => c.buyer_id).filter(Boolean))];
     const { data: buyers } =
@@ -98,67 +100,71 @@ async function sendLotSuccessNotifications(admin: AdminClient, lotId: string): P
         ? await admin.from("profiles").select("id, email, contact_name").in("id", buyerIds)
         : { data: [] };
     const buyerMap = new Map((buyers || []).map((b) => [b.id, b]));
+    console.log("[sendLotSuccessNotifications] buyer profiles fetched:", buyerIds.length);
 
     let hub: { id: string; name: string; address: string | null; city: string | null; state: string | null; country: string | null; owner_id: string } | null = null;
     let hubOwner: { email: string | null; contact_name: string | null } | null = null;
-    if (lot.hub_id) {
-      const { data: hubData } = await admin
+
+    const { data: hubLot, error: hubLotError } = await admin
+      .from("hub_lots")
+      .select("hub_id")
+      .eq("lot_id", lotId)
+      .limit(1)
+      .single();
+    console.log("[sendLotSuccessNotifications] hub_lots lookup:", { hub_id: hubLot?.hub_id, hubLotError });
+
+    const hubId = hubLot?.hub_id;
+    if (hubId) {
+      const { data: hubData, error: hubError } = await admin
         .from("hubs")
         .select("id, name, address, city, state, country, owner_id")
-        .eq("id", lot.hub_id)
+        .eq("id", hubId)
         .single();
+      console.log("[sendLotSuccessNotifications] hub fetch:", { hub: hubData?.id, hubError });
       hub = hubData;
       if (hub?.owner_id) {
-        const { data: ownerProfile } = await admin
+        const { data: ownerProfile, error: ownerError } = await admin
           .from("profiles")
           .select("email, contact_name")
           .eq("id", hub.owner_id)
           .single();
+        console.log("[sendLotSuccessNotifications] hub owner fetch:", { email: ownerProfile?.email, ownerError });
         hubOwner = ownerProfile;
       }
+    } else {
+      console.log("[sendLotSuccessNotifications] no hub_lots row found for lot — skipping seller and hub owner emails");
     }
 
-    const emailPromises: Promise<unknown>[] = [];
+    const buyerPayloads = (commitments || [])
+      .map((commitment) => {
+        const buyer = buyerMap.get(commitment.buyer_id);
+        if (!buyer?.email) {
+          console.log("[sendLotSuccessNotifications] skipping buyer — no email for buyer_id", commitment.buyer_id);
+          return null;
+        }
+        return { buyer: { email: buyer.email, contact_name: buyer.contact_name }, commitment };
+      })
+      .filter((p): p is NonNullable<typeof p> => p !== null);
 
-    // AC-6a: buyer emails
-    for (const commitment of commitments || []) {
-      const buyer = buyerMap.get(commitment.buyer_id);
-      if (!buyer?.email) continue;
-      emailPromises.push(
-        sendLotClosedBuyerEmail({
-          buyer: { email: buyer.email, contact_name: buyer.contact_name },
-          lot: { id: lot.id, title: lot.title },
-          commitment: { id: commitment.id, total_price: commitment.total_price, quantity_kg: commitment.quantity_kg },
-        }).catch(console.error)
-      );
-    }
+    console.log("[sendLotSuccessNotifications] sending batch:", {
+      buyers: buyerPayloads.length,
+      seller: seller?.email ?? "none",
+      hubOwner: hubOwner?.email ?? "none",
+      hub: hub?.id ?? "none",
+    });
 
-    // AC-6b: seller email
-    if (seller?.email && hub) {
-      emailPromises.push(
-        sendLotClosedSellerEmail({
-          seller: { email: seller.email, contact_name: seller.contact_name },
-          lot: { id: lot.id, title: lot.title, total_quantity_kg: lot.committed_quantity_kg },
-          hub: { name: hub.name, address: hub.address, city: hub.city, state: hub.state, country: hub.country },
-          totalQuantitySoldKg: lot.committed_quantity_kg,
-        }).catch(console.error)
-      );
-    }
+    const result = await sendLotClosedEmailsBatch({
+      lot: { id: lot.id, title: lot.title, total_quantity_kg: lot.committed_quantity_kg },
+      buyers: buyerPayloads,
+      seller,
+      hub,
+      hubOwner,
+    });
 
-    // AC-6c: hub owner email
-    if (hubOwner?.email && hub) {
-      emailPromises.push(
-        sendLotClosedHubOwnerEmail({
-          hubOwner: { email: hubOwner.email, contact_name: hubOwner.contact_name },
-          lot: { id: lot.id, title: lot.title },
-          hubName: hub.name,
-        }).catch(console.error)
-      );
-    }
-
-    await Promise.allSettled(emailPromises);
+    console.log("[sendLotSuccessNotifications] batch result:", result);
+    console.log("[sendLotSuccessNotifications] done for lot", lotId);
   } catch (err) {
-    console.error("sendLotSuccessNotifications error:", err);
+    console.error("[sendLotSuccessNotifications] unexpected error:", err);
   }
 }
 
@@ -921,7 +927,9 @@ async function settleDeadlines(request: Request) {
     });
 
     // AC-6: notify all parties on successful settlement
+    console.log("[settle-deadlines] lot", lot.id, "— debug:", debug, "transferFailedCount:", transferFailedCount, "failedCount:", failedCount, "succeededCount:", succeededCount, "unpaidCount:", unpaidCount);
     if (!debug && transferFailedCount === 0) void sendLotSuccessNotifications(admin, lot.id);
+    else console.log("[settle-deadlines] skipping success emails — condition not met");
   }
 
   return NextResponse.json(

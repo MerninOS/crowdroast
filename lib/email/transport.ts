@@ -38,3 +38,24 @@ export async function sendEmail(
 
   return { success: true };
 }
+
+export async function sendEmailBatch(
+  emails: SendEmailOptions[]
+): Promise<SendEmailResult> {
+  if (emails.length === 0) return { success: true };
+
+  const { error } = await resend.batch.send(
+    emails.map(({ to, subject, html, from = DEFAULT_FROM }) => ({
+      from,
+      to: Array.isArray(to) ? to : [to],
+      subject,
+      html,
+    }))
+  );
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  return { success: true };
+}
