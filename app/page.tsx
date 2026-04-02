@@ -11,7 +11,7 @@ const tiers = [
 const steps = [
   {
     num: "01",
-    title: "Hub curates the lot",
+    title: "City Hubs curate the lots",
     body: "Your hub owner sources, cups, and vets exceptional green coffee before listing it for the community.",
   },
   {
@@ -287,10 +287,10 @@ export default function HomePage() {
       >
         <div className="mx-auto max-w-7xl">
           <h2 className="font-headline text-[clamp(2.5rem,6vw,5.5rem)] text-cream uppercase leading-none mb-1">
-            Group pricing.
+            Get big coffee prices
           </h2>
           <h2 className="font-headline text-[clamp(2.5rem,6vw,5.5rem)] text-espresso uppercase leading-none mb-10">
-            Unlocked together.
+            Even as a small brand
           </h2>
           <p className="text-cream/80 text-lg mb-14 max-w-xl">
             Every commitment moves the bar. Every roaster gets the benefit.
