@@ -8,6 +8,8 @@ const ALLOWED_ROLES = new Set(["seller", "hub_owner"]);
 // updated to allow null user_id before this endpoint will work correctly.
 // Do NOT work around this constraint — fix it at the schema level.
 
+// TODO: Add rate limiting (e.g. IP-based via Vercel middleware) before heavy production traffic.
+// This is a public unauthenticated endpoint — spam submissions are possible.
 export async function POST(request: Request) {
   const body = await request.json();
 
@@ -17,6 +19,16 @@ export async function POST(request: Request) {
   if (!ALLOWED_ROLES.has(requestedRole)) {
     return NextResponse.json(
       { error: "Invalid requested_role. Must be 'seller' or 'hub_owner'." },
+      { status: 400 }
+    );
+  }
+
+  const email =
+    typeof body?.email === "string" ? body.email.trim() : "";
+
+  if (!email) {
+    return NextResponse.json(
+      { error: "email is required." },
       { status: 400 }
     );
   }
@@ -36,7 +48,7 @@ export async function POST(request: Request) {
     .from("role_access_requests")
     .insert({
       user_id: null,
-      email: "",
+      email: email,
       requested_role: requestedRole,
       company_name: companyName,
       contact_name: contactName,
