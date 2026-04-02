@@ -29,6 +29,15 @@ export function SiteHeader() {
 
         {/* Desktop nav */}
         <nav className="hidden items-center gap-2 md:flex">
+          <Link href="/" className="text-espresso px-3 py-2 text-sm font-bold uppercase tracking-[0.08em] hover:text-tomato transition-colors">
+            For Roasters
+          </Link>
+          <Link href="/for/hubs" className="text-espresso px-3 py-2 text-sm font-bold uppercase tracking-[0.08em] hover:text-tomato transition-colors">
+            For Hubs
+          </Link>
+          <Link href="/for/sellers" className="text-espresso px-3 py-2 text-sm font-bold uppercase tracking-[0.08em] hover:text-tomato transition-colors">
+            For Sellers
+          </Link>
           {mounted ? (
             user ? (
               <Link
@@ -77,6 +86,16 @@ export function SiteHeader() {
       {mobileOpen && (
         <div className="border-t-3 border-espresso bg-chalk px-4 py-4 md:hidden">
           <nav className="flex flex-col gap-2">
+            <Link href="/" onClick={() => setMobileOpen(false)} className="flex h-10 w-full items-center justify-center text-sm font-bold uppercase tracking-[0.08em] text-espresso hover:text-tomato transition-colors">
+              For Roasters
+            </Link>
+            <Link href="/for/hubs" onClick={() => setMobileOpen(false)} className="flex h-10 w-full items-center justify-center text-sm font-bold uppercase tracking-[0.08em] text-espresso hover:text-tomato transition-colors">
+              For Hubs
+            </Link>
+            <Link href="/for/sellers" onClick={() => setMobileOpen(false)} className="flex h-10 w-full items-center justify-center text-sm font-bold uppercase tracking-[0.08em] text-espresso hover:text-tomato transition-colors">
+              For Sellers
+            </Link>
+            <div className="border-t border-fog my-2" />
             {mounted && user ? (
               <Link
                 href="/dashboard"
