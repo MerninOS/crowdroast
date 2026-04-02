@@ -398,10 +398,10 @@ export default function HomePage() {
                 ))}
               </ul>
               <Link
-                href="/auth/sign-up"
+                href="/for/hubs"
                 className="mt-8 inline-flex items-center gap-1.5 text-sm font-bold text-tomato transition-colors hover:text-honey"
               >
-                Become a hub <ArrowRight className="h-3.5 w-3.5" />
+                Learn more <ArrowRight className="h-3.5 w-3.5" />
               </Link>
             </div>
 
@@ -434,10 +434,10 @@ export default function HomePage() {
                 ))}
               </ul>
               <Link
-                href="/auth/sign-up"
+                href="/for/sellers"
                 className="mt-8 inline-flex items-center gap-1.5 text-sm font-bold text-cream/60 transition-colors hover:text-cream"
               >
-                List your coffee <ArrowRight className="h-3.5 w-3.5" />
+                Learn more <ArrowRight className="h-3.5 w-3.5" />
               </Link>
             </div>
           </div>
