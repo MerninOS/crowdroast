@@ -102,7 +102,7 @@ export default function HubsPage() {
 
           <div className="max-w-4xl">
             <h1
-              className="font-display text-[clamp(3.5rem,8vw,6rem)] leading-[0.9] text-espresso uppercase mb-4"
+              className="font-display text-[clamp(3.5rem,8vw,5rem)] leading-[0.9] text-espresso uppercase mb-4"
               style={{ animation: "fadeUp 0.45s ease both 0.08s" }}
             >
               Your community trusts your palate.{" "}

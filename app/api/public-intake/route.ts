@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 const ALLOWED_ROLES = new Set(["seller", "hub_owner"]);
 
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
   const notes =
     typeof body?.notes === "string" ? body.notes.trim() || null : null;
 
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   const { data, error } = await supabase
     .from("role_access_requests")
