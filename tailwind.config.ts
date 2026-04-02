@@ -11,8 +11,11 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],
-        mono: ['var(--font-jetbrains)', 'monospace'],
+        sans:     ['system-ui', 'sans-serif'],
+        mono:     ['var(--font-mono)', 'monospace'],
+        display:  ["'Adore Cats'", 'var(--font-display)'],
+        headline: ["'Cal Sans'", 'var(--font-headline)'],
+        body:     ['system-ui', 'sans-serif'],
       },
       colors: {
         background: 'hsl(var(--background))',
@@ -65,28 +68,46 @@ const config: Config = {
           border: 'hsl(var(--sidebar-border))',
           ring: 'hsl(var(--sidebar-ring))',
         },
+        // Mernin' brand palette
+        tomato:   '#E8442A',
+        cream:    '#F5F0D8',
+        espresso: '#1C0F05',
+        sun:      '#F5C842',
+        sky:      '#5BC8D5',
+        chalk:    '#FDFAF0',
+        roast:    '#3B1F0A',
+        honey:    '#E8913A',
+        matcha:   '#5A7A3A',
+        fog:      '#D8D0B8',
       },
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
+        pill:   '9999px',
+        bubble: '40px',
+        xl:     '20px',
+      },
+      borderWidth: {
+        '3': '3px',
+        '4': '4px',
+        '5': '5px',
+      },
+      boxShadow: {
+        'flat-sm':     '3px 3px 0px #1C0F05',
+        'flat-md':     '5px 5px 0px #1C0F05',
+        'flat-lg':     '8px 8px 0px #1C0F05',
+        'flat-tomato': '5px 5px 0px #E8442A',
+        'flat-cream':  '5px 5px 0px #F5F0D8',
       },
       keyframes: {
         'accordion-down': {
-          from: {
-            height: '0',
-          },
-          to: {
-            height: 'var(--radix-accordion-content-height)',
-          },
+          from: { height: '0' },
+          to: { height: 'var(--radix-accordion-content-height)' },
         },
         'accordion-up': {
-          from: {
-            height: 'var(--radix-accordion-content-height)',
-          },
-          to: {
-            height: '0',
-          },
+          from: { height: 'var(--radix-accordion-content-height)' },
+          to: { height: '0' },
         },
       },
       animation: {

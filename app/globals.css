@@ -2,6 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+@font-face {
+  font-family: 'Adore Cats';
+  src: url('/fonts/Adore%20Cats.otf') format('opentype'),
+       url('/fonts/Adore%20Cats.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;
@@ -10,35 +19,34 @@
   .marquee-track {
     animation: marquee 34s linear infinite;
   }
+
+  .campaign-bar {
+    animation: campaignFill 2.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) 1s both;
+  }
+
+  .mechanic-bar {
+    animation: campaignFill 2.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) 0.4s both;
+  }
 }
 
 @keyframes marquee {
-  0% {
-    transform: translateX(0);
-  }
-  100% {
-    transform: translateX(-50%);
-  }
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
 }
 
 @keyframes fadeUp {
-  0% {
-    opacity: 0;
-    transform: translateY(14px);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  0%   { opacity: 0; transform: translateY(16px); }
+  100% { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes fadeIn {
-  0% {
-    opacity: 0;
-  }
-  100% {
-    opacity: 1;
-  }
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes campaignFill {
+  0%   { width: 18%; }
+  100% { width: 68%; }
 }
 
 @layer base {
@@ -124,7 +132,6 @@
   body {
     @apply bg-background text-foreground;
   }
-  /* Ensure touch targets are easily tappable on mobile */
   a,
   button,
   [role="button"] {

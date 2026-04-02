@@ -1,14 +1,29 @@
 import React from "react";
 import type { Metadata, Viewport } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Fredoka, JetBrains_Mono, Cal_Sans } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "sonner";
 import { UnitProvider } from "@/components/unit-provider";
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+// Display / headline font — bubbly, bold (Adore Cats fallback)
+const fredoka = Fredoka({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-display",
+  display: "swap",
+});
+
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
-  variable: "--font-jetbrains",
+  variable: "--font-mono",
+  display: "swap",
+});
+
+const calSans = Cal_Sans({
+  subsets: ["latin"],
+  variable: "--font-headline",
+  display: "swap",
+  weight: "400"
 });
 
 export const metadata: Metadata = {
@@ -18,7 +33,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#3be685",
+  themeColor: "#E8442A",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -33,7 +48,7 @@ export default function RootLayout({
     <html lang="en" className="bg-background">
       <body
         suppressHydrationWarning
-        className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}
+        className={`${fredoka.variable} ${jetbrainsMono.variable} ${calSans.variable} font-sans antialiased`}
       >
         <UnitProvider>
           {children}
