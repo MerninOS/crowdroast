@@ -160,11 +160,11 @@ export function LotDetailView({
           </div>
 
           <div className="space-y-3">
-            <div className="overflow-hidden rounded-xl border bg-muted/20">
+            <div className="overflow-hidden rounded-xl border bg-muted/20 aspect-[4/3] w-full">
               <img
                 src={lot.images?.[0] || "/placeholder.jpg"}
                 alt={lot.title}
-                className="h-72 w-full object-cover"
+                className="h-full w-full object-cover"
               />
             </div>
             {lot.images && lot.images.length > 1 && (
@@ -599,7 +599,7 @@ export function LotDetailView({
               <Separator />
 
               {!userId && (
-                <Button asChild className="w-full bg-tomato text-cream border-3 border-espresso rounded-full font-body font-bold uppercase tracking-widest shadow-flat-sm hover:shadow-flat-md transition-all">
+                <Button asChild className="w-full bg-tomato text-cream border-3 border-espresso rounded-full font-body font-bold shadow-flat-sm hover:shadow-flat-md transition-all whitespace-normal h-auto py-3 px-4 text-center leading-snug">
                   <Link href="/auth/sign-up">Request access to this hub to commit</Link>
                 </Button>
               )}
