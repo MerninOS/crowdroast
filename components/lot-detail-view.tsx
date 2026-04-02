@@ -599,8 +599,8 @@ export function LotDetailView({
               <Separator />
 
               {!userId && (
-                <Button asChild className="w-full">
-                  <Link href="/auth/login">Sign in to commit</Link>
+                <Button asChild className="w-full bg-tomato text-cream border-3 border-espresso rounded-full font-body font-bold uppercase tracking-widest shadow-flat-sm hover:shadow-flat-md transition-all">
+                  <Link href="/auth/sign-up">Request access to this hub to commit</Link>
                 </Button>
               )}
 
