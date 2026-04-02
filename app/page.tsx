@@ -105,7 +105,7 @@ export default function HomePage() {
             {/* Left: copy */}
             <div>
               <h1
-                className="font-display text-[clamp(3rem,8vw,5rem)] leading-[0.9] text-espresso uppercase mb-6"
+                className="font-display text-[clamp(4rem,8vw,5rem)] leading-[0.9] text-espresso uppercase mb-6"
                 style={{ animation: "fadeUp 0.45s ease both 0.08s" }}
               >
                 The more roasters commit,{" "}
