@@ -116,7 +116,7 @@ export default function HomePage() {
                 style={{ animation: "fadeUp 0.45s ease both 0.16s" }}
               >
                 Hub owners curate exceptional lots. Roasters commit together.
-                Volume unlocks better pricing for everyone — automatically.
+                Volume unlocks better pricing for everyone, automatically.
               </p>
 
               <div
