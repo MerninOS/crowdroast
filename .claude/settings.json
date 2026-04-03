@@ -1,9 +1,9 @@
 {
   "enabledPlugins": {
-    "casaflow@CasaPerks-casaflow": true
+    "casaflow@casaperks-casaflow": true
   },
   "extraKnownMarketplaces": {
-    "CasaPerks-casaflow": {
+    "casaperks-casaflow": {
       "source": {
         "source": "github",
         "repo": "CasaPerks/casaflow"
