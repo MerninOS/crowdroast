@@ -51,6 +51,15 @@ vi.mock("@/lib/email/templates/PriceDrop", () => ({
   renderPriceDropInvestorHtml: vi.fn().mockResolvedValue("<html>drop-investor</html>"),
   renderPriceDropNonInvestorHtml: vi.fn().mockResolvedValue("<html>drop-non</html>"),
 }));
+vi.mock("@/lib/email/templates/HubAccessRequest", () => ({
+  renderHubAccessRequestHtml: vi.fn().mockResolvedValue("<html>hub-request</html>"),
+}));
+vi.mock("@/lib/email/templates/HubAccessApproved", () => ({
+  renderHubAccessApprovedHtml: vi.fn().mockResolvedValue("<html>hub-approved</html>"),
+}));
+vi.mock("@/lib/email/templates/HubAccessDenied", () => ({
+  renderHubAccessDeniedHtml: vi.fn().mockResolvedValue("<html>hub-denied</html>"),
+}));
 
 import { sendEmail } from "@/lib/email/transport";
 import {
@@ -66,6 +75,9 @@ import {
   sendDeadlineReminderEmail,
   sendPriceDropInvestorEmail,
   sendPriceDropNonInvestorEmail,
+  sendHubAccessRequestEmail,
+  sendHubAccessApprovedEmail,
+  sendHubAccessDeniedEmail,
 } from "@/lib/email";
 
 const mockSendEmail = vi.mocked(sendEmail);
@@ -438,6 +450,115 @@ describe("sendPriceDropNonInvestorEmail", () => {
       lot: { id: "lot-uuid-1", title: "Ethiopia Natural", price_per_kg: 15, commitment_deadline: null },
       newPricePerKg: 12,
       hubName: "Seattle Hub",
+    });
+
+    expect(result.success).toBe(false);
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hub access request (buyer → hub owner notification)
+// ---------------------------------------------------------------------------
+
+describe("sendHubAccessRequestEmail", () => {
+  it("sends to hub owner with buyer name in subject", async () => {
+    const result = await sendHubAccessRequestEmail({
+      hubOwner: { email: "owner@hub.com", contact_name: "Carlos" },
+      buyer: { contact_name: "Alice", company_name: "Alice's Roastery", email: "alice@roastery.com" },
+      hubName: "Portland Hub",
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(mockSendEmail).toHaveBeenCalledOnce();
+    expect(mockSendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "owner@hub.com",
+        subject: expect.stringContaining("Alice"),
+      })
+    );
+  });
+
+  it("returns { success: false } without sending if hub owner has no email", async () => {
+    const result = await sendHubAccessRequestEmail({
+      hubOwner: { email: null, contact_name: "Carlos" },
+      buyer: { contact_name: "Alice", company_name: null, email: "alice@roastery.com" },
+      hubName: "Portland Hub",
+    });
+
+    expect(result.success).toBe(false);
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  it("returns { success: false } without sending if buyer has no email", async () => {
+    const result = await sendHubAccessRequestEmail({
+      hubOwner: { email: "owner@hub.com", contact_name: "Carlos" },
+      buyer: { contact_name: "Alice", company_name: null, email: null },
+      hubName: "Portland Hub",
+    });
+
+    expect(result.success).toBe(false);
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hub access approved (hub owner → buyer notification)
+// ---------------------------------------------------------------------------
+
+describe("sendHubAccessApprovedEmail", () => {
+  it("sends to buyer with hub name in subject", async () => {
+    const result = await sendHubAccessApprovedEmail({
+      buyer: { email: "alice@roastery.com", contact_name: "Alice" },
+      hubName: "Portland Hub",
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(mockSendEmail).toHaveBeenCalledOnce();
+    expect(mockSendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "alice@roastery.com",
+        subject: expect.stringContaining("Portland Hub"),
+      })
+    );
+  });
+
+  it("returns { success: false } without sending if buyer has no email", async () => {
+    const result = await sendHubAccessApprovedEmail({
+      buyer: { email: null, contact_name: "Alice" },
+      hubName: "Portland Hub",
+    });
+
+    expect(result.success).toBe(false);
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hub access denied (hub owner → buyer notification)
+// ---------------------------------------------------------------------------
+
+describe("sendHubAccessDeniedEmail", () => {
+  it("sends to buyer with hub name in subject", async () => {
+    const result = await sendHubAccessDeniedEmail({
+      buyer: { email: "alice@roastery.com", contact_name: "Alice" },
+      hubName: "Portland Hub",
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(mockSendEmail).toHaveBeenCalledOnce();
+    expect(mockSendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "alice@roastery.com",
+        subject: expect.stringContaining("Portland Hub"),
+      })
+    );
+  });
+
+  it("returns { success: false } without sending if buyer has no email", async () => {
+    const result = await sendHubAccessDeniedEmail({
+      buyer: { email: null, contact_name: "Alice" },
+      hubName: "Portland Hub",
     });
 
     expect(result.success).toBe(false);
