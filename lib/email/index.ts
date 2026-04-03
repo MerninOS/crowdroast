@@ -24,6 +24,9 @@ import {
   renderPriceDropInvestorHtml,
   renderPriceDropNonInvestorHtml,
 } from "./templates/PriceDrop";
+import { renderHubAccessRequestHtml } from "./templates/HubAccessRequest";
+import { renderHubAccessApprovedHtml } from "./templates/HubAccessApproved";
+import { renderHubAccessDeniedHtml } from "./templates/HubAccessDenied";
 import type { Profile, Hub, Lot, Commitment } from "@/lib/types";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://crowdroast.com";
@@ -458,6 +461,86 @@ export async function sendPriceDropNonInvestorEmail(
   return sendEmail({
     to: params.buyer.email,
     subject: `Price just dropped on ${params.lot.title}`,
+    html,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Hub access request (buyer → hub owner notification)
+// ---------------------------------------------------------------------------
+
+export interface HubAccessRequestEmailParams {
+  hubOwner: Pick<Profile, "email" | "contact_name">;
+  buyer: Pick<Profile, "contact_name" | "company_name" | "email">;
+  hubName: string;
+}
+
+export async function sendHubAccessRequestEmail(
+  params: HubAccessRequestEmailParams
+): Promise<SendEmailResult> {
+  if (!params.hubOwner.email) return { success: false, error: "Hub owner has no email address" };
+  if (!params.buyer.email) return { success: false, error: "Buyer has no email address" };
+  const html = await renderHubAccessRequestHtml({
+    hubOwnerName: params.hubOwner.contact_name || "Hub Owner",
+    hubName: params.hubName,
+    buyerName: params.buyer.contact_name || "A buyer",
+    buyerCompany: params.buyer.company_name || null,
+    buyerEmail: params.buyer.email,
+    membersUrl: `${APP_URL}/dashboard/hub/members`,
+  });
+  return sendEmail({
+    to: params.hubOwner.email,
+    subject: `${params.buyer.contact_name || "A buyer"} is requesting to join ${params.hubName}`,
+    html,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Hub access approved (hub owner → buyer notification)
+// ---------------------------------------------------------------------------
+
+export interface HubAccessApprovedEmailParams {
+  buyer: Pick<Profile, "email" | "contact_name">;
+  hubName: string;
+}
+
+export async function sendHubAccessApprovedEmail(
+  params: HubAccessApprovedEmailParams
+): Promise<SendEmailResult> {
+  if (!params.buyer.email) return { success: false, error: "Buyer has no email address" };
+  const html = await renderHubAccessApprovedHtml({
+    buyerName: params.buyer.contact_name || "there",
+    hubName: params.hubName,
+    dashboardUrl: `${APP_URL}/dashboard/buyer`,
+  });
+  return sendEmail({
+    to: params.buyer.email,
+    subject: `You're in — welcome to ${params.hubName}`,
+    html,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Hub access denied (hub owner → buyer notification)
+// ---------------------------------------------------------------------------
+
+export interface HubAccessDeniedEmailParams {
+  buyer: Pick<Profile, "email" | "contact_name">;
+  hubName: string;
+}
+
+export async function sendHubAccessDeniedEmail(
+  params: HubAccessDeniedEmailParams
+): Promise<SendEmailResult> {
+  if (!params.buyer.email) return { success: false, error: "Buyer has no email address" };
+  const html = await renderHubAccessDeniedHtml({
+    buyerName: params.buyer.contact_name || "there",
+    hubName: params.hubName,
+    findHubUrl: `${APP_URL}/dashboard/find-hub`,
+  });
+  return sendEmail({
+    to: params.buyer.email,
+    subject: `Update on your request to join ${params.hubName}`,
     html,
   });
 }
