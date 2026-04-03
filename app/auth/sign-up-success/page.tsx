@@ -4,7 +4,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card";
+} from "@/components/mernin/Card";
 import { Mail } from "lucide-react";
 
 export default function SignUpSuccessPage() {

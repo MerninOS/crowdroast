@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/mernin/Card";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function HubPayoutsLoading() {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/mernin/Button";
 import { toast } from "sonner";
 import { FlaskConical } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { Input } from "@/components/mernin/Input";
 import { Textarea } from "@/components/ui/textarea";
 
 export function SampleRequestButton({

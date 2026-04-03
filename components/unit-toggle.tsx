@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/mernin/Button";
 import { useUnitPreference } from "@/components/unit-provider";
 
 export function UnitToggle() {

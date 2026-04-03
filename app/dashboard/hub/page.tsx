@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/mernin/Card";
 import { Warehouse, Truck, Package, Users, Coffee, FlaskConical } from "lucide-react";
 import { StripeConnectButton } from "@/components/stripe-connect-button";
 

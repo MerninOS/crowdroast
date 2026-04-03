@@ -3,8 +3,8 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+} from "@/components/mernin/Card";
+import { Button } from "@/components/mernin/Button";
 import { Coffee, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 

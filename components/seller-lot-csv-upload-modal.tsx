@@ -4,7 +4,7 @@ import React, { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { FileUp, Info, Upload } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/mernin/Button";
 import {
   Dialog,
   DialogContent,
@@ -14,7 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/mernin/Card";
 import {
   Accordion,
   AccordionContent,

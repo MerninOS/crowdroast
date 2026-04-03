@@ -51,73 +51,75 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 19 46% 16%;
-    --card: 0 0% 100%;
-    --card-foreground: 19 46% 16%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 19 46% 16%;
-    --primary: 147 63% 42%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 30 20% 96%;
-    --secondary-foreground: 19 20% 24%;
-    --muted: 30 16% 94%;
-    --muted-foreground: 19 12% 40%;
-    --accent: 30 16% 94%;
-    --accent-foreground: 19 20% 24%;
-    --destructive: 0 100% 60%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 24 35% 84%;
-    --input: 24 35% 84%;
-    --ring: 147 63% 42%;
-    --chart-1: 147 63% 42%;
-    --chart-2: 19 46% 16%;
-    --chart-3: 35 55% 35%;
-    --chart-4: 201 65% 46%;
-    --chart-5: 0 100% 60%;
+    /* Mernin Design System */
+    --background: 46 52% 90%;          /* cream #F5F0D8 */
+    --foreground: 19 67% 7%;           /* espresso #1C0F05 */
+    --card: 43 75% 98%;                /* chalk #FDFAF0 */
+    --card-foreground: 19 67% 7%;      /* espresso */
+    --popover: 43 75% 98%;             /* chalk */
+    --popover-foreground: 19 67% 7%;   /* espresso */
+    --primary: 8 80% 54%;              /* tomato #E8442A */
+    --primary-foreground: 46 52% 90%;  /* cream */
+    --secondary: 46 52% 90%;           /* cream */
+    --secondary-foreground: 19 67% 7%; /* espresso */
+    --muted: 37 22% 78%;              /* fog #D8D0B8 */
+    --muted-foreground: 30 20% 40%;    /* warm brown muted text */
+    --accent: 44 89% 61%;              /* sun #F5C842 */
+    --accent-foreground: 19 67% 7%;    /* espresso */
+    --destructive: 8 80% 54%;          /* tomato */
+    --destructive-foreground: 46 52% 90%; /* cream */
+    --border: 37 22% 78%;             /* fog */
+    --input: 37 22% 78%;              /* fog */
+    --ring: 8 80% 54%;                /* tomato */
+    --chart-1: 8 80% 54%;             /* tomato */
+    --chart-2: 44 89% 61%;            /* sun */
+    --chart-3: 187 57% 60%;           /* sky #5BC8D5 */
+    --chart-4: 30 79% 57%;            /* honey #E8913A */
+    --chart-5: 93 36% 35%;            /* matcha #5A7A3A */
     --radius: 0.75rem;
-    --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 19 46% 16%;
-    --sidebar-primary: 147 63% 42%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 30 20% 96%;
-    --sidebar-accent-foreground: 19 20% 24%;
-    --sidebar-border: 24 35% 84%;
-    --sidebar-ring: 147 63% 42%;
+    --sidebar-background: 43 75% 98%; /* chalk */
+    --sidebar-foreground: 19 67% 7%;  /* espresso */
+    --sidebar-primary: 8 80% 54%;     /* tomato */
+    --sidebar-primary-foreground: 46 52% 90%; /* cream */
+    --sidebar-accent: 46 52% 90%;     /* cream */
+    --sidebar-accent-foreground: 19 67% 7%;   /* espresso */
+    --sidebar-border: 37 22% 78%;     /* fog */
+    --sidebar-ring: 8 80% 54%;        /* tomato */
   }
   .dark {
-    --background: 19 34% 10%;
-    --foreground: 60 70% 95%;
-    --card: 19 34% 12%;
-    --card-foreground: 60 70% 95%;
-    --popover: 19 34% 12%;
-    --popover-foreground: 60 70% 95%;
-    --primary: 147 60% 50%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 19 24% 20%;
-    --secondary-foreground: 60 70% 95%;
-    --muted: 19 22% 18%;
-    --muted-foreground: 45 38% 75%;
-    --accent: 19 22% 18%;
-    --accent-foreground: 60 70% 95%;
-    --destructive: 0 78% 44%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 19 24% 24%;
-    --input: 19 24% 24%;
-    --ring: 147 60% 50%;
-    --chart-1: 147 60% 50%;
-    --chart-2: 60 30% 80%;
-    --chart-3: 45 38% 75%;
-    --chart-4: 201 62% 58%;
-    --chart-5: 0 85% 58%;
-    --sidebar-background: 19 34% 10%;
-    --sidebar-foreground: 60 70% 95%;
-    --sidebar-primary: 147 60% 50%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 19 24% 20%;
-    --sidebar-accent-foreground: 60 70% 95%;
-    --sidebar-border: 19 24% 24%;
-    --sidebar-ring: 147 60% 50%;
+    /* Mernin Dark Mode */
+    --background: 19 67% 7%;           /* espresso */
+    --foreground: 46 52% 90%;          /* cream */
+    --card: 20 55% 14%;                /* roast #3B1F0A */
+    --card-foreground: 46 52% 90%;     /* cream */
+    --popover: 20 55% 14%;             /* roast */
+    --popover-foreground: 46 52% 90%;  /* cream */
+    --primary: 8 80% 54%;              /* tomato */
+    --primary-foreground: 46 52% 90%;  /* cream */
+    --secondary: 20 55% 14%;           /* roast */
+    --secondary-foreground: 46 52% 90%; /* cream */
+    --muted: 19 50% 11%;              /* dark espresso */
+    --muted-foreground: 30 20% 55%;    /* warm muted */
+    --accent: 44 89% 61%;              /* sun */
+    --accent-foreground: 19 67% 7%;    /* espresso */
+    --destructive: 8 80% 54%;          /* tomato */
+    --destructive-foreground: 46 52% 90%; /* cream */
+    --border: 19 50% 11%;             /* dark espresso border */
+    --input: 19 50% 11%;              /* dark espresso */
+    --ring: 8 80% 54%;                /* tomato */
+    --chart-1: 8 80% 54%;             /* tomato */
+    --chart-2: 44 89% 61%;            /* sun */
+    --chart-3: 187 57% 60%;           /* sky */
+    --chart-4: 30 79% 57%;            /* honey */
+    --chart-5: 93 36% 35%;            /* matcha */
+    --sidebar-background: 19 67% 7%;  /* espresso */
+    --sidebar-foreground: 46 52% 90%; /* cream */
+    --sidebar-primary: 8 80% 54%;     /* tomato */
+    --sidebar-primary-foreground: 46 52% 90%; /* cream */
+    --sidebar-accent: 20 55% 14%;     /* roast */
+    --sidebar-accent-foreground: 46 52% 90%;  /* cream */
+    --sidebar-border: 19 50% 11%;     /* dark espresso */
+    --sidebar-ring: 8 80% 54%;        /* tomato */
   }
 }
 

@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/mernin/Card";
+import { Badge } from "@/components/mernin/Badge";
 import { ShoppingCart } from "lucide-react";
 import type { Commitment } from "@/lib/types";
 import { UnitPriceText, UnitWeightText } from "@/components/unit-value";

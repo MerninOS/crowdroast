@@ -115,8 +115,7 @@ export default function HomePage() {
                 className="text-lg text-[#7A6A50] max-w-lg leading-relaxed mb-8"
                 style={{ animation: "fadeUp 0.45s ease both 0.16s" }}
               >
-                Hub owners curate exceptional lots. Roasters commit together.
-                Volume unlocks better pricing for everyone — automatically.
+                Get better pricing on exceptional green coffee lots by banding together with coffee roasters in your area.
               </p>
 
               <div
