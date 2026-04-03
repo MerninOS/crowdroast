@@ -24,7 +24,7 @@ export function SiteHeader() {
     <header className="sticky top-0 z-50 w-full bg-cream border-b-3 border-espresso">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 lg:px-0">
         <Link href="/" className="flex items-center">
-          <img src="/crowdroast_logo.svg" alt="CrowdRoast" className="h-10" />
+          <img src="/crowdroast_logo.png" alt="CrowdRoast" className="h-10" />
         </Link>
 
         {/* Desktop nav */}

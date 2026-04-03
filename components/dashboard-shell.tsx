@@ -171,7 +171,7 @@ export function DashboardShell({
       {/* Desktop sidebar */}
       <aside className="hidden w-[260px] shrink-0 border-r-3 border-espresso bg-chalk lg:flex lg:flex-col">
         <div className="flex h-14 items-center border-b-3 border-espresso px-5">
-          <img src="/crowdroast_logo.svg" alt="CrowdRoast" className="h-24" />
+          <img src="/crowdroast_logo.png" alt="CrowdRoast" className="h-24" />
         </div>
 
         <div className="px-3 pt-3 pb-1">
@@ -240,7 +240,7 @@ export function DashboardShell({
       >
         <div className="flex h-14 items-center justify-between border-b-3 border-espresso px-4">
           <div className="flex items-center">
-            <img src="/crowdroast_logo.svg" alt="CrowdRoast" className="h-12" />
+            <img src="/crowdroast_logo.png" alt="CrowdRoast" className="h-12" />
           </div>
           <button
             type="button"
@@ -314,7 +314,7 @@ export function DashboardShell({
             <Menu className="h-5 w-5" />
           </button>
           <div className="flex items-center">
-            <img src="/crowdroast_logo.svg" alt="CrowdRoast" className="h-12" />
+            <img src="/crowdroast_logo.png" alt="CrowdRoast" className="h-12" />
           </div>
           <UnitToggle />
         </header>
