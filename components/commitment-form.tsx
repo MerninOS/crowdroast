@@ -145,9 +145,6 @@ export function CommitmentForm({
             ${total.toFixed(2)}
           </span>
         </div>
-        <p className="text-xs text-muted-foreground mt-1">
-          This includes the 10% platform fee. Funds are held until the deadline.
-        </p>
       </div>
       <Button type="submit" className="w-full" disabled={isLoading}>
         {isLoading ? "Submitting..." : "Commit to Purchase"}
@@ -177,9 +174,6 @@ export function CommitmentForm({
             </p>
             <p>
               Charged now: <span className="font-medium">${total.toFixed(2)}</span>
-            </p>
-            <p className="text-muted-foreground">
-              This charge includes the 10% platform fee. If the lot unlocks a lower final tier by deadline, you will be refunded the difference before payouts are distributed.
             </p>
           </div>
 
