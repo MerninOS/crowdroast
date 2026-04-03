@@ -50,7 +50,7 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         <div className="flex flex-col gap-6">
           <div className="flex items-center justify-center">
-            <img src="/crowdroast_logo.png" alt="CrowdRoast" className="h-24" />
+            <img src="/crowdroast_logo.png" alt="CrowdRoast" className="h-18" />
           </div>
           <Card className="shadow-md">
             <CardHeader>
