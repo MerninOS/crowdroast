@@ -301,7 +301,7 @@ export default function HubsPage() {
       <footer className="bg-espresso border-t-5 border-tomato px-4 py-8">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 md:flex-row">
           <img
-            src="/crowdroast_logo.svg"
+            src="/crowdroast_logo.png"
             alt="CrowdRoast"
             className="h-10 brightness-0 invert opacity-60"
           />
