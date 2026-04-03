@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { sendBuyerJoinedHubEmail } from "@/lib/email";
 import { NextResponse } from "next/server";
 
@@ -76,6 +77,16 @@ export async function POST(request: Request) {
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // Cancel any pending hub access requests for this buyer (criterion 10)
+  if (existingProfile) {
+    const adminClient = createAdminClient();
+    await adminClient
+      .from("hub_access_requests")
+      .update({ status: "cancelled", updated_at: new Date().toISOString() })
+      .eq("user_id", existingProfile.id)
+      .eq("status", "pending");
   }
 
   // AC-3: notify hub owner when an existing buyer joins immediately

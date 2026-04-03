@@ -211,6 +211,20 @@ export interface PricingTier {
   created_at: string;
 }
 
+export type HubAccessRequestStatus = "pending" | "approved" | "denied" | "cancelled";
+
+export interface HubAccessRequest {
+  id: string;
+  hub_id: string;
+  user_id: string;
+  status: HubAccessRequestStatus;
+  created_at: string;
+  updated_at: string;
+  // Joined fields
+  hub?: Hub;
+  user?: Profile;
+}
+
 export type HubMemberRole = "buyer" | "seller";
 export type HubMemberStatus = "invited" | "active" | "removed";
 

@@ -3,9 +3,11 @@ import { redirect } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/mernin/Card";
 import { Badge } from "@/components/mernin/Badge";
 import { Progress } from "@/components/ui/progress";
-import { Clock, Coffee, Target, TrendingDown, Warehouse } from "lucide-react";
+import { Clock, Coffee, Target, TrendingDown, Warehouse, Search } from "lucide-react";
 import Link from "next/link";
+import { Button } from "@/components/mernin/Button";
 import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
+import { LeaveHubButton } from "@/components/leave-hub-button";
 
 function getHubName(memberships: any[], hubId: string) {
   const membership = memberships.find((m: any) => m.hub_id === hubId);
@@ -73,8 +75,14 @@ export default async function BuyerOverview({
             </div>
             <h3 className="text-base font-semibold text-foreground">No Hub Membership Yet</h3>
             <p className="mt-2 max-w-sm text-center text-sm leading-relaxed text-muted-foreground">
-              You need to be added to a hub by a hub owner before you can browse and commit to coffee lots.
+              Join a hub to browse and commit to coffee lots. Find one near you or request access directly.
             </p>
+            <Button asChild className="mt-4">
+              <Link href="/dashboard/find-hub">
+                <Search className="mr-2 h-4 w-4" />
+                Find a Hub
+              </Link>
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -225,11 +233,14 @@ export default async function BuyerOverview({
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Buyer Dashboard</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Active and past lots from your hubs.
-        </p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Buyer Dashboard</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Active and past lots from your hubs.
+          </p>
+        </div>
+        <LeaveHubButton hubName={getHubName(memberships || [], hubIds[0])} />
       </div>
 
       <div className="mb-6 flex items-center gap-2 border-b pb-2">

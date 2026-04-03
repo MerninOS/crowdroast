@@ -20,6 +20,7 @@ import {
   X,
   User as UserIcon,
   Shield,
+  Search,
 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import type { User } from "@supabase/supabase-js";
@@ -42,6 +43,7 @@ const navByRole = {
       icon: FlaskConical,
     },
     { href: "/dashboard/buyer/claims", label: "Claims", icon: FileWarning },
+    { href: "/dashboard/find-hub", label: "Find a Hub", icon: Search },
     {
       href: "/dashboard/buyer/access-request",
       label: "Role Request",

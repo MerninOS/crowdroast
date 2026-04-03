@@ -33,8 +33,8 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { Plus, UserPlus, Users, Trash2 } from "lucide-react";
-import type { Hub, HubMember } from "@/lib/types";
+import { Plus, UserPlus, Users, Trash2, Check, X } from "lucide-react";
+import type { Hub, HubMember, HubAccessRequest } from "@/lib/types";
 
 export default function HubMembersPage() {
   const [hubs, setHubs] = useState<Hub[]>([]);
@@ -42,9 +42,11 @@ export default function HubMembersPage() {
   const [isMembersLoading, setIsMembersLoading] = useState(false);
   const [selectedHubId, setSelectedHubId] = useState<string>("");
   const [members, setMembers] = useState<(HubMember & { profile?: { company_name: string | null; contact_name: string | null; email: string | null } })[]>([]);
+  const [accessRequests, setAccessRequests] = useState<(HubAccessRequest & { user?: { contact_name: string | null; company_name: string | null; email: string | null } })[]>([]);
   const [open, setOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
+  const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -75,13 +77,22 @@ export default function HubMembersPage() {
     const loadMembers = async () => {
       setIsMembersLoading(true);
       const supabase = createClient();
-      const { data } = await supabase
-        .from("hub_members")
-        .select("*, profile:profiles!hub_members_user_id_fkey(company_name, contact_name, email)")
-        .eq("hub_id", selectedHubId)
-        .order("joined_at", { ascending: false });
+      const [membersResult, requestsResult] = await Promise.all([
+        supabase
+          .from("hub_members")
+          .select("*, profile:profiles!hub_members_user_id_fkey(company_name, contact_name, email)")
+          .eq("hub_id", selectedHubId)
+          .order("joined_at", { ascending: false }),
+        supabase
+          .from("hub_access_requests")
+          .select("*, user:profiles!hub_access_requests_user_id_fkey(contact_name, company_name, email)")
+          .eq("hub_id", selectedHubId)
+          .eq("status", "pending")
+          .order("created_at", { ascending: false }),
+      ]);
 
-      setMembers((data || []) as any);
+      setMembers((membersResult.data || []) as any);
+      setAccessRequests((requestsResult.data || []) as any);
       setIsMembersLoading(false);
     };
     loadMembers();
@@ -125,6 +136,37 @@ export default function HubMembersPage() {
       setMembers((prev) => prev.filter((m) => m.id !== memberId));
       toast.success("Member removed");
     }
+  };
+
+  const handleAccessRequest = async (requestId: string, action: "approve" | "deny") => {
+    setProcessingRequestId(requestId);
+    const res = await fetch(`/api/hub-access-requests/${requestId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+
+    const result = await res.json();
+
+    if (!res.ok) {
+      toast.error(result.error || "Something went sideways");
+    } else {
+      setAccessRequests((prev) => prev.filter((r) => r.id !== requestId));
+      if (action === "approve") {
+        toast.success("Buyer approved and added to hub");
+        // Refresh members list to show new member
+        const supabase = createClient();
+        const { data } = await supabase
+          .from("hub_members")
+          .select("*, profile:profiles!hub_members_user_id_fkey(company_name, contact_name, email)")
+          .eq("hub_id", selectedHubId)
+          .order("joined_at", { ascending: false });
+        setMembers((data || []) as any);
+      } else {
+        toast.success("Request denied");
+      }
+    }
+    setProcessingRequestId(null);
   };
 
   const selectedHub = hubs.find((h) => h.id === selectedHubId);
@@ -197,6 +239,54 @@ export default function HubMembersPage() {
           Managing: <span className="font-medium text-foreground">{selectedHub.name}</span>
           {" "}&middot;{" "}
           {members.filter((m) => m.status === "active").length} active buyer{members.filter((m) => m.status === "active").length !== 1 ? "s" : ""}
+        </div>
+      )}
+
+      {accessRequests.length > 0 && (
+        <div className="mb-6">
+          <h2 className="mb-3 text-sm font-semibold text-foreground">
+            Pending Access Requests ({accessRequests.length})
+          </h2>
+          <div className="space-y-2">
+            {accessRequests.map((req) => {
+              const user = Array.isArray(req.user) ? req.user[0] : req.user;
+              return (
+                <Card key={req.id}>
+                  <CardContent className="flex items-center justify-between p-4">
+                    <div>
+                      <p className="font-medium text-foreground">
+                        {user?.contact_name || user?.email || "Unknown buyer"}
+                      </p>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        {user?.company_name && <span>{user.company_name}</span>}
+                        {user?.email && <span>{user.email}</span>}
+                        <span>Requested {new Date(req.created_at).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => handleAccessRequest(req.id, "approve")}
+                        disabled={processingRequestId === req.id}
+                      >
+                        <Check className="mr-1 h-3 w-3" />
+                        Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleAccessRequest(req.id, "deny")}
+                        disabled={processingRequestId === req.id}
+                      >
+                        <X className="mr-1 h-3 w-3" />
+                        Deny
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
         </div>
       )}
 
