@@ -96,7 +96,7 @@ export default async function SellerOverview() {
           <div>
             <p className="text-sm font-medium text-foreground">Stripe Connect Payouts</p>
             <p className="text-xs text-muted-foreground mt-1">
-              Required to receive your 90% share when a lot settles.
+              Required to receive your payout when a lot settles.
             </p>
           </div>
           <StripeConnectButton

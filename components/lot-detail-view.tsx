@@ -478,8 +478,8 @@ export function LotDetailView({
                   </CardTitle>
                   <CardDescription>
                     {sortedTiers.length > 0
-                      ? "Current buyer price, including the 10% platform fee"
-                      : `${lot.currency || "USD"} per ${unit}, including the 10% platform fee`}
+                      ? "Current buyer price"
+                      : `${lot.currency || "USD"} per ${unit}`}
                   </CardDescription>
                 </div>
                 {lot.price_per_kg !== activePrice && (
@@ -592,9 +592,6 @@ export function LotDetailView({
 
               <Separator />
 
-              <p className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
-                Buyer pricing includes a 10% platform fee. Sellers still receive the full base price they set for the lot.
-              </p>
 
               <Separator />
 

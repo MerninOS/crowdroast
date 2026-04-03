@@ -31,7 +31,7 @@ export default async function SellerPayoutsPage({
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">Seller Payouts</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Connect Stripe to receive your 90% share when lots settle after deadline.
+          Connect Stripe to receive your payout when lots settle after deadline.
         </p>
       </div>
 
@@ -67,7 +67,7 @@ export default async function SellerPayoutsPage({
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Buyer funds are charged when they commit and held until deadline; on settlement, CrowdRoast transfers 90% to your connected account.
+            Buyer funds are charged when they commit and held until deadline; on settlement, CrowdRoast transfers your payout to your connected account.
           </p>
           <StripeConnectButton connected={connected} roleLabel="seller" />
         </CardContent>
