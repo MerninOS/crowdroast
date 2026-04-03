@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/mernin/Card";
+import { Badge } from "@/components/mernin/Badge";
 import { FlaskConical } from "lucide-react";
 import { SampleActionButtons } from "@/components/sample-action-buttons";
 

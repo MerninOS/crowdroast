@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/mernin/Button";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 

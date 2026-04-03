@@ -105,8 +105,8 @@ export default function HubsPage() {
               className="font-display text-[clamp(3.5rem,8vw,5rem)] leading-[0.9] text-espresso uppercase mb-4"
               style={{ animation: "fadeUp 0.45s ease both 0.08s" }}
             >
-              Your community trusts your palate.{" "}
-              <span className="text-tomato">Now build a marketplace.</span>
+              Bring the best coffee{" "}
+              <span className="text-tomato">To your community.</span>
             </h1>
             <p
               className="text-lg text-[#7A6A50] max-w-2xl leading-relaxed mb-10"

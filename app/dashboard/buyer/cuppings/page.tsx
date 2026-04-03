@@ -1,8 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/mernin/Card";
+import { Badge } from "@/components/mernin/Badge";
+import { Button } from "@/components/mernin/Button";
 import { CalendarClock } from "lucide-react";
 
 export default async function BuyerCuppingsPage() {

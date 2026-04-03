@@ -5,7 +5,7 @@ import React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/mernin/Button";
 import {
   LayoutDashboard,
   Package,
@@ -105,10 +105,10 @@ function NavLink({
     <Link
       href={href}
       onClick={onClick}
-      className={`flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-colors active:opacity-80 ${
+      className={`flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-body font-medium transition-colors active:opacity-80 ${
         isActive
-          ? "text-primary"
-          : "text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted"
+          ? "text-tomato bg-cream border-2 border-espresso"
+          : "text-espresso/70 hover:bg-cream hover:text-espresso active:bg-cream"
       }`}
     >
       <Icon className="h-4 w-4 shrink-0" />
@@ -167,15 +167,15 @@ export function DashboardShell({
       : role.charAt(0).toUpperCase() + role.slice(1);
 
   return (
-    <div className="flex min-h-svh bg-white">
+    <div className="flex min-h-svh bg-cream">
       {/* Desktop sidebar */}
-      <aside className="hidden w-[260px] shrink-0 border-r bg-white lg:flex lg:flex-col">
-        <div className="flex h-14 items-center border-b px-5">
+      <aside className="hidden w-[260px] shrink-0 border-r-3 border-espresso bg-chalk lg:flex lg:flex-col">
+        <div className="flex h-14 items-center border-b-3 border-espresso px-5">
           <img src="/crowdroast_logo.svg" alt="CrowdRoast" className="h-24" />
         </div>
 
         <div className="px-3 pt-3 pb-1">
-          <p className="px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+          <p className="px-3 font-body text-[11px] font-semibold uppercase tracking-[0.08em] text-espresso/60">
             {roleLabel}
           </p>
         </div>
@@ -194,16 +194,16 @@ export function DashboardShell({
           ))}
         </nav>
 
-        <div className="border-t p-3">
+        <div className="border-t-3 border-espresso p-3">
           <div className="flex items-center gap-3 rounded-lg px-3 py-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-muted-foreground">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-cream border-2 border-espresso text-espresso">
               <UserIcon className="h-3.5 w-3.5" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-foreground">
+              <p className="truncate text-sm font-body font-medium text-espresso">
                 {profile?.contact_name || profile?.company_name || "User"}
               </p>
-              <p className="truncate text-xs text-muted-foreground">
+              <p className="truncate text-xs font-body text-espresso/60">
                 {user.email}
               </p>
             </div>
@@ -211,7 +211,7 @@ export function DashboardShell({
           <Button
             variant="ghost"
             size="sm"
-            className="mt-1 w-full justify-start text-muted-foreground hover:text-destructive"
+            className="mt-1 w-full justify-start text-espresso/60 hover:text-tomato"
             onClick={handleSignOut}
           >
             <LogOut className="mr-2 h-3.5 w-3.5" />
@@ -223,7 +223,7 @@ export function DashboardShell({
       {/* Mobile overlay -- use onTouchEnd to ensure it fires on iOS */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 z-40 bg-foreground/20 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-espresso/20 backdrop-blur-sm lg:hidden"
           onClick={closeMobile}
           onTouchEnd={(e) => {
             e.preventDefault();
@@ -235,17 +235,17 @@ export function DashboardShell({
 
       {/* Mobile drawer */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-[280px] bg-white shadow-xl transition-transform duration-200 ease-out lg:hidden ${mobileOpen ? "translate-x-0" : "-translate-x-full"
+        className={`fixed inset-y-0 left-0 z-50 w-[280px] bg-chalk border-r-3 border-espresso shadow-flat-lg transition-transform duration-200 ease-out lg:hidden ${mobileOpen ? "translate-x-0" : "-translate-x-full"
           }`}
       >
-        <div className="flex h-14 items-center justify-between border-b px-4">
+        <div className="flex h-14 items-center justify-between border-b-3 border-espresso px-4">
           <div className="flex items-center">
             <img src="/crowdroast_logo.svg" alt="CrowdRoast" className="h-12" />
           </div>
           <button
             type="button"
             onClick={closeMobile}
-            className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary active:bg-secondary/80"
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-espresso hover:bg-cream active:bg-cream/80"
             aria-label="Close menu"
           >
             <X className="h-5 w-5" />
@@ -253,7 +253,7 @@ export function DashboardShell({
         </div>
 
         <div className="px-3 pt-3 pb-1">
-          <p className="px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+          <p className="px-3 font-body text-[11px] font-semibold uppercase tracking-[0.08em] text-espresso/60">
             {roleLabel}
           </p>
         </div>
@@ -275,13 +275,13 @@ export function DashboardShell({
           ))}
         </nav>
 
-        <div className="absolute bottom-0 left-0 right-0 border-t bg-white p-3">
+        <div className="absolute bottom-0 left-0 right-0 border-t-3 border-espresso bg-chalk p-3">
           <div className="flex items-center gap-3 rounded-lg px-3 py-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-muted-foreground">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-cream border-2 border-espresso text-espresso">
               <UserIcon className="h-3.5 w-3.5" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-foreground">
+              <p className="truncate text-sm font-body font-medium text-espresso">
                 {profile?.contact_name || profile?.company_name || "User"}
               </p>
             </div>
@@ -289,7 +289,7 @@ export function DashboardShell({
           <button
             type="button"
             onClick={handleSignOut}
-            className="mt-1 flex h-10 w-full items-center rounded-md px-3 text-sm font-medium text-muted-foreground hover:text-destructive active:bg-muted transition-colors"
+            className="mt-1 flex h-10 w-full items-center rounded-md px-3 text-sm font-body font-medium text-espresso/60 hover:text-tomato active:bg-cream transition-colors"
           >
             <LogOut className="mr-2 h-3.5 w-3.5" />
             Sign Out
@@ -299,16 +299,16 @@ export function DashboardShell({
 
       {/* Main content */}
       <div className="flex flex-1 flex-col min-w-0">
-        <header className="hidden h-14 items-center justify-end border-b bg-white px-6 lg:flex">
+        <header className="hidden h-14 items-center justify-end border-b-3 border-espresso bg-chalk px-6 lg:flex">
           <UnitToggle />
         </header>
 
         {/* Mobile top bar */}
-        <header className="flex h-14 items-center justify-between border-b bg-white px-4 lg:hidden">
+        <header className="flex h-14 items-center justify-between border-b-3 border-espresso bg-chalk px-4 lg:hidden">
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
-            className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary active:bg-secondary/80 transition-colors"
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-espresso hover:bg-cream active:bg-cream/80 transition-colors"
             aria-label="Open menu"
           >
             <Menu className="h-5 w-5" />
@@ -319,7 +319,7 @@ export function DashboardShell({
           <UnitToggle />
         </header>
 
-        <main className="flex-1 overflow-auto bg-white">
+        <main className="flex-1 overflow-auto bg-cream">
           <div className="mx-auto max-w-6xl p-4 md:p-6 lg:p-8">
             {children}
           </div>
