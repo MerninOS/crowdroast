@@ -467,8 +467,19 @@ async function settleDeadlines(request: Request) {
             .from("lots")
             .update({
               status: "closed",
+              committed_quantity_kg: 0,
               settlement_status: refundFailedCount > 0 ? "failed" : "minimum_not_met",
               settlement_processed_at: nowIso,
+            })
+            .eq("id", lot.id);
+        } else {
+          // Reset committed_quantity_kg so the lot recycles clean for the next campaign
+          await admin
+            .from("lots")
+            .update({
+              committed_quantity_kg: 0,
+              settlement_status: "pending",
+              settlement_processed_at: null,
             })
             .eq("id", lot.id);
         }
