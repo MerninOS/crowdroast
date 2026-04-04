@@ -20,19 +20,15 @@ const marqueeItems = [
 export default async function BrowsePage() {
   const supabase = await createClient();
 
-  // Fetch all lots across all hubs — no membership filter
-  const { data: rawHubLots } = await supabase
-    .from("hub_lots")
+  // Fetch lots with active campaigns — only campaigned lots are public
+  const { data: activeCampaigns } = await supabase
+    .from("campaigns")
     .select(
-      "hub_id, lot_id, hub:hubs!hub_lots_hub_id_fkey(id, name, city, state), lot:lots!hub_lots_lot_id_fkey(*, seller:profiles!lots_seller_id_fkey(company_name, contact_name))"
-    );
+      "id, hub_id, lot_id, deadline, status, hub:hubs!campaigns_hub_id_fkey(id, name, city, state), lot:lots!campaigns_lot_id_fkey(*, seller:profiles!lots_seller_id_fkey(company_name, contact_name))"
+    )
+    .eq("status", "active");
 
-  // Only show active lots
-  // const hubLots = (rawHubLots || []).filter(
-  //   (hl: any) => hl.lot?.status === "active"
-  // );
-
-  const lotIds = (rawHubLots || []).map((hl: any) => hl.lot_id).filter(Boolean);
+  const lotIds = (activeCampaigns || []).map((c: any) => c.lot_id).filter(Boolean);
 
   let tiersMap: Record<string, any[]> = {};
   if (lotIds.length > 0) {
@@ -49,16 +45,17 @@ export default async function BrowsePage() {
 
   // Group lots by hub
   const hubMap: Record<string, { hub: any; lots: any[] }> = {};
-  for (const hl of rawHubLots || []) {
-    const hlAny = hl as any;
-    if (!hlAny.lot || !hlAny.hub) continue;
-    if (!hubMap[hlAny.hub_id]) {
-      hubMap[hlAny.hub_id] = { hub: hlAny.hub, lots: [] };
+  for (const c of activeCampaigns || []) {
+    const cAny = c as any;
+    if (!cAny.lot || !cAny.hub) continue;
+    if (!hubMap[cAny.hub_id]) {
+      hubMap[cAny.hub_id] = { hub: cAny.hub, lots: [] };
     }
-    hubMap[hlAny.hub_id].lots.push({
-      ...hlAny.lot,
-      hub_id: hlAny.hub_id,
-      pricing_tiers: tiersMap[hlAny.lot_id] || [],
+    hubMap[cAny.hub_id].lots.push({
+      ...cAny.lot,
+      hub_id: cAny.hub_id,
+      campaign_deadline: cAny.deadline,
+      pricing_tiers: tiersMap[cAny.lot_id] || [],
     });
   }
 
@@ -164,9 +161,9 @@ export default async function BrowsePage() {
                       const isTriggered =
                         lot.committed_quantity_kg >= lot.min_commitment_kg;
 
-                      const hasDeadline = !!lot.commitment_deadline;
+                      const hasDeadline = !!lot.campaign_deadline;
                       const deadlineDate = hasDeadline
-                        ? new Date(lot.commitment_deadline)
+                        ? new Date(lot.campaign_deadline)
                         : null;
                       const isExpired =
                         deadlineDate && deadlineDate.getTime() < Date.now();

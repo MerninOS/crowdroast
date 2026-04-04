@@ -69,8 +69,8 @@ function getExistingTransferAmountForRole(
 type AdminClient = ReturnType<typeof createAdminClient>;
 
 // AC-6: Send success emails when a lot settles — fire-and-forget, never throws
-async function sendLotSuccessNotifications(admin: AdminClient, lotId: string): Promise<void> {
-  console.log("[sendLotSuccessNotifications] starting for lot", lotId);
+async function sendLotSuccessNotifications(admin: AdminClient, lotId: string, hubId: string): Promise<void> {
+  console.log("[sendLotSuccessNotifications] starting for lot", lotId, "hub", hubId);
   try {
     const { data: lot, error: lotError } = await admin
       .from("lots")
@@ -105,15 +105,6 @@ async function sendLotSuccessNotifications(admin: AdminClient, lotId: string): P
     let hub: { id: string; name: string; address: string | null; city: string | null; state: string | null; country: string | null; owner_id: string } | null = null;
     let hubOwner: { email: string | null; contact_name: string | null } | null = null;
 
-    const { data: hubLot, error: hubLotError } = await admin
-      .from("hub_lots")
-      .select("hub_id")
-      .eq("lot_id", lotId)
-      .limit(1)
-      .single();
-    console.log("[sendLotSuccessNotifications] hub_lots lookup:", { hub_id: hubLot?.hub_id, hubLotError });
-
-    const hubId = hubLot?.hub_id;
     if (hubId) {
       const { data: hubData, error: hubError } = await admin
         .from("hubs")
@@ -132,7 +123,7 @@ async function sendLotSuccessNotifications(admin: AdminClient, lotId: string): P
         hubOwner = ownerProfile;
       }
     } else {
-      console.log("[sendLotSuccessNotifications] no hub_lots row found for lot — skipping seller and hub owner emails");
+      console.log("[sendLotSuccessNotifications] no hubId provided — skipping seller and hub owner emails");
     }
 
     const buyerPayloads = (commitments || [])
@@ -169,7 +160,7 @@ async function sendLotSuccessNotifications(admin: AdminClient, lotId: string): P
 }
 
 // AC-7: Send failure emails when a lot does not meet minimum — fire-and-forget, never throws
-async function sendLotFailedNotifications(admin: AdminClient, lotId: string): Promise<void> {
+async function sendLotFailedNotifications(admin: AdminClient, lotId: string, hubId: string): Promise<void> {
   try {
     const { data: lot } = await admin
       .from("lots")
@@ -195,21 +186,16 @@ async function sendLotFailedNotifications(admin: AdminClient, lotId: string): Pr
         ? await admin.from("profiles").select("id, email, contact_name").in("id", buyerIds)
         : { data: [] };
 
-    const { data: hubLots } = await admin
-      .from("hub_lots")
-      .select("hub_id")
-      .eq("lot_id", lotId);
-    const hubIds = [...new Set((hubLots || []).map((h) => h.hub_id))];
     let hubOwners: Array<{ id: string; email: string | null; contact_name: string | null }> = [];
-    if (hubIds.length > 0) {
-      const { data: hubs } = await admin.from("hubs").select("owner_id").in("id", hubIds);
-      const ownerIds = [...new Set((hubs || []).map((h) => h.owner_id).filter(Boolean))];
-      if (ownerIds.length > 0) {
-        const { data: owners } = await admin
+    if (hubId) {
+      const { data: hub } = await admin.from("hubs").select("owner_id").eq("id", hubId).single();
+      if (hub?.owner_id) {
+        const { data: owner } = await admin
           .from("profiles")
           .select("id, email, contact_name")
-          .in("id", ownerIds);
-        hubOwners = owners || [];
+          .eq("id", hub.owner_id)
+          .single();
+        if (owner) hubOwners = [owner];
       }
     }
 
@@ -334,31 +320,52 @@ async function settleDeadlines(request: Request) {
 
   const nowIso = new Date().toISOString();
 
-  const { data: dueLots, error: dueLotsError } = await admin
-    .from("lots")
-    .select(
-      "id, seller_id, status, currency, price_per_kg, committed_quantity_kg, min_commitment_kg, commitment_deadline, settlement_status"
-    )
-    .lte("commitment_deadline", nowIso)
-    .in("settlement_status", ["pending", "failed"]);
+  const { data: dueCampaigns, error: dueCampaignsError } = await admin
+    .from("campaigns")
+    .select("id, lot_id, hub_id, deadline, status")
+    .lte("deadline", nowIso)
+    .eq("status", "active");
 
-  if (dueLotsError) {
-    return NextResponse.json({ error: dueLotsError.message }, { status: 500 });
+  if (dueCampaignsError) {
+    return NextResponse.json({ error: dueCampaignsError.message }, { status: 500 });
   }
 
   const results: Array<Record<string, unknown>> = [];
 
-  for (const lot of dueLots || []) {
+  for (const campaign of dueCampaigns || []) {
+    const { data: lot, error: lotFetchError } = await admin
+      .from("lots")
+      .select(
+        "id, seller_id, status, currency, price_per_kg, committed_quantity_kg, min_commitment_kg, commitment_deadline, settlement_status, expiry_date"
+      )
+      .eq("id", campaign.lot_id)
+      .single();
+
+    if (lotFetchError || !lot) {
+      results.push({
+        campaign_id: campaign.id,
+        lot_id: campaign.lot_id,
+        outcome: "failed",
+        error: lotFetchError?.message || "Lot not found",
+      });
+      continue;
+    }
+
     const minimumMet = Number(lot.committed_quantity_kg) >= Number(lot.min_commitment_kg);
 
     if (!minimumMet) {
       const { data: lotCommitments, error: lotCommitmentsError } = await admin
         .from("commitments")
         .select("id, payment_status, stripe_payment_intent_id")
-        .eq("lot_id", lot.id);
+        .eq("campaign_id", campaign.id);
 
       if (lotCommitmentsError) {
         if (!debug) {
+          await admin
+            .from("campaigns")
+            .update({ status: "failed" })
+            .eq("id", campaign.id);
+
           await admin
             .from("lots")
             .update({
@@ -369,6 +376,7 @@ async function settleDeadlines(request: Request) {
         }
 
         results.push({
+          campaign_id: campaign.id,
           lot_id: lot.id,
           outcome: "failed",
           error: lotCommitmentsError.message,
@@ -445,17 +453,40 @@ async function settleDeadlines(request: Request) {
       }
 
       if (!debug) {
+        // Campaign is always marked failed when minimum not met
         await admin
-          .from("lots")
-          .update({
-            status: "closed",
-            settlement_status: refundFailedCount > 0 ? "failed" : "minimum_not_met",
-            settlement_processed_at: nowIso,
-          })
-          .eq("id", lot.id);
+          .from("campaigns")
+          .update({ status: "failed" })
+          .eq("id", campaign.id);
+
+        // If the lot's expiry_date has also passed, expire the lot.
+        // Otherwise the lot stays active so it can be recycled for other hubs.
+        const lotExpired = lot.expiry_date && new Date(lot.expiry_date) <= new Date(nowIso);
+        if (lotExpired) {
+          await admin
+            .from("lots")
+            .update({
+              status: "closed",
+              committed_quantity_kg: 0,
+              settlement_status: refundFailedCount > 0 ? "failed" : "minimum_not_met",
+              settlement_processed_at: nowIso,
+            })
+            .eq("id", lot.id);
+        } else {
+          // Reset committed_quantity_kg so the lot recycles clean for the next campaign
+          await admin
+            .from("lots")
+            .update({
+              committed_quantity_kg: 0,
+              settlement_status: "pending",
+              settlement_processed_at: null,
+            })
+            .eq("id", lot.id);
+        }
       }
 
       results.push({
+        campaign_id: campaign.id,
         lot_id: lot.id,
         outcome: refundFailedCount > 0 ? "failed" : "minimum_not_met",
         commitments_refunded: refundedCount,
@@ -464,7 +495,7 @@ async function settleDeadlines(request: Request) {
       });
 
       // AC-7: notify all parties that the campaign failed
-      if (!debug) void sendLotFailedNotifications(admin, lot.id);
+      if (!debug) void sendLotFailedNotifications(admin, lot.id, campaign.hub_id);
       continue;
     }
 
@@ -477,6 +508,11 @@ async function settleDeadlines(request: Request) {
     if (!sellerProfile?.stripe_connect_account_id) {
       if (!debug) {
         await admin
+          .from("campaigns")
+          .update({ status: "failed" })
+          .eq("id", campaign.id);
+
+        await admin
           .from("lots")
           .update({
             settlement_status: "failed",
@@ -486,6 +522,7 @@ async function settleDeadlines(request: Request) {
       }
 
       results.push({
+        campaign_id: campaign.id,
         lot_id: lot.id,
         outcome: "failed",
         error: "Seller is missing stripe_connect_account_id",
@@ -505,6 +542,11 @@ async function settleDeadlines(request: Request) {
     if (!sellerTransfersEnabled) {
       if (!debug) {
         await admin
+          .from("campaigns")
+          .update({ status: "failed" })
+          .eq("id", campaign.id);
+
+        await admin
           .from("lots")
           .update({
             settlement_status: "failed",
@@ -514,6 +556,7 @@ async function settleDeadlines(request: Request) {
       }
 
       results.push({
+        campaign_id: campaign.id,
         lot_id: lot.id,
         outcome: "failed",
         error: "Seller connected account lacks transfers capability",
@@ -531,7 +574,7 @@ async function settleDeadlines(request: Request) {
     const { data: unpaidCommitments } = await admin
       .from("commitments")
       .select("id")
-      .eq("lot_id", lot.id)
+      .eq("campaign_id", campaign.id)
       .is("stripe_payment_intent_id", null)
       .neq("status", "cancelled");
 
@@ -552,13 +595,13 @@ async function settleDeadlines(request: Request) {
       .select(
         "id, status, payment_status, hub_id, quantity_kg, total_price, charge_amount_cents, charge_currency, stripe_charge_id, stripe_payment_intent_id"
       )
-      .eq("lot_id", lot.id)
+      .eq("campaign_id", campaign.id)
       .not("stripe_payment_intent_id", "is", null)
       .neq("status", "confirmed")
       .neq("status", "cancelled");
 
     if (commitmentsError) {
-      results.push({ lot_id: lot.id, outcome: "failed", error: commitmentsError.message });
+      results.push({ campaign_id: campaign.id, lot_id: lot.id, outcome: "failed", error: commitmentsError.message });
       continue;
     }
 
@@ -571,25 +614,7 @@ async function settleDeadlines(request: Request) {
     const transferCapabilityByAccount = new Map<string, boolean>();
 
     for (const commitment of commitments || []) {
-      const commitmentHubId = commitment.hub_id;
-      if (!commitmentHubId) {
-        failedCount += 1;
-        transferFailedCount += 1;
-        if (debug) {
-          debugCommitments.push({
-            commitment_id: commitment.id,
-            error: "Missing hub_id on commitment",
-          });
-        } else {
-          await admin
-            .from("commitments")
-            .update({
-              payment_error: "Missing hub_id on commitment",
-            })
-            .eq("id", commitment.id);
-        }
-        continue;
-      }
+      const commitmentHubId = campaign.hub_id;
 
       let hubDestinationAccount = hubConnectAccountByHubId.get(commitmentHubId) || null;
       if (!hubConnectAccountByHubId.has(commitmentHubId)) {
@@ -908,6 +933,16 @@ async function settleDeadlines(request: Request) {
     }
 
     if (!debug) {
+      const campaignOutcome = failedCount > 0 ? "failed" : "settled";
+
+      await admin
+        .from("campaigns")
+        .update({
+          status: campaignOutcome === "settled" ? "settled" : "failed",
+          settled_at: campaignOutcome === "settled" ? nowIso : null,
+        })
+        .eq("id", campaign.id);
+
       await admin
         .from("lots")
         .update({
@@ -919,6 +954,7 @@ async function settleDeadlines(request: Request) {
     }
 
     results.push({
+      campaign_id: campaign.id,
       lot_id: lot.id,
       outcome: failedCount > 0 ? "failed" : "settled",
       commitments_succeeded: succeededCount,
@@ -927,14 +963,14 @@ async function settleDeadlines(request: Request) {
     });
 
     // AC-6: notify all parties on successful settlement
-    console.log("[settle-deadlines] lot", lot.id, "— debug:", debug, "transferFailedCount:", transferFailedCount, "failedCount:", failedCount, "succeededCount:", succeededCount, "unpaidCount:", unpaidCount);
-    if (!debug && transferFailedCount === 0) void sendLotSuccessNotifications(admin, lot.id);
+    console.log("[settle-deadlines] campaign", campaign.id, "lot", lot.id, "— debug:", debug, "transferFailedCount:", transferFailedCount, "failedCount:", failedCount, "succeededCount:", succeededCount, "unpaidCount:", unpaidCount);
+    if (!debug && transferFailedCount === 0) void sendLotSuccessNotifications(admin, lot.id, campaign.hub_id);
     else console.log("[settle-deadlines] skipping success emails — condition not met");
   }
 
   return NextResponse.json(
     {
-      processed_lots: results.length,
+      processed_campaigns: results.length,
       results,
     },
     { status: 200 }

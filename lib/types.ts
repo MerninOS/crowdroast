@@ -6,7 +6,8 @@ export type LotStatus =
   | "fully_committed"
   | "shipped"
   | "delivered"
-  | "closed";
+  | "closed"
+  | "expired";
 
 export type CommitmentStatus =
   | "pending"
@@ -27,6 +28,8 @@ export type LotSettlementStatus =
   | "settled"
   | "minimum_not_met"
   | "failed";
+
+export type CampaignStatus = "active" | "settled" | "failed" | "cancelled";
 
 export type SampleStatus =
   | "pending"
@@ -105,6 +108,7 @@ export interface Lot {
   currency: string;
   status: LotStatus;
   commitment_deadline: string | null;
+  expiry_date: string | null;
   settlement_status: LotSettlementStatus;
   settlement_processed_at: string | null;
   images: string[];
@@ -124,6 +128,7 @@ export interface Commitment {
   lot_id: string;
   buyer_id: string;
   hub_id: string | null;
+  campaign_id: string | null;
   quantity_kg: number;
   price_per_kg: number;
   total_price: number;
@@ -235,6 +240,19 @@ export interface HubLot {
   added_at: string;
   // Joined fields
   lot?: Lot;
+}
+
+export interface Campaign {
+  id: string;
+  lot_id: string;
+  hub_id: string;
+  deadline: string;
+  status: CampaignStatus;
+  created_at: string;
+  settled_at: string | null;
+  // Joined fields
+  lot?: Lot;
+  hub?: Hub;
 }
 
 export interface HubMember {

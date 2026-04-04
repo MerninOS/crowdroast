@@ -32,6 +32,7 @@ export default function HubCatalogPage() {
   const [allLots, setAllLots] = useState<Lot[]>([]);
   const [hubLotIds, setHubLotIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState<string | null>(null);
+  const [campaignByLotId, setCampaignByLotId] = useState<Map<string, any>>(new Map());
 
   useEffect(() => {
     const load = async () => {
@@ -79,6 +80,17 @@ export default function HubCatalogPage() {
         .eq("hub_id", selectedHubId);
 
       setHubLotIds(new Set((existingHubLots || []).map((hl: { lot_id: string }) => hl.lot_id)));
+
+      // Fetch active campaigns to know which lots are locked
+      const { data: activeCampaigns } = await supabase
+        .from("campaigns")
+        .select("lot_id, hub_id, deadline, status")
+        .eq("status", "active");
+
+      setCampaignByLotId(new Map(
+        (activeCampaigns || []).map((c: any) => [c.lot_id, c])
+      ));
+
       setIsCatalogLoading(false);
     };
     loadCatalog();
@@ -185,6 +197,9 @@ export default function HubCatalogPage() {
         <div className="space-y-4">
           {allLots.map((lot) => {
             const inHub = hubLotIds.has(lot.id);
+            const campaign = campaignByLotId.get(lot.id);
+            const hasCampaignByOtherHub = campaign && campaign.hub_id !== selectedHubId;
+            const hasCampaignByThisHub = campaign && campaign.hub_id === selectedHubId;
             const pct =
               lot.total_quantity_kg > 0
                 ? Math.round((lot.committed_quantity_kg / lot.total_quantity_kg) * 100)
@@ -215,30 +230,40 @@ export default function HubCatalogPage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    {inHub && (
-                      <Badge className="border-emerald-200 bg-emerald-100 text-emerald-800">In Catalog</Badge>
+                    {hasCampaignByOtherHub ? (
+                      <Badge className="border-amber-200 bg-amber-100 text-amber-800">Claimed</Badge>
+                    ) : hasCampaignByThisHub ? (
+                      <Badge className="border-emerald-200 bg-emerald-100 text-emerald-800">
+                        Campaign Active — ends {new Date(campaign.deadline).toLocaleDateString()}
+                      </Badge>
+                    ) : inHub ? (
+                      <>
+                        <Badge className="border-emerald-200 bg-emerald-100 text-emerald-800">In Catalog</Badge>
+                        <Link href={`/dashboard/hub/campaigns?lot=${lot.id}&hub=${selectedHubId}`}>
+                          <Button size="sm" className="bg-emerald-600 text-white hover:bg-emerald-700">
+                            Start Campaign
+                          </Button>
+                        </Link>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-emerald-300 text-emerald-800 hover:bg-emerald-50"
+                          disabled={loading === lot.id}
+                          onClick={() => toggleLot(lot.id, false)}
+                        >
+                          {loading === lot.id ? "..." : <><X className="mr-1 h-3 w-3" />Remove</>}
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        size="sm"
+                        className="bg-emerald-600 text-white hover:bg-emerald-700"
+                        disabled={loading === lot.id}
+                        onClick={() => toggleLot(lot.id, true)}
+                      >
+                        {loading === lot.id ? "..." : <><Plus className="mr-1 h-3 w-3" />Add to Hub</>}
+                      </Button>
                     )}
-                    <Button
-                      size="sm"
-                      variant={inHub ? "outline" : "default"}
-                      className={inHub ? "border-emerald-300 text-emerald-800 hover:bg-emerald-50" : "bg-emerald-600 text-white hover:bg-emerald-700"}
-                      disabled={loading === lot.id}
-                      onClick={() => toggleLot(lot.id, !inHub)}
-                    >
-                      {loading === lot.id ? (
-                        "..."
-                      ) : inHub ? (
-                        <>
-                          <X className="mr-1 h-3 w-3" />
-                          Remove
-                        </>
-                      ) : (
-                        <>
-                          <Plus className="mr-1 h-3 w-3" />
-                          Add to Hub
-                        </>
-                      )}
-                    </Button>
                   </div>
                 </CardHeader>
                 <CardContent>

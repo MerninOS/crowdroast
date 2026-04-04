@@ -3,6 +3,10 @@
     {
       "path": "/api/payments/settle-deadlines",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/lot-expiry",
+      "schedule": "0 1 * * *"
     }
   ]
 }
