@@ -71,15 +71,25 @@ export default async function BuyerLotDetailPage({
     .eq("lot_id", id)
     .order("min_quantity_kg", { ascending: true });
 
-  // Fetch commitments with buyer info (for the backers list)
-  const { data: commitments } = await supabase
-    .from("commitments")
-    .select(
-      "*, buyer:profiles!commitments_buyer_id_fkey(company_name, contact_name)"
-    )
+  // Fetch commitments for the active campaign only (for the backers list)
+  const { data: activeCampaign } = await supabase
+    .from("campaigns")
+    .select("id")
     .eq("lot_id", id)
-    .not("stripe_payment_intent_id", "is", null)
-    .order("created_at", { ascending: true });
+    .eq("status", "active")
+    .single();
+
+  const { data: commitments } = activeCampaign
+    ? await supabase
+        .from("commitments")
+        .select(
+          "*, buyer:profiles!commitments_buyer_id_fkey(company_name, contact_name)"
+        )
+        .eq("campaign_id", activeCampaign.id)
+        .neq("status", "cancelled")
+        .not("stripe_payment_intent_id", "is", null)
+        .order("created_at", { ascending: true })
+    : { data: [] };
 
   return (
     <div className="max-w-5xl">
