@@ -39,15 +39,16 @@ export default async function BuyerLotDetailPage({
       redirect("/dashboard/buyer");
     }
 
-    // Verify lot is in the hub catalog
-    const { data: hubLot } = await supabase
-      .from("hub_lots")
+    // Verify lot has an active campaign for this hub
+    const { data: campaign } = await supabase
+      .from("campaigns")
       .select("id")
       .eq("hub_id", hubId)
       .eq("lot_id", id)
+      .eq("status", "active")
       .single();
 
-    if (!hubLot) {
+    if (!campaign) {
       redirect("/dashboard/buyer/browse");
     }
   }

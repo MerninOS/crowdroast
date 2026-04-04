@@ -89,15 +89,20 @@ export default async function BuyerOverview({
     );
   }
 
-  const { data: hubLots } = await supabase
-    .from("hub_lots")
+  // Only show lots with active campaigns for the buyer's hubs
+  const { data: activeCampaigns } = await supabase
+    .from("campaigns")
     .select(
-      "hub_id, lot_id, lot:lots!hub_lots_lot_id_fkey(*, seller:profiles!lots_seller_id_fkey(company_name, contact_name))"
+      "id, hub_id, lot_id, deadline, status, lot:lots!campaigns_lot_id_fkey(*, seller:profiles!lots_seller_id_fkey(company_name, contact_name))"
     )
-    .in("hub_id", hubIds);
+    .in("hub_id", hubIds)
+    .eq("status", "active");
 
-  const allLots = (hubLots || []).filter((hl: any) => Boolean(hl?.lot));
-  const allLotIds = allLots.map((hl: any) => hl.lot_id).filter(Boolean);
+  const allLots = (activeCampaigns || []).filter((c: any) => Boolean(c?.lot)).map((c: any) => ({
+    ...c,
+    lot: { ...c.lot, campaign_deadline: c.deadline },
+  }));
+  const allLotIds = allLots.map((c: any) => c.lot_id).filter(Boolean);
 
   let commitments: any[] = [];
   if (allLotIds.length > 0) {
@@ -131,16 +136,16 @@ export default async function BuyerOverview({
 
   const nowMs = Date.now();
   const activeSource = allLots.filter((hl: any) => {
-    const deadlineMs = hl.lot.commitment_deadline
-      ? new Date(hl.lot.commitment_deadline).getTime()
+    const deadlineMs = hl.lot.campaign_deadline
+      ? new Date(hl.lot.campaign_deadline).getTime()
       : null;
     const isPast = deadlineMs !== null && deadlineMs <= nowMs;
     return hl.lot.status === "active" && !isPast;
   });
 
   const pastSource = allLots.filter((hl: any) => {
-    const deadlineMs = hl.lot.commitment_deadline
-      ? new Date(hl.lot.commitment_deadline).getTime()
+    const deadlineMs = hl.lot.campaign_deadline
+      ? new Date(hl.lot.campaign_deadline).getTime()
       : null;
     return deadlineMs !== null && deadlineMs <= nowMs;
   });
@@ -227,7 +232,7 @@ export default async function BuyerOverview({
       progressPct,
       progressTextTarget: nextTarget || previousTarget,
       invested: investedLotIds.has(lot.id),
-      timeLeft: formatTimeLeft(lot.commitment_deadline),
+      timeLeft: formatTimeLeft(lot.campaign_deadline),
     };
   });
 
