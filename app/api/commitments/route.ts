@@ -44,10 +44,26 @@ export async function POST(request: Request) {
     );
   }
 
-  // Check deadline
-  if (lot.commitment_deadline && new Date(lot.commitment_deadline) < new Date()) {
+  // Look up active campaign for this lot + hub
+  const { data: campaign, error: campaignError } = await supabase
+    .from("campaigns")
+    .select("id, deadline, status")
+    .eq("lot_id", lot_id)
+    .eq("hub_id", hub_id)
+    .eq("status", "active")
+    .single();
+
+  if (campaignError || !campaign) {
     return NextResponse.json(
-      { error: "Commitment deadline has passed" },
+      { error: "No active campaign for this lot in your hub" },
+      { status: 400 }
+    );
+  }
+
+  // Check campaign deadline
+  if (campaign.deadline && new Date(campaign.deadline) < new Date()) {
+    return NextResponse.json(
+      { error: "Campaign deadline has passed" },
       { status: 400 }
     );
   }
@@ -124,6 +140,7 @@ export async function POST(request: Request) {
     lot_id,
     buyer_id: user.id,
     hub_id: hub_id || null,
+    campaign_id: campaign.id,
     quantity_kg,
     price_per_kg: activeSellerPricePerKg,
     total_price,
