@@ -45,17 +45,18 @@ export default async function BuyerBrowsePage() {
     );
   }
 
-  // Get all lots curated by the buyer's hubs
-  const { data: hubLots } = await supabase
-    .from("hub_lots")
+  // Get lots with active campaigns for the buyer's hubs
+  const { data: activeCampaigns } = await supabase
+    .from("campaigns")
     .select(
-      "hub_id, lot_id, lot:lots!hub_lots_lot_id_fkey(*, seller:profiles!lots_seller_id_fkey(company_name, contact_name))"
+      "id, hub_id, lot_id, deadline, status, lot:lots!campaigns_lot_id_fkey(*, seller:profiles!lots_seller_id_fkey(company_name, contact_name))"
     )
-    .in("hub_id", hubIds);
+    .in("hub_id", hubIds)
+    .eq("status", "active");
 
   // Get pricing tiers for all these lots
-  const lotIds = (hubLots || [])
-    .map((hl: any) => hl.lot_id)
+  const lotIds = (activeCampaigns || [])
+    .map((c: any) => c.lot_id)
     .filter(Boolean);
   let tiersMap: Record<string, any[]> = {};
   if (lotIds.length > 0) {
@@ -79,13 +80,15 @@ export default async function BuyerBrowsePage() {
       lots: [],
     };
   }
-  for (const hl of hubLots || []) {
-    const hlAny = hl as any;
-    if (hlAny.lot && lotsByHub[hlAny.hub_id]) {
-      lotsByHub[hlAny.hub_id].lots.push({
-        ...hlAny.lot,
-        hub_id: hlAny.hub_id,
-        pricing_tiers: tiersMap[hlAny.lot_id] || [],
+  for (const c of activeCampaigns || []) {
+    const cAny = c as any;
+    if (cAny.lot && lotsByHub[cAny.hub_id]) {
+      lotsByHub[cAny.hub_id].lots.push({
+        ...cAny.lot,
+        hub_id: cAny.hub_id,
+        campaign_id: cAny.id,
+        campaign_deadline: cAny.deadline,
+        pricing_tiers: tiersMap[cAny.lot_id] || [],
       });
     }
   }
@@ -159,9 +162,9 @@ export default async function BuyerBrowsePage() {
                     }
                   }
 
-                  const hasDeadline = !!lot.commitment_deadline;
+                  const hasDeadline = !!lot.campaign_deadline;
                   const deadlineDate = hasDeadline
-                    ? new Date(lot.commitment_deadline)
+                    ? new Date(lot.campaign_deadline)
                     : null;
                   const isExpired =
                     deadlineDate && deadlineDate.getTime() < Date.now();
