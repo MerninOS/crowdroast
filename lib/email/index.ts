@@ -354,6 +354,30 @@ export async function sendLotFailedEmail(
 }
 
 // ---------------------------------------------------------------------------
+// Lot expired without successful campaign — notify seller
+// ---------------------------------------------------------------------------
+
+export interface LotExpiredEmailParams {
+  seller: Pick<Profile, "email" | "contact_name">;
+  lot: Pick<Lot, "id" | "title">;
+}
+
+export async function sendLotExpiredEmail(
+  params: LotExpiredEmailParams
+): Promise<SendEmailResult> {
+  if (!params.seller.email) return { success: false, error: "Seller has no email address" };
+  const html = await renderLotClosedFailedHtml({
+    recipientName: params.seller.contact_name || "there",
+    lotTitle: params.lot.title,
+  });
+  return sendEmail({
+    to: params.seller.email,
+    subject: `Your lot "${params.lot.title}" has expired — consider re-listing`,
+    html,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // AC-8a: Lot deadline reminder (24 hours) — non-investing buyers
 // ---------------------------------------------------------------------------
 
