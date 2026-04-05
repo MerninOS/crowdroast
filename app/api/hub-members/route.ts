@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sendBuyerJoinedHubEmail } from "@/lib/email";
+import { sendBuyerJoinedHubEmail, sendBuyerHubInviteEmail } from "@/lib/email";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
@@ -87,6 +87,26 @@ export async function POST(request: Request) {
       .update({ status: "cancelled", updated_at: new Date().toISOString() })
       .eq("user_id", existingProfile.id)
       .eq("status", "pending");
+  }
+
+  // Send invite email to new users who don't have an account yet
+  if (!existingProfile) {
+    const { data: hubOwnerProfile } = await supabase
+      .from("profiles")
+      .select("contact_name, company_name")
+      .eq("id", user.id)
+      .single();
+
+    const invitedByName =
+      hubOwnerProfile?.contact_name ||
+      hubOwnerProfile?.company_name ||
+      "A hub owner";
+
+    await sendBuyerHubInviteEmail({
+      recipientEmail: inviteEmail,
+      invitedByName,
+      hubName: hub.name,
+    }).catch(console.error);
   }
 
   // AC-3: notify hub owner when an existing buyer joins immediately

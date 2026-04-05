@@ -29,31 +29,30 @@ export function BuyerHubInvite({
   return (
     <Html>
       <Head />
-      <Preview>{"You've been invited to join "}{hubName}{" on CrowdRoast"}</Preview>
+      <Preview>You've been invited to join {hubName} on CrowdRoast</Preview>
       <Body style={body}>
         <Container style={container}>
-          <Heading style={heading}>{"You're invited to join "}{hubName}</Heading>
+          <Heading style={heading}>You're invited to join {hubName}</Heading>
           <Text style={text}>
-            {invitedByName} has invited you to join their hub on CrowdRoast.
-            CrowdRoast connects roasters and coffee buyers with green coffee
-            producers through group buying campaigns.
+            {invitedByName} has invited you to join <strong>{hubName}</strong> on
+            CrowdRoast — a platform where roasters pool buying power to source
+            green coffee directly from producers and importers.
           </Text>
           <Text style={text}>
-            As a hub member {"you'll"} get access to {invitedByName}{"'s"} curated
-            selection of green coffees and can commit to lots alongside other
-            buyers to unlock better pricing.
+            Create a free account to browse the hub's active lots and commit to
+            purchases alongside other members.
           </Text>
 
           <Section style={ctaSection}>
             <Button href={signupUrl} style={button}>
-              Create your account and join {hubName}
+              Create your account
             </Button>
           </Section>
 
           <Hr style={hr} />
           <Text style={footer}>
-            This invitation was sent to {recipientEmail} by {invitedByName}. If
-            you {"didn't"} expect this email, you can safely ignore it.
+            This invitation was sent to {recipientEmail}. If you didn't expect
+            this email, you can safely ignore it.
           </Text>
         </Container>
       </Body>
@@ -61,9 +60,7 @@ export function BuyerHubInvite({
   );
 }
 
-export async function renderBuyerHubInviteHtml(
-  props: BuyerHubInviteProps
-): Promise<string> {
+export async function renderBuyerHubInviteHtml(props: BuyerHubInviteProps): Promise<string> {
   return render(<BuyerHubInvite {...props} />);
 }
 
@@ -96,7 +93,7 @@ const ctaSection: React.CSSProperties = {
   margin: "32px 0",
 };
 const button: React.CSSProperties = {
-  backgroundColor: "#e8442a",
+  backgroundColor: "#10b981",
   color: "#ffffff",
   padding: "12px 28px",
   borderRadius: "6px",
