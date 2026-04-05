@@ -27,6 +27,7 @@ import {
 import { renderHubAccessRequestHtml } from "./templates/HubAccessRequest";
 import { renderHubAccessApprovedHtml } from "./templates/HubAccessApproved";
 import { renderHubAccessDeniedHtml } from "./templates/HubAccessDenied";
+import { renderBuyerHubInviteHtml } from "./templates/BuyerHubInvite";
 import type { Profile, Hub, Lot, Commitment } from "@/lib/types";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://crowdroast.com";
@@ -485,6 +486,33 @@ export async function sendPriceDropNonInvestorEmail(
   return sendEmail({
     to: params.buyer.email,
     subject: `Price just dropped on ${params.lot.title}`,
+    html,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Buyer hub invite (hub owner → new user who doesn't have an account yet)
+// ---------------------------------------------------------------------------
+
+export interface BuyerHubInviteEmailParams {
+  recipientEmail: string;
+  invitedByName: string;
+  hubName: string;
+}
+
+export async function sendBuyerHubInviteEmail(
+  params: BuyerHubInviteEmailParams
+): Promise<SendEmailResult> {
+  const signupUrl = `${APP_URL}/auth/sign-up?email=${encodeURIComponent(params.recipientEmail)}`;
+  const html = await renderBuyerHubInviteHtml({
+    recipientEmail: params.recipientEmail,
+    invitedByName: params.invitedByName,
+    hubName: params.hubName,
+    signupUrl,
+  });
+  return sendEmail({
+    to: params.recipientEmail,
+    subject: `You've been invited to join ${params.hubName} on CrowdRoast`,
     html,
   });
 }
