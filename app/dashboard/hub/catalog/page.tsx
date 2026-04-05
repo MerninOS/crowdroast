@@ -186,25 +186,42 @@ export default function HubCatalogPage() {
             <p className="text-muted-foreground">Create a hub first to start curating lots.</p>
           </CardContent>
         </Card>
-      ) : allLots.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center py-12">
-            <Coffee className="h-12 w-12 text-muted-foreground/50 mb-4" />
-            <p className="text-muted-foreground">No seller lots available yet.</p>
-          </CardContent>
-        </Card>
       ) : (
         <div className="space-y-4">
-          {allLots.map((lot) => {
-            const inHub = hubLotIds.has(lot.id);
-            const campaign = campaignByLotId.get(lot.id);
-            const hasCampaignByOtherHub = campaign && campaign.hub_id !== selectedHubId;
-            const hasCampaignByThisHub = campaign && campaign.hub_id === selectedHubId;
-            const pct =
-              lot.total_quantity_kg > 0
-                ? Math.round((lot.committed_quantity_kg / lot.total_quantity_kg) * 100)
-                : 0;
-            const seller = lot.seller as unknown as { company_name: string | null; contact_name: string | null } | null;
+          {(() => {
+            const availableLots = allLots.filter((lot) => {
+              const campaign = campaignByLotId.get(lot.id);
+              return !campaign || campaign.hub_id === selectedHubId;
+            });
+
+            if (availableLots.length === 0) {
+              const allClaimed = allLots.length > 0;
+              return (
+                <Card>
+                  <CardContent className="flex flex-col items-center py-12 text-center">
+                    <Coffee className="h-12 w-12 text-muted-foreground/50 mb-4" />
+                    <p className="font-medium text-foreground mb-1">
+                      {allClaimed ? "All lots are currently claimed." : "Nothing to claim right now."}
+                    </p>
+                    <p className="text-sm text-muted-foreground max-w-sm">
+                      {allClaimed
+                        ? "Every available lot has an active campaign at another hub. Check back when campaigns wrap up or new lots are listed."
+                        : "Sellers haven't listed any lots yet. Keep an eye out — new lots get added regularly."}
+                    </p>
+                  </CardContent>
+                </Card>
+              );
+            }
+
+            return availableLots.map((lot) => {
+              const inHub = hubLotIds.has(lot.id);
+              const campaign = campaignByLotId.get(lot.id);
+              const hasCampaignByThisHub = campaign && campaign.hub_id === selectedHubId;
+              const pct =
+                lot.total_quantity_kg > 0
+                  ? Math.round((lot.committed_quantity_kg / lot.total_quantity_kg) * 100)
+                  : 0;
+              const seller = lot.seller as unknown as { company_name: string | null; contact_name: string | null } | null;
 
             return (
               <Card key={lot.id} className={`shadow-sm ${inHub ? "border-emerald-200 bg-emerald-50/40" : ""}`}>
@@ -230,9 +247,7 @@ export default function HubCatalogPage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    {hasCampaignByOtherHub ? (
-                      <Badge className="border-amber-200 bg-amber-100 text-amber-800">Claimed</Badge>
-                    ) : hasCampaignByThisHub ? (
+                    {hasCampaignByThisHub ? (
                       <Badge className="border-emerald-200 bg-emerald-100 text-emerald-800">
                         Campaign Active — ends {new Date(campaign.deadline).toLocaleDateString()}
                       </Badge>
@@ -295,7 +310,8 @@ export default function HubCatalogPage() {
                 </CardContent>
               </Card>
             );
-          })}
+          });
+          })()}
         </div>
       )}
     </div>

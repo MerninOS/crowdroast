@@ -74,7 +74,7 @@ export default async function BuyerLotDetailPage({
   // Fetch commitments for the active campaign only (for the backers list)
   const { data: activeCampaign } = await supabase
     .from("campaigns")
-    .select("id")
+    .select("id, deadline")
     .eq("lot_id", id)
     .eq("status", "active")
     .single();
@@ -98,6 +98,7 @@ export default async function BuyerLotDetailPage({
         userId={user.id}
         viewerRole={profile?.role || "buyer"}
         hubId={hubId || null}
+        campaignDeadline={(activeCampaign as any)?.deadline || null}
         pricingTiers={(pricingTiers as unknown as PricingTier[]) || []}
         commitments={(commitments as unknown as Commitment[]) || []}
       />

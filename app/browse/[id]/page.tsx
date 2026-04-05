@@ -21,6 +21,13 @@ export default async function PublicLotDetailPage({
     // .eq("status", "active")
     .single();
 
+  const { data: activeCampaign } = await supabase
+    .from("campaigns")
+    .select("deadline")
+    .eq("lot_id", id)
+    .eq("status", "active")
+    .maybeSingle();
+
   if (!lot) notFound();
 
   const { data: pricingTiers } = await supabase
@@ -47,6 +54,7 @@ export default async function PublicLotDetailPage({
           userId={null}
           viewerRole="buyer"
           hubId={null}
+          campaignDeadline={(activeCampaign as any)?.deadline || null}
           pricingTiers={(pricingTiers as unknown as PricingTier[]) || []}
           commitments={(commitments as unknown as Commitment[]) || []}
           backHref="/browse"

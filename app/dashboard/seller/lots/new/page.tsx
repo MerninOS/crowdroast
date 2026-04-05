@@ -53,7 +53,7 @@ export default function CreateLotPage() {
     total_quantity_kg: "",
     min_commitment_kg: "",
     price_per_kg: "",
-    commitment_deadline: "",
+    expiry_date: "",
     flavor_notes: "",
     certifications: "",
   });
@@ -167,7 +167,8 @@ export default function CreateLotPage() {
         total_quantity_kg: maxTotal,
         min_commitment_kg: minTotal,
         price_per_kg: basePrice,
-        commitment_deadline: form.commitment_deadline || null,
+        expiry_date: form.expiry_date || null,
+        commitment_deadline: form.expiry_date || null,
         flavor_notes: form.flavor_notes
           ? form.flavor_notes.split(",").map((s) => s.trim())
           : [],
@@ -424,20 +425,20 @@ export default function CreateLotPage() {
               </div>
 
               <div className="grid gap-2">
-                <Label htmlFor="commitment_deadline">
-                  Commitment Deadline *
+                <Label htmlFor="expiry_date">
+                  Lot Expiry Date *
                 </Label>
                 <Input
-                  id="commitment_deadline"
+                  id="expiry_date"
                   type="datetime-local"
                   required
-                  value={form.commitment_deadline}
+                  value={form.expiry_date}
                   onChange={(e) =>
-                    update("commitment_deadline", e.target.value)
+                    update("expiry_date", e.target.value)
                   }
                 />
                 <p className="text-xs text-muted-foreground">
-                  The sale triggers (or cancels) at this deadline
+                  How long this lot is available. Hub campaigns must end before this date.
                 </p>
               </div>
             </div>
