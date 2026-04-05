@@ -1,18 +1,22 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { Card, CardContent } from "@/components/mernin/Card";
-import { Badge } from "@/components/mernin/Badge";
-import { ShoppingCart } from "lucide-react";
-import type { Commitment } from "@/lib/types";
-import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
+import { SellerCommitmentsClient, type LotCampaignCard } from "@/components/seller-commitments-client";
 
-const statusStyles: Record<string, string> = {
-  pending: "bg-amber-50 text-amber-700 border-amber-200",
-  confirmed: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  cancelled: "bg-red-50 text-red-700 border-red-200",
-  shipped: "bg-blue-50 text-blue-700 border-blue-200",
-  delivered: "bg-emerald-50 text-emerald-700 border-emerald-200",
-};
+function getCurrentLotPrice(
+  lot: { committed_quantity_kg: number; price_per_kg: number },
+  tiers: { min_quantity_kg: number; price_per_kg: number }[]
+): number {
+  const basePrice = Number(lot.price_per_kg || 0);
+  if (tiers.length === 0) return basePrice;
+  const committedQty = Number(lot.committed_quantity_kg || 0);
+  const sortedDesc = [...tiers].sort(
+    (a, b) => Number(b.min_quantity_kg) - Number(a.min_quantity_kg)
+  );
+  for (const tier of sortedDesc) {
+    if (committedQty >= Number(tier.min_quantity_kg)) return Number(tier.price_per_kg);
+  }
+  return basePrice;
+}
 
 export default async function SellerCommitmentsPage() {
   const supabase = await createClient();
@@ -23,88 +27,101 @@ export default async function SellerCommitmentsPage() {
 
   const { data: lots } = await supabase
     .from("lots")
-    .select("id, title")
+    .select("id, title, committed_quantity_kg, min_commitment_kg, currency, price_per_kg")
     .eq("seller_id", user.id);
 
   const lotIds = (lots || []).map((l) => l.id);
-  const lotMap = Object.fromEntries((lots || []).map((l) => [l.id, l.title]));
 
-  const { data: commitments } = await supabase
-    .from("commitments")
-    .select("*, buyer:profiles!commitments_buyer_id_fkey(company_name, contact_name)")
-    .in("lot_id", lotIds.length > 0 ? lotIds : ["00000000-0000-0000-0000-000000000000"])
-    .order("created_at", { ascending: false });
+  const lotMap = Object.fromEntries((lots || []).map((l) => [l.id, l]));
 
-  const items = (commitments || []) as (Commitment & {
-    buyer: { company_name: string | null; contact_name: string | null } | null;
-  })[];
+  let cards: LotCampaignCard[] = [];
+
+  if (lotIds.length > 0) {
+    const { data: campaigns } = await supabase
+      .from("campaigns")
+      .select("id, lot_id, status, created_at, hub:hubs(id, name)")
+      .in("lot_id", lotIds)
+      .in("status", ["active", "settled"])
+      .order("created_at", { ascending: false });
+
+    const campaignIds = (campaigns || []).map((c) => c.id);
+
+    const [{ data: commitments }, { data: pricingTiers }] = await Promise.all([
+      campaignIds.length > 0
+        ? supabase
+            .from("commitments")
+            .select("id, campaign_id, lot_id, quantity_kg")
+            .in("campaign_id", campaignIds)
+            .neq("status", "cancelled")
+        : Promise.resolve({ data: [] }),
+      supabase
+        .from("pricing_tiers")
+        .select("lot_id, min_quantity_kg, price_per_kg")
+        .in("lot_id", lotIds)
+        .order("min_quantity_kg", { ascending: true }),
+    ]);
+
+    const commitmentsByCampaignId: Record<string, { quantity_kg: number }[]> = {};
+    for (const c of commitments || []) {
+      if (!c.campaign_id) continue;
+      if (!commitmentsByCampaignId[c.campaign_id]) commitmentsByCampaignId[c.campaign_id] = [];
+      commitmentsByCampaignId[c.campaign_id].push(c);
+    }
+
+    const tiersByLotId: Record<string, { min_quantity_kg: number; price_per_kg: number }[]> = {};
+    for (const t of pricingTiers || []) {
+      if (!tiersByLotId[t.lot_id]) tiersByLotId[t.lot_id] = [];
+      tiersByLotId[t.lot_id].push(t);
+    }
+
+    // One card per campaign (one active/settled campaign per lot at a time)
+    for (const campaign of campaigns || []) {
+      const lot = lotMap[campaign.lot_id];
+      if (!lot) continue;
+
+      const lotCommitments = commitmentsByCampaignId[campaign.id] || [];
+      if (lotCommitments.length === 0) continue;
+
+      const totalCommittedKg = lotCommitments.reduce(
+        (sum, c) => sum + Number(c.quantity_kg || 0),
+        0
+      );
+
+      const tiers = tiersByLotId[lot.id] || [];
+      const currentPricePerKg = getCurrentLotPrice(lot, tiers);
+
+      const hub = (campaign.hub as unknown) as { id: string; name: string } | null;
+
+      let statusLabel: LotCampaignCard["statusLabel"];
+      if (campaign.status === "settled") {
+        statusLabel = "Successful";
+      } else if (Number(lot.committed_quantity_kg) >= Number(lot.min_commitment_kg)) {
+        statusLabel = "Open / Guaranteed";
+      } else {
+        statusLabel = "Open / At Risk";
+      }
+
+      cards.push({
+        lotId: lot.id,
+        lotTitle: lot.title,
+        hubName: hub?.name ?? null,
+        statusLabel,
+        totalCommittedKg,
+        currentPricePerKg,
+        currency: lot.currency || "USD",
+      });
+    }
+  }
 
   return (
     <div>
       <div className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Incoming Commitments</h1>
-        <p className="text-sm text-muted-foreground mt-1">Commitments received from buyers across your lots.</p>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Commitments</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Buyer commitments grouped by lot and campaign.
+        </p>
       </div>
-
-      {items.length === 0 ? (
-        <Card className="shadow-sm">
-          <CardContent className="flex flex-col items-center py-10 px-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-secondary text-muted-foreground mb-4">
-              <ShoppingCart className="h-6 w-6" />
-            </div>
-            <p className="text-sm text-muted-foreground">No commitments received yet.</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {items.map((c) => {
-            const sellerTotal = Number(c.quantity_kg || 0) * Number(c.price_per_kg || 0);
-            return (
-            <Card key={c.id} className="shadow-sm">
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-foreground">
-                      {lotMap[c.lot_id] || "Unknown"}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {c.buyer?.company_name || c.buyer?.contact_name || "Buyer"}
-                    </p>
-                  </div>
-                  <Badge variant="outline" className={`shrink-0 text-xs ${statusStyles[c.status] || ""}`}>
-                    {c.status.charAt(0).toUpperCase() + c.status.slice(1)}
-                  </Badge>
-                </div>
-                <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
-                  <div>
-                    <p className="text-xs text-muted-foreground">Quantity</p>
-                    <p className="font-medium text-foreground">
-                      <UnitWeightText kg={c.quantity_kg} />
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Your Price</p>
-                    <p className="font-medium text-foreground">
-                      <UnitPriceText pricePerKg={c.price_per_kg} />
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Your Total</p>
-                    <p className="font-semibold text-foreground">${sellerTotal.toLocaleString()}</p>
-                  </div>
-                </div>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Buyer pricing includes the 10% platform fee. Your payout is based on the seller price above.
-                </p>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {new Date(c.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
-                </p>
-              </CardContent>
-            </Card>
-            );
-          })}
-        </div>
-      )}
+      <SellerCommitmentsClient cards={cards} />
     </div>
   );
 }
