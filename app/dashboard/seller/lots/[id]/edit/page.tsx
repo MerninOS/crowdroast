@@ -65,7 +65,7 @@ export default function EditLotPage({
     total_quantity_kg: "",
     min_commitment_kg: "",
     price_per_kg: "",
-    commitment_deadline: "",
+    expiry_date: "",
     flavor_notes: "",
     certifications: "",
   });
@@ -114,9 +114,7 @@ export default function EditLotPage({
         price_per_kg: lot.price_per_kg
           ? toDisplayPricePerUnit(lot.price_per_kg, unit).toString()
           : "",
-        commitment_deadline: lot.commitment_deadline
-          ? lot.commitment_deadline.slice(0, 16)
-          : "",
+        expiry_date: (lot.expiry_date || lot.commitment_deadline)?.slice(0, 16) ?? "",
         flavor_notes: (lot.flavor_notes || []).join(", "),
         certifications: (lot.certifications || []).join(", "),
       });
@@ -473,18 +471,21 @@ export default function EditLotPage({
                 </div>
 
                 <div className="grid gap-2">
-                  <Label htmlFor="commitment_deadline">
-                    Commitment Deadline *
+                  <Label htmlFor="expiry_date">
+                    Lot Expiry Date *
                   </Label>
                   <Input
-                    id="commitment_deadline"
+                    id="expiry_date"
                     type="datetime-local"
                     required
-                    value={form.commitment_deadline}
+                    value={form.expiry_date}
                     onChange={(e) =>
-                      update("commitment_deadline", e.target.value)
+                      update("expiry_date", e.target.value)
                     }
                   />
+                  <p className="text-xs text-muted-foreground">
+                    How long this lot is available. Hub campaigns must end before this date.
+                  </p>
                 </div>
               </div>
 

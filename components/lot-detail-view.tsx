@@ -39,6 +39,7 @@ interface LotDetailProps {
   userId: string | null;
   viewerRole?: UserRole | null;
   hubId?: string | null;
+  campaignDeadline?: string | null;
   hasRequestedSample?: boolean;
   defaultDeliveryDetails?: {
     address?: string | null;
@@ -57,6 +58,7 @@ export function LotDetailView({
   userId,
   viewerRole,
   hubId,
+  campaignDeadline,
   hasRequestedSample = false,
   defaultDeliveryDetails,
   pricingTiers = [],
@@ -490,9 +492,9 @@ export function LotDetailView({
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Countdown timer */}
-              {lot.commitment_deadline && (
-                <CountdownTimer deadline={lot.commitment_deadline} />
+              {/* Countdown timer — prefer campaign deadline (hub-set), fall back to lot-level for legacy lots */}
+              {(campaignDeadline || lot.commitment_deadline) && (
+                <CountdownTimer deadline={campaignDeadline ?? lot.commitment_deadline!} />
               )}
 
               {/* Progress toward minimum trigger */}
