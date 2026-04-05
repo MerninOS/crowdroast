@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react"
+import React, { Suspense } from "react"
 
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/mernin/Button";
@@ -18,6 +18,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 export default function SignUpPage() {
+  return (
+    <Suspense>
+      <SignUpForm />
+    </Suspense>
+  );
+}
+
+function SignUpForm() {
   const searchParams = useSearchParams();
   const [email, setEmail] = useState(searchParams.get("email") ?? "");
   const [password, setPassword] = useState("");
