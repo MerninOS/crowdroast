@@ -154,7 +154,7 @@ export default async function BuyerCommitmentsPage({
   const { data: commitments } = await supabase
     .from("commitments")
     .select(
-      "*, lot:lots!commitments_lot_id_fkey(id, title, origin_country, settlement_status, commitment_deadline, currency, committed_quantity_kg, price_per_kg)"
+      "*, picked_up_at, lot:lots!commitments_lot_id_fkey(id, title, origin_country, settlement_status, commitment_deadline, currency, committed_quantity_kg, price_per_kg)"
     )
     .eq("buyer_id", user.id)
     .not("stripe_payment_intent_id", "is", null)
@@ -163,6 +163,23 @@ export default async function BuyerCommitmentsPage({
   const items = (commitments || []) as Commitment[];
 
   const lotIds = Array.from(new Set(items.map((c) => c.lot_id).filter(Boolean)));
+
+  // Fetch shipment status for each lot to drive commitment badges
+  let shipmentByLotId: Record<string, { status: string; carrier: string | null; tracking_number: string | null }> = {};
+  if (lotIds.length > 0) {
+    const { data: shipments } = await supabase
+      .from("shipments")
+      .select("lot_id, status, carrier, tracking_number")
+      .in("lot_id", lotIds)
+      .neq("status", "cancelled")
+      .order("created_at", { ascending: false });
+
+    for (const s of shipments || []) {
+      if (!shipmentByLotId[s.lot_id]) {
+        shipmentByLotId[s.lot_id] = s;
+      }
+    }
+  }
   let tiersByLotId: Record<string, any[]> = {};
 
   if (lotIds.length > 0) {
@@ -238,6 +255,8 @@ export default async function BuyerCommitmentsPage({
         securedKg > 0 ? paidAmount / securedKg : addPlatformFee(currentPricePerKg);
       const refundedAmount = Math.max(0, paidAtCommitmentAmount - paidAmount);
 
+      const shipment = shipmentByLotId[group.lotId] ?? null;
+
       return {
         ...group,
         activeCommitments,
@@ -251,6 +270,7 @@ export default async function BuyerCommitmentsPage({
         securedKg,
         finalBuyerPricePerKg,
         refundedAmount,
+        shipment,
       };
     })
     .sort((a, b) => {
@@ -302,6 +322,31 @@ export default async function BuyerCommitmentsPage({
                       <Badge variant="outline" className="text-xs">
                         {group.activeCommitments.length} commitment{group.activeCommitments.length === 1 ? "" : "s"}
                       </Badge>
+                      {group.shipment && (() => {
+                        const anyPickedUp = group.commitments.some((c: any) => c.picked_up_at);
+                        if (anyPickedUp) {
+                          return (
+                            <Badge variant="outline" className="text-xs bg-emerald-50 text-emerald-700 border-emerald-200">
+                              Picked Up
+                            </Badge>
+                          );
+                        }
+                        if (group.shipment.status === "at_hub") {
+                          return (
+                            <Badge variant="outline" className="text-xs bg-sun/20 text-yellow-800 border-yellow-300">
+                              Landed at Hub
+                            </Badge>
+                          );
+                        }
+                        if (group.shipment.status === "in_transit") {
+                          return (
+                            <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                              En Route to Hub
+                            </Badge>
+                          );
+                        }
+                        return null;
+                      })()}
                     </div>
                   </div>
 

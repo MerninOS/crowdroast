@@ -3,10 +3,11 @@
 import { Button } from "@/components/mernin/Button";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 const nextStatus: Record<string, { label: string; status: string }> = {
+  pending: { label: "Mark Shipped", status: "in_transit" },
   in_transit: { label: "Mark Received", status: "at_hub" },
-  at_hub: { label: "Out for Delivery", status: "out_for_delivery" },
   out_for_delivery: { label: "Mark Delivered", status: "delivered" },
 };
 
@@ -19,6 +20,15 @@ export function ShipmentStatusButtons({
 }) {
   const router = useRouter();
   const next = nextStatus[currentStatus];
+
+  // at_hub: hub owner manages per-commitment pickup on the detail page
+  if (currentStatus === "at_hub") {
+    return (
+      <Button size="sm" variant="outline" asChild>
+        <Link href={`/dashboard/hub/shipments/${shipmentId}`}>Manage Pickups</Link>
+      </Button>
+    );
+  }
 
   if (!next) return <span className="text-xs text-muted-foreground">-</span>;
 

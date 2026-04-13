@@ -145,6 +145,8 @@ export interface Commitment {
   payment_error: string | null;
   charged_at: string | null;
   notes: string | null;
+  picked_up_at: string | null;
+  picked_up_by: string | null;
   created_at: string;
   updated_at: string;
   // Joined fields
