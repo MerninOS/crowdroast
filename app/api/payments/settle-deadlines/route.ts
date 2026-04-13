@@ -332,6 +332,7 @@ async function settleDeadlines(request: Request) {
   }
 
   const results: Array<Record<string, unknown>> = [];
+  const backgroundTasks: Promise<unknown>[] = [];
 
   for (const campaign of dueCampaigns || []) {
     const { data: lot, error: lotFetchError } = await admin
@@ -496,7 +497,7 @@ async function settleDeadlines(request: Request) {
       });
 
       // AC-7: notify all parties that the campaign failed
-      if (!debug) void sendLotFailedNotifications(admin, lot.id, campaign.hub_id);
+      if (!debug) backgroundTasks.push(sendLotFailedNotifications(admin, lot.id, campaign.hub_id));
       continue;
     }
 
@@ -966,12 +967,17 @@ async function settleDeadlines(request: Request) {
     // AC-6: notify all parties on successful settlement
     console.log("[settle-deadlines] campaign", campaign.id, "lot", lot.id, "— debug:", debug, "transferFailedCount:", transferFailedCount, "failedCount:", failedCount, "succeededCount:", succeededCount, "unpaidCount:", unpaidCount);
     if (!debug && transferFailedCount === 0) {
-      void sendLotSuccessNotifications(admin, lot.id, campaign.hub_id);
-      void createShipmentForLot(lot.id, campaign.hub_id);
+      backgroundTasks.push(sendLotSuccessNotifications(admin, lot.id, campaign.hub_id));
+      backgroundTasks.push(createShipmentForLot(lot.id, campaign.hub_id));
     } else {
       console.log("[settle-deadlines] skipping success emails and shipment creation — condition not met");
     }
   }
+
+  // Await all notification/shipment tasks so they complete before the
+  // serverless function exits. Previously these were fire-and-forget (`void`)
+  // and could be silently dropped when the function returned.
+  await Promise.allSettled(backgroundTasks);
 
   return NextResponse.json(
     {
