@@ -341,7 +341,7 @@ export default async function BuyerCommitmentsPage({
                         if (group.shipment.status === "in_transit") {
                           return (
                             <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
-                              En Route to Hub
+                              En Route To Hub
                             </Badge>
                           );
                         }
