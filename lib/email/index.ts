@@ -28,6 +28,8 @@ import { renderHubAccessRequestHtml } from "./templates/HubAccessRequest";
 import { renderHubAccessApprovedHtml } from "./templates/HubAccessApproved";
 import { renderHubAccessDeniedHtml } from "./templates/HubAccessDenied";
 import { renderBuyerHubInviteHtml } from "./templates/BuyerHubInvite";
+import { renderLotShippedHtml } from "./templates/LotShipped";
+import { renderReadyForPickupHtml } from "./templates/ReadyForPickup";
 import type { Profile, Hub, Lot, Commitment } from "@/lib/types";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://crowdroast.com";
@@ -570,6 +572,98 @@ export async function sendHubAccessApprovedEmail(
     subject: `You're in — welcome to ${params.hubName}`,
     html,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Lot shipped — seller added tracking (buyers + hub owner)
+// ---------------------------------------------------------------------------
+
+export interface LotShippedBatchParams {
+  lot: Pick<Lot, "id" | "title">;
+  buyers: Array<{ buyer: Pick<Profile, "email" | "contact_name"> }>;
+  hubOwner: Pick<Profile, "email" | "contact_name"> | null;
+  carrier: string | null;
+  trackingNumber: string | null;
+}
+
+export async function sendLotShippedEmailsBatch(
+  params: LotShippedBatchParams
+): Promise<SendEmailResult> {
+  const payloads: { to: string; subject: string; html: string }[] = [];
+  const subject = `${params.lot.title} has shipped`;
+
+  for (const { buyer } of params.buyers) {
+    if (!buyer.email) continue;
+    payloads.push({
+      to: buyer.email,
+      subject,
+      html: await renderLotShippedHtml({
+        recipientName: buyer.contact_name || "there",
+        recipientRole: "buyer",
+        lotTitle: params.lot.title,
+        carrier: params.carrier,
+        trackingNumber: params.trackingNumber,
+        shipmentUrl: `${APP_URL}/dashboard/buyer/commitments`,
+      }),
+    });
+  }
+
+  if (params.hubOwner?.email) {
+    payloads.push({
+      to: params.hubOwner.email,
+      subject,
+      html: await renderLotShippedHtml({
+        recipientName: params.hubOwner.contact_name || "Hub Owner",
+        recipientRole: "hub_owner",
+        lotTitle: params.lot.title,
+        carrier: params.carrier,
+        trackingNumber: params.trackingNumber,
+        shipmentUrl: `${APP_URL}/dashboard/hub/shipments`,
+      }),
+    });
+  }
+
+  if (payloads.length === 0) return { success: true };
+  return sendEmailBatch(payloads);
+}
+
+// ---------------------------------------------------------------------------
+// Ready for pickup — hub owner marked shipment received (buyers)
+// ---------------------------------------------------------------------------
+
+export interface ReadyForPickupBatchParams {
+  lot: Pick<Lot, "id" | "title">;
+  buyers: Array<{ buyer: Pick<Profile, "email" | "contact_name"> }>;
+  hub: Pick<Hub, "name" | "address" | "city" | "state" | "country">;
+}
+
+export async function sendReadyForPickupEmailsBatch(
+  params: ReadyForPickupBatchParams
+): Promise<SendEmailResult> {
+  const hubAddress =
+    [params.hub.address, params.hub.city, params.hub.state, params.hub.country]
+      .filter(Boolean)
+      .join(", ") || "See your dashboard for hub details";
+
+  const payloads: { to: string; subject: string; html: string }[] = [];
+
+  for (const { buyer } of params.buyers) {
+    if (!buyer.email) continue;
+    payloads.push({
+      to: buyer.email,
+      subject: `Your coffee is ready for pickup at ${params.hub.name}`,
+      html: await renderReadyForPickupHtml({
+        buyerName: buyer.contact_name || "there",
+        lotTitle: params.lot.title,
+        hubName: params.hub.name,
+        hubAddress,
+        pickupUrl: `${APP_URL}/dashboard/buyer/commitments`,
+      }),
+    });
+  }
+
+  if (payloads.length === 0) return { success: true };
+  return sendEmailBatch(payloads);
 }
 
 // ---------------------------------------------------------------------------

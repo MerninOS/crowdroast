@@ -4,6 +4,7 @@ import {
   sendLotClosedEmailsBatch,
   sendLotFailedEmail,
 } from "@/lib/email";
+import { createShipmentForLot } from "@/lib/shipments";
 import {
   createRefund,
   createTransfer,
@@ -964,8 +965,12 @@ async function settleDeadlines(request: Request) {
 
     // AC-6: notify all parties on successful settlement
     console.log("[settle-deadlines] campaign", campaign.id, "lot", lot.id, "— debug:", debug, "transferFailedCount:", transferFailedCount, "failedCount:", failedCount, "succeededCount:", succeededCount, "unpaidCount:", unpaidCount);
-    if (!debug && transferFailedCount === 0) void sendLotSuccessNotifications(admin, lot.id, campaign.hub_id);
-    else console.log("[settle-deadlines] skipping success emails — condition not met");
+    if (!debug && transferFailedCount === 0) {
+      void sendLotSuccessNotifications(admin, lot.id, campaign.hub_id);
+      void createShipmentForLot(lot.id, campaign.hub_id);
+    } else {
+      console.log("[settle-deadlines] skipping success emails and shipment creation — condition not met");
+    }
   }
 
   return NextResponse.json(
