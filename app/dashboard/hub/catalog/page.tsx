@@ -3,9 +3,9 @@
 import React from "react";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/mernin/Card";
-import { Button } from "@/components/mernin/Button";
-import { Badge } from "@/components/mernin/Badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@merninos/ui";
+import { Button } from "@merninos/ui";
+import { Badge } from "@merninos/ui";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -15,8 +15,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { Plus, Check, Coffee, X } from "lucide-react";
+import { Plus, Check, Coffee, X, Star } from "lucide-react";
 import Link from "next/link";
 import type { Hub, Lot } from "@/lib/types";
 import { useUnitPreference } from "@/components/unit-provider";
@@ -33,6 +43,14 @@ export default function HubCatalogPage() {
   const [hubLotIds, setHubLotIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState<string | null>(null);
   const [campaignByLotId, setCampaignByLotId] = useState<Map<string, any>>(new Map());
+
+  // Featured lot state
+  const [featuredLotId, setFeaturedLotId] = useState<string | null>(null);
+  const [featureDialogOpen, setFeatureDialogOpen] = useState(false);
+  const [pendingFeatureLotId, setPendingFeatureLotId] = useState<string | null>(null);
+  const [pendingFeatureLotTitle, setPendingFeatureLotTitle] = useState<string>("");
+  const [currentFeaturedLotTitle, setCurrentFeaturedLotTitle] = useState<string>("");
+  const [featureLoading, setFeatureLoading] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -52,11 +70,18 @@ export default function HubCatalogPage() {
       setHubs(hubList);
       if (hubList.length > 0) {
         setSelectedHubId(hubList[0].id);
+        setFeaturedLotId(hubList[0].featured_lot_id ?? null);
       }
       setIsHubsLoading(false);
     };
     load();
   }, []);
+
+  // Sync featuredLotId when selected hub changes
+  useEffect(() => {
+    const hub = hubs.find((h) => h.id === selectedHubId);
+    setFeaturedLotId(hub?.featured_lot_id ?? null);
+  }, [selectedHubId, hubs]);
 
   useEffect(() => {
     if (!selectedHubId) return;
@@ -64,7 +89,6 @@ export default function HubCatalogPage() {
       setIsCatalogLoading(true);
       const supabase = createClient();
 
-      // Fetch all active lots from sellers
       const { data: lots } = await supabase
         .from("lots")
         .select("*, seller:profiles!lots_seller_id_fkey(company_name, contact_name)")
@@ -73,7 +97,6 @@ export default function HubCatalogPage() {
 
       setAllLots((lots as unknown as Lot[]) || []);
 
-      // Fetch lots already in this hub
       const { data: existingHubLots } = await supabase
         .from("hub_lots")
         .select("lot_id")
@@ -81,7 +104,6 @@ export default function HubCatalogPage() {
 
       setHubLotIds(new Set((existingHubLots || []).map((hl: { lot_id: string }) => hl.lot_id)));
 
-      // Fetch active campaigns to know which lots are locked
       const { data: activeCampaigns } = await supabase
         .from("campaigns")
         .select("lot_id, hub_id, deadline, status")
@@ -122,6 +144,46 @@ export default function HubCatalogPage() {
     setLoading(null);
   };
 
+  const openFeatureDialog = (lotId: string, lotTitle: string) => {
+    setPendingFeatureLotId(lotId);
+    setPendingFeatureLotTitle(lotTitle);
+    if (featuredLotId) {
+      const currentLot = allLots.find((l) => l.id === featuredLotId);
+      setCurrentFeaturedLotTitle(currentLot?.title ?? "the current lot");
+    } else {
+      setCurrentFeaturedLotTitle("");
+    }
+    setFeatureDialogOpen(true);
+  };
+
+  const confirmFeatureLot = async () => {
+    if (!pendingFeatureLotId || !selectedHubId) return;
+    setFeatureLoading(true);
+
+    const res = await fetch(`/api/hubs/${selectedHubId}/featured-lot`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lot_id: pendingFeatureLotId }),
+    });
+
+    if (!res.ok) {
+      const result = await res.json();
+      toast.error(result.error || "Something went sideways");
+    } else {
+      setFeaturedLotId(pendingFeatureLotId);
+      setHubs((prev) =>
+        prev.map((h) =>
+          h.id === selectedHubId ? { ...h, featured_lot_id: pendingFeatureLotId } : h
+        )
+      );
+      toast.success("Featured roast updated. Your buyers will see it next time they load their dashboard.");
+    }
+
+    setFeatureLoading(false);
+    setFeatureDialogOpen(false);
+    setPendingFeatureLotId(null);
+  };
+
   const selectedHub = hubs.find((h) => h.id === selectedHubId);
 
   return (
@@ -154,6 +216,14 @@ export default function HubCatalogPage() {
           Curating for: <span className="font-medium text-foreground">{selectedHub.name}</span>
           {" "}&middot;{" "}
           {hubLotIds.size} lot{hubLotIds.size !== 1 ? "s" : ""} in catalog
+          {featuredLotId && (
+            <>
+              {" "}&middot;{" "}
+              <span className="font-medium text-foreground">
+                1 featured roast active
+              </span>
+            </>
+          )}
         </div>
       )}
 
@@ -217,103 +287,168 @@ export default function HubCatalogPage() {
               const inHub = hubLotIds.has(lot.id);
               const campaign = campaignByLotId.get(lot.id);
               const hasCampaignByThisHub = campaign && campaign.hub_id === selectedHubId;
+              const isFeatured = lot.id === featuredLotId;
+              const isEligibleToFeature = inHub && hasCampaignByThisHub;
               const pct =
                 lot.total_quantity_kg > 0
                   ? Math.round((lot.committed_quantity_kg / lot.total_quantity_kg) * 100)
                   : 0;
               const seller = lot.seller as unknown as { company_name: string | null; contact_name: string | null } | null;
 
-            return (
-              <Card key={lot.id} className={`shadow-sm ${inHub ? "border-emerald-200 bg-emerald-50/40" : ""}`}>
-                <div className="overflow-hidden rounded-t-lg border-b bg-muted/30">
-                  <img
-                    src={lot.images?.[0] || "/placeholder.jpg"}
-                    alt={lot.title}
-                    className="h-40 w-full object-cover"
-                  />
-                </div>
-                <CardHeader className="flex flex-row items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <Link href={`/dashboard/hub/catalog/${lot.id}?hub=${selectedHubId}`} className="hover:underline">
-                      <CardTitle className="text-base">{lot.title}</CardTitle>
-                    </Link>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {lot.origin_country}
-                      {lot.region ? `, ${lot.region}` : ""} &middot;{" "}
-                      {formatUnitPrice(addPlatformFee(lot.price_per_kg), unit, lot.currency || "USD")}/{unit}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Seller: {seller?.company_name || seller?.contact_name || "Unknown"}
-                    </p>
+              return (
+                <Card
+                  key={lot.id}
+                  className={`shadow-sm ${inHub ? "border-emerald-200 bg-emerald-50/40" : ""} ${isFeatured ? "ring-2 ring-amber-400 border-amber-300" : ""}`}
+                >
+                  <div className="overflow-hidden rounded-t-lg border-b bg-muted/30">
+                    <img
+                      src={lot.images?.[0] || "/placeholder.jpg"}
+                      alt={lot.title}
+                      className="h-40 w-full object-cover"
+                    />
                   </div>
-                  <div className="flex items-center gap-2">
-                    {hasCampaignByThisHub ? (
-                      <Badge className="border-emerald-200 bg-emerald-100 text-emerald-800">
-                        Campaign Active — ends {new Date(campaign.deadline).toLocaleDateString()}
-                      </Badge>
-                    ) : inHub ? (
-                      <>
-                        <Badge className="border-emerald-200 bg-emerald-100 text-emerald-800">In Catalog</Badge>
-                        <Link href={`/dashboard/hub/campaigns?lot=${lot.id}&hub=${selectedHubId}`}>
-                          <Button size="sm" className="bg-emerald-600 text-white hover:bg-emerald-700">
-                            Start Campaign
+                  <CardHeader className="flex flex-row items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <Link href={`/dashboard/hub/catalog/${lot.id}?hub=${selectedHubId}`} className="hover:underline">
+                        <CardTitle className="text-base">{lot.title}</CardTitle>
+                      </Link>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {lot.origin_country}
+                        {lot.region ? `, ${lot.region}` : ""} &middot;{" "}
+                        {formatUnitPrice(addPlatformFee(lot.price_per_kg), unit, lot.currency || "USD")}/{unit}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Seller: {seller?.company_name || seller?.contact_name || "Unknown"}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 justify-end">
+                      {isFeatured && (
+                        <span
+                          style={{
+                            fontFamily: "'Cal Sans', system-ui, sans-serif",
+                            fontSize: 10,
+                            fontWeight: 800,
+                            letterSpacing: "0.1em",
+                            textTransform: "uppercase",
+                            padding: "3px 10px",
+                            border: "2px solid #1C0F05",
+                            borderRadius: 9999,
+                            background: "#F5C842",
+                            color: "#1C0F05",
+                            boxShadow: "2px 2px 0 #1C0F05",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 4,
+                          }}
+                        >
+                          <Star className="h-3 w-3" style={{ fill: "#1C0F05" }} />
+                          Featured
+                        </span>
+                      )}
+                      {hasCampaignByThisHub ? (
+                        <>
+                          <Badge className="border-emerald-200 bg-emerald-100 text-emerald-800">
+                            Campaign Active — ends {new Date(campaign.deadline).toLocaleDateString()}
+                          </Badge>
+                          {isEligibleToFeature && !isFeatured && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                              onClick={() => openFeatureDialog(lot.id, lot.title)}
+                            >
+                              <Star className="mr-1 h-3 w-3" />
+                              Feature this lot
+                            </Button>
+                          )}
+                        </>
+                      ) : inHub ? (
+                        <>
+                          <Badge className="border-emerald-200 bg-emerald-100 text-emerald-800">In Catalog</Badge>
+                          <Link href={`/dashboard/hub/campaigns?lot=${lot.id}&hub=${selectedHubId}`}>
+                            <Button size="sm" className="bg-emerald-600 text-white hover:bg-emerald-700">
+                              Start Campaign
+                            </Button>
+                          </Link>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="border-emerald-300 text-emerald-800 hover:bg-emerald-50"
+                            disabled={loading === lot.id}
+                            onClick={() => toggleLot(lot.id, false)}
+                          >
+                            {loading === lot.id ? "..." : <><X className="mr-1 h-3 w-3" />Remove</>}
                           </Button>
-                        </Link>
+                        </>
+                      ) : (
                         <Button
                           size="sm"
-                          variant="outline"
-                          className="border-emerald-300 text-emerald-800 hover:bg-emerald-50"
+                          className="bg-emerald-600 text-white hover:bg-emerald-700"
                           disabled={loading === lot.id}
-                          onClick={() => toggleLot(lot.id, false)}
+                          onClick={() => toggleLot(lot.id, true)}
                         >
-                          {loading === lot.id ? "..." : <><X className="mr-1 h-3 w-3" />Remove</>}
+                          {loading === lot.id ? "..." : <><Plus className="mr-1 h-3 w-3" />Add to Hub</>}
                         </Button>
-                      </>
-                    ) : (
-                      <Button
-                        size="sm"
-                        className="bg-emerald-600 text-white hover:bg-emerald-700"
-                        disabled={loading === lot.id}
-                        onClick={() => toggleLot(lot.id, true)}
-                      >
-                        {loading === lot.id ? "..." : <><Plus className="mr-1 h-3 w-3" />Add to Hub</>}
-                      </Button>
-                    )}
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between text-sm mb-1">
-                        <span className="text-muted-foreground">
-                          {formatUnitWeight(lot.committed_quantity_kg, unit)} / {formatUnitWeight(lot.total_quantity_kg, unit)} {unit} committed
-                        </span>
-                        <span className="font-medium">{pct}%</span>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center gap-4">
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between text-sm mb-1">
+                          <span className="text-muted-foreground">
+                            {formatUnitWeight(lot.committed_quantity_kg, unit)} / {formatUnitWeight(lot.total_quantity_kg, unit)} {unit} committed
+                          </span>
+                          <span className="font-medium">{pct}%</span>
+                        </div>
+                        <Progress value={pct} className="h-2 bg-emerald-100" indicatorClassName="bg-emerald-600" />
                       </div>
-                      <Progress value={pct} className="h-2 bg-emerald-100" indicatorClassName="bg-emerald-600" />
-                    </div>
-                    {lot.score && (
-                      <Badge variant="secondary" className="shrink-0">
-                        {lot.score} pts
-                      </Badge>
-                    )}
-                  </div>
-                  {lot.flavor_notes && lot.flavor_notes.length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-1">
-                      {lot.flavor_notes.map((note) => (
-                        <Badge key={note} variant="outline" className="text-xs">
-                          {note}
+                      {lot.score && (
+                        <Badge variant="secondary" className="shrink-0">
+                          {lot.score} pts
                         </Badge>
-                      ))}
+                      )}
                     </div>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          });
+                    {lot.flavor_notes && lot.flavor_notes.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-1">
+                        {lot.flavor_notes.map((note) => (
+                          <Badge key={note} variant="outline" className="text-xs">
+                            {note}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            });
           })()}
         </div>
       )}
+
+      {/* Feature this lot confirmation dialog */}
+      <AlertDialog open={featureDialogOpen} onOpenChange={setFeatureDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {currentFeaturedLotTitle
+                ? "Replace your featured roast?"
+                : "Set as featured roast?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {currentFeaturedLotTitle
+                ? `This will replace "${currentFeaturedLotTitle}" as your featured roast. "${pendingFeatureLotTitle}" will appear at the top of your buyers' dashboard.`
+                : `"${pendingFeatureLotTitle}" will appear as the featured roast at the top of your buyers' dashboard.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={featureLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmFeatureLot} disabled={featureLoading}>
+              {featureLoading ? "Updating..." : "Set as Featured"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
