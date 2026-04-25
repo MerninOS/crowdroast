@@ -1,5 +1,6 @@
 import Link from "next/link";
-import type { Lot } from "@/lib/types";
+import type { Lot, PricingTier } from "@/lib/types";
+import { addPlatformFee } from "@/lib/pricing";
 import { CountdownTimer } from "./countdown-timer";
 import { UnitWeightText } from "./unit-value";
 import { HeroPrice, HeroCommitLabel } from "./hero-price";
@@ -8,15 +9,25 @@ interface FeaturedRoastHeroProps {
   lot: Lot & { campaign_deadline?: string | null } | null;
   campaignId?: string | null;
   hubId?: string | null;
+  tiers?: Pick<PricingTier, "min_quantity_kg" | "price_per_kg">[];
 }
 
-export function FeaturedRoastHero({ lot, campaignId, hubId }: FeaturedRoastHeroProps) {
+export function FeaturedRoastHero({ lot, campaignId, hubId, tiers = [] }: FeaturedRoastHeroProps) {
   if (!lot) return null;
 
   const commitPct =
     lot.total_quantity_kg > 0
       ? Math.round((lot.committed_quantity_kg / lot.total_quantity_kg) * 100)
       : 0;
+
+  // Resolve the live tier price based on how much has been committed.
+  const activeSellerPricePerKg = (() => {
+    const sortedDesc = [...tiers].sort((a, b) => b.min_quantity_kg - a.min_quantity_kg);
+    for (const tier of sortedDesc) {
+      if (lot.committed_quantity_kg >= tier.min_quantity_kg) return tier.price_per_kg;
+    }
+    return lot.price_per_kg;
+  })();
 
   const altitudeLabel =
     lot.altitude_min && lot.altitude_max
@@ -340,7 +351,7 @@ export function FeaturedRoastHero({ lot, campaignId, hubId }: FeaturedRoastHeroP
                   <div style={{ fontFamily: "'Cal Sans', system-ui, sans-serif", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: "#F5C842", marginBottom: 4 }}>
                     Price locked
                   </div>
-                  <HeroPrice pricePerKg={lot.price_per_kg} currency={lot.currency} />
+                  <HeroPrice pricePerKg={addPlatformFee(activeSellerPricePerKg)} currency={lot.currency} />
                 </div>
                 <Link
                   href={`/dashboard/buyer/lot/${lot.id}${hubId ? `?hub=${hubId}` : ""}`}

@@ -265,6 +265,7 @@ export default async function BuyerOverview({
             lot={featuredCampaign?.lot ?? null}
             campaignId={featuredCampaign?.id ?? null}
             hubId={featuredCampaign?.hub_id ?? null}
+            tiers={featuredCampaign ? tiersMap[featuredCampaign.lot_id] : undefined}
           />
         </div>
       )}

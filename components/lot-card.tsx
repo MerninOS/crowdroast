@@ -13,6 +13,7 @@ import { MapPin, Mountain, Star } from "lucide-react";
 import type { Lot } from "@/lib/types";
 import { useUnitPreference } from "@/components/unit-provider";
 import { formatUnitPrice, formatUnitWeight } from "@/lib/units";
+import { addPlatformFee } from "@/lib/pricing";
 
 export function LotCard({ lot }: { lot: Lot }) {
   const { unit } = useUnitPreference();
@@ -94,7 +95,7 @@ export function LotCard({ lot }: { lot: Lot }) {
         <CardFooter className="flex items-center justify-between border-t bg-muted/30 px-6 py-3">
           <div>
             <p className="text-lg font-bold text-foreground">
-              {formatUnitPrice(lot.price_per_kg, unit, lot.currency || "USD")}
+              {formatUnitPrice(addPlatformFee(lot.price_per_kg), unit, lot.currency || "USD")}
               <span className="text-xs font-normal text-muted-foreground">
                 /{unit}
               </span>
