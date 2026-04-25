@@ -1,24 +1,16 @@
 import Link from "next/link";
 import type { Lot } from "@/lib/types";
+import { CountdownTimer } from "./countdown-timer";
+import { UnitWeightText } from "./unit-value";
+import { HeroPrice, HeroCommitLabel } from "./hero-price";
 
 interface FeaturedRoastHeroProps {
   lot: Lot & { campaign_deadline?: string | null } | null;
   campaignId?: string | null;
+  hubId?: string | null;
 }
 
-function formatDeadline(deadline: string | null | undefined): string {
-  if (!deadline) return "No deadline";
-  const diffMs = new Date(deadline).getTime() - Date.now();
-  if (diffMs <= 0) return "Ended";
-  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-  if (days > 0) return `${days}d ${hours}h left`;
-  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-  if (hours > 0) return `${hours}h ${minutes}m left`;
-  return `${minutes}m left`;
-}
-
-export function FeaturedRoastHero({ lot, campaignId }: FeaturedRoastHeroProps) {
+export function FeaturedRoastHero({ lot, campaignId, hubId }: FeaturedRoastHeroProps) {
   if (!lot) return null;
 
   const commitPct =
@@ -37,12 +29,12 @@ export function FeaturedRoastHero({ lot, campaignId }: FeaturedRoastHeroProps) {
 
   return (
     <section
+      className="px-4 py-9 sm:px-6 sm:py-11 lg:px-6 lg:py-[52px]"
       style={{
         background: heroImage
           ? `url(${heroImage}) center/cover no-repeat`
           : "#F5C842",
         borderBottom: "3px solid #1C0F05",
-        padding: "44px 24px 52px",
         position: "relative",
         overflow: "hidden",
       }}
@@ -93,14 +85,7 @@ export function FeaturedRoastHero({ lot, campaignId }: FeaturedRoastHeroProps) {
         </div>
 
         {/* Two-column layout */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1.25fr 1fr",
-            gap: 28,
-            alignItems: "stretch",
-          }}
-        >
+        <div className="grid grid-cols-1 lg:grid-cols-[1.25fr_1fr] gap-7 items-stretch">
           {/* Left — story card */}
           <div
             style={{
@@ -314,14 +299,13 @@ export function FeaturedRoastHero({ lot, campaignId }: FeaturedRoastHeroProps) {
               </div>
             )}
 
-            {/* Progress + deadline + CTA */}
+            {/* Espresso countdown + stats card */}
             <div
               style={{
-                background: "#FDFAF0",
-                color: "#1C0F05",
+                background: "#1C0F05",
                 border: "3px solid #1C0F05",
                 borderRadius: 12,
-                padding: "20px 22px",
+                padding: "22px 24px",
                 boxShadow: "5px 5px 0 #1C0F05",
                 display: "flex",
                 flexDirection: "column",
@@ -329,113 +313,42 @@ export function FeaturedRoastHero({ lot, campaignId }: FeaturedRoastHeroProps) {
                 flex: 1,
               }}
             >
+              {/* Live countdown — client component */}
+              <CountdownTimer deadline={lot.campaign_deadline} />
+
               {/* Progress bar */}
-              <div>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: 8,
-                  }}
-                >
-                  <span
-                    style={{
-                      fontFamily: "'Cal Sans', system-ui, sans-serif",
-                      fontSize: 10,
-                      fontWeight: 800,
-                      letterSpacing: "0.1em",
-                      textTransform: "uppercase",
-                      color: "#7A6A50",
-                    }}
-                  >
-                    Pack progress
+              <div style={{ marginBottom: 2 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "'Cal Sans', system-ui, sans-serif", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6, opacity: 0.75, color: "#F5F0D8" }}>
+                  <span>
+                    <UnitWeightText kg={lot.committed_quantity_kg} maximumFractionDigits={0} />
+                    {" / "}
+                    <UnitWeightText kg={lot.total_quantity_kg} maximumFractionDigits={0} />
                   </span>
-                  <span
-                    style={{
-                      fontFamily: "'Cal Sans', system-ui, sans-serif",
-                      fontWeight: 800,
-                      fontSize: 14,
-                      color: "#1C0F05",
-                    }}
-                  >
-                    {commitPct}%
-                  </span>
+                  <span style={{ color: "#F5C842" }}>{commitPct}%</span>
                 </div>
-                <div
-                  style={{
-                    height: 10,
-                    background: "#D8D0B8",
-                    border: "2px solid #1C0F05",
-                    borderRadius: 999,
-                    overflow: "hidden",
-                  }}
-                >
-                  <div
-                    style={{
-                      width: `${Math.min(commitPct, 100)}%`,
-                      height: "100%",
-                      background: "#5A7A3A",
-                      borderRadius: 999,
-                    }}
-                  />
-                </div>
-                <div
-                  style={{
-                    marginTop: 6,
-                    fontFamily: "'Cal Sans', system-ui, sans-serif",
-                    fontSize: 11,
-                    color: "#7A6A50",
-                  }}
-                >
-                  {lot.committed_quantity_kg.toFixed(0)} kg committed of {lot.total_quantity_kg.toFixed(0)} kg
+                <div style={{ height: 10, background: "#3B1F0A", border: "2px solid rgba(245,240,216,0.2)", borderRadius: 999, overflow: "hidden" }}>
+                  <div style={{ width: `${Math.min(commitPct, 100)}%`, height: "100%", background: "#F5C842", borderRadius: 999 }} />
                 </div>
               </div>
 
-              {/* Deadline */}
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "10px 12px",
-                  background: "#F5F0D8",
-                  border: "2px solid #1C0F05",
-                  borderRadius: 8,
-                }}
-              >
-                <span
-                  style={{
-                    fontFamily: "'Cal Sans', system-ui, sans-serif",
-                    fontSize: 10,
-                    fontWeight: 800,
-                    letterSpacing: "0.08em",
-                    textTransform: "uppercase",
-                    color: "#7A6A50",
-                  }}
-                >
-                  Closes
-                </span>
-                <span
-                  style={{
-                    fontFamily: "'Cal Sans', system-ui, sans-serif",
-                    fontWeight: 800,
-                    fontSize: 14,
-                    color: "#1C0F05",
-                    marginLeft: "auto",
-                  }}
-                >
-                  {formatDeadline(lot.campaign_deadline)}
-                </span>
-              </div>
+              {/* Dashed divider */}
+              <div style={{ borderTop: "1.5px dashed rgba(245,240,216,0.2)" }} />
 
-              {/* CTA — Tailwind hover/active for Mernin' press effect */}
-              <Link
-                href={`/dashboard/buyer/lot/${lot.id}`}
-                className="block bg-tomato text-cream border-3 border-espresso rounded-pill px-6 py-3 font-headline text-xs font-bold tracking-[0.1em] uppercase text-center shadow-flat-sm transition-all duration-[120ms] hover:-translate-x-[2px] hover:-translate-y-[2px] hover:shadow-flat-md active:translate-x-[3px] active:translate-y-[3px] active:shadow-none no-underline"
-              >
-                View &amp; Commit →
-              </Link>
+              {/* Price + CTA */}
+              <div style={{ display: "flex", alignItems: "baseline", gap: 14 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontFamily: "'Cal Sans', system-ui, sans-serif", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: "#F5C842", marginBottom: 4 }}>
+                    Price locked
+                  </div>
+                  <HeroPrice pricePerKg={lot.price_per_kg} currency={lot.currency} />
+                </div>
+                <Link
+                  href={`/dashboard/buyer/lot/${lot.id}${hubId ? `?hub=${hubId}` : ""}`}
+                  className="inline-flex items-center bg-sun text-espresso border-3 border-espresso rounded-lg px-5 py-3 font-body font-bold text-sm tracking-[0.1em] no-underline whitespace-nowrap flex-shrink-0 shadow-[3px_3px_0_#F5F0D8] transition-all duration-[120ms] hover:-translate-x-[2px] hover:-translate-y-[2px] hover:shadow-[5px_5px_0_#F5F0D8] active:translate-x-[3px] active:translate-y-[3px] active:shadow-none"
+                >
+                  <HeroCommitLabel />
+                </Link>
+              </div>
             </div>
           </div>
         </div>

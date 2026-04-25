@@ -260,6 +260,7 @@ export default async function BuyerOverview({
           <FeaturedRoastHero
             lot={featuredCampaign?.lot ?? null}
             campaignId={featuredCampaign?.id ?? null}
+            hubId={featuredCampaign?.hub_id ?? null}
           />
         </div>
       )}
@@ -347,8 +348,7 @@ export default async function BuyerOverview({
                     <img
                       src={card.lot.images?.[0] || "/placeholder.jpg"}
                       alt={card.lot.title}
-                      className="block h-full w-full object-cover"
-                      style={{ borderRight: "3px solid #1C0F05" }}
+                      className="block h-full w-full object-cover border-b-3 border-espresso md:border-b-0 md:border-r-3"
                     />
                   </div>
 
@@ -463,11 +463,8 @@ export default async function BuyerOverview({
 
                     {/* Body grid */}
                     <div
-                      className="grid flex-1 gap-4 pt-4"
-                      style={{
-                        gridTemplateColumns: "repeat(3, 1fr)",
-                        borderTop: "1.5px dashed #1C0F05",
-                      }}
+                      className="grid flex-1 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-4"
+                      style={{ borderTop: "1.5px dashed #1C0F05" }}
                     >
                       {/* Price + time */}
                       <div className="space-y-3">
@@ -514,7 +511,7 @@ export default async function BuyerOverview({
                                 color: "#7A6A50",
                               }}
                             >
-                              Pack Progress
+                              Commitment Progress
                             </span>
                             <span style={{ color: "#7A6A50", fontSize: 11 }}>
                               <UnitWeightText kg={Number(card.lot.committed_quantity_kg)} /> /{" "}
