@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/mernin/Card";
-import { Button } from "@/components/mernin/Button";
-import { Badge } from "@/components/mernin/Badge";
-import { Input } from "@/components/mernin/Input";
+import { Card, CardContent, CardHeader, CardTitle } from "@merninos/ui";
+import { Button } from "@merninos/ui";
+import { Badge } from "@merninos/ui";
+import { Input } from "@merninos/ui";
 import {
   Select,
   SelectContent,

@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { Badge } from "@/components/mernin/Badge";
+import { Badge } from "@merninos/ui";
 import {
   Card,
   CardContent,
   CardFooter,
   CardHeader,
-} from "@/components/mernin/Card";
+} from "@merninos/ui";
 import { Progress } from "@/components/ui/progress";
 import { MapPin, Mountain, Star } from "lucide-react";
 import type { Lot } from "@/lib/types";

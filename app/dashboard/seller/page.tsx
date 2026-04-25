@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { Card, CardContent } from "@/components/mernin/Card";
+import { Card, CardContent } from "@merninos/ui";
 import { Package, ShoppingCart, DollarSign, Truck } from "lucide-react";
 import { StripeConnectButton } from "@/components/stripe-connect-button";
 

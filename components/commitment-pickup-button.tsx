@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Button } from "@/components/mernin/Button";
+import { Button } from "@merninos/ui";
 
 export function CommitmentPickupButton({
   commitmentId,

@@ -1,4 +1,4 @@
-import { Card, CardContent } from "@/components/mernin/Card";
+import { Card, CardContent } from "@merninos/ui";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function HubOverviewLoading() {

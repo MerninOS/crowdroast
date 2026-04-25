@@ -3,19 +3,19 @@
 import React, { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/mernin/Button";
+import { Button } from "@merninos/ui";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/mernin/Card";
-import { Input } from "@/components/mernin/Input";
+} from "@merninos/ui";
+import { Input } from "@merninos/ui";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-import { Badge } from "@/components/mernin/Badge";
+import { Badge } from "@merninos/ui";
 import { toast } from "sonner";
 import { ArrowLeft, Plus, Trash2, Lock, AlertTriangle } from "lucide-react";
 import Link from "next/link";

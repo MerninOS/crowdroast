@@ -1,7 +1,7 @@
 "use client";
 
-import { Button } from "@/components/mernin/Button";
-import { Input } from "@/components/mernin/Input";
+import { Button } from "@merninos/ui";
+import { Input } from "@merninos/ui";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { useState } from "react";

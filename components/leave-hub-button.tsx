@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/mernin/Button";
+import { Button } from "@merninos/ui";
 import {
   Dialog,
   DialogContent,

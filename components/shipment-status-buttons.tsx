@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@/components/mernin/Button";
+import { Button } from "@merninos/ui";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import Link from "next/link";

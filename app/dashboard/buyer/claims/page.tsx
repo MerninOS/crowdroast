@@ -4,9 +4,9 @@ import React from "react"
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Card, CardContent } from "@/components/mernin/Card";
-import { Badge } from "@/components/mernin/Badge";
-import { Button } from "@/components/mernin/Button";
+import { Card, CardContent } from "@merninos/ui";
+import { Badge } from "@merninos/ui";
+import { Button } from "@merninos/ui";
 import {
   Dialog,
   DialogContent,
@@ -15,7 +15,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/mernin/Input";
+import { Input } from "@merninos/ui";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {

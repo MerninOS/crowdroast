@@ -3,15 +3,15 @@
 import React, { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/mernin/Button";
+import { Button } from "@merninos/ui";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/mernin/Card";
-import { Input } from "@/components/mernin/Input";
+} from "@merninos/ui";
+import { Input } from "@merninos/ui";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";

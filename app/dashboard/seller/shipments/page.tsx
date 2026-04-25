@@ -2,8 +2,8 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { Card, CardContent } from "@/components/mernin/Card";
-import { Badge } from "@/components/mernin/Badge";
+import { Card, CardContent } from "@merninos/ui";
+import { Badge } from "@merninos/ui";
 import { Truck } from "lucide-react";
 import { UnitWeightText } from "@/components/unit-value";
 import { SellerShipmentForm } from "@/components/seller-shipment-form";

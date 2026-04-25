@@ -3,9 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Search, ShoppingCart } from "lucide-react";
-import { Input } from "@/components/mernin/Input";
-import { Card, CardContent } from "@/components/mernin/Card";
-import { Badge } from "@/components/mernin/Badge";
+import { Input } from "@merninos/ui";
+import { Card, CardContent } from "@merninos/ui";
+import { Badge } from "@merninos/ui";
 import {
   Select,
   SelectContent,
