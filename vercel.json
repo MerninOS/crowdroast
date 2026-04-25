@@ -1,4 +1,5 @@
 {
+  "installCommand": "echo '//npm.pkg.github.com/:_authToken='$NODE_AUTH_TOKEN >> ~/.npmrc && npm ci",
   "crons": [
     {
       "path": "/api/payments/settle-deadlines",

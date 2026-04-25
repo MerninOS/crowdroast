@@ -82,6 +82,7 @@ export interface Hub {
   capacity_kg: number;
   used_capacity_kg: number;
   is_active: boolean;
+  featured_lot_id?: string | null;
   created_at: string;
   updated_at: string;
 }
