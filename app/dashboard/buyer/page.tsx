@@ -340,19 +340,7 @@ export default async function BuyerOverview({
               className="block group"
             >
               <div
-                className="overflow-hidden transition-all duration-150 rounded-xl border-5 border-espresso bg-chalk"
-                style={{
-                  boxShadow: "5px 5px 0 #1C0F05",
-                  ...(card.isNewest ? { borderColor: "#5A7A3A" } : {}),
-                }}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLElement).style.transform = "translate(-3px, -3px)";
-                  (e.currentTarget as HTMLElement).style.boxShadow = "8px 8px 0 #1C0F05";
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLElement).style.transform = "";
-                  (e.currentTarget as HTMLElement).style.boxShadow = "5px 5px 0 #1C0F05";
-                }}
+                className={`overflow-hidden transition-all duration-150 rounded-xl border-5 bg-chalk hover:-translate-x-[3px] hover:-translate-y-[3px] hover:shadow-[8px_8px_0_#1C0F05] shadow-[5px_5px_0_#1C0F05] ${card.isNewest ? "border-matcha" : "border-espresso"}`}
               >
                 <div className="flex flex-col md:min-h-[280px] md:flex-row md:items-stretch">
                   <div className="h-56 md:h-auto md:w-[280px] md:flex-shrink-0">
