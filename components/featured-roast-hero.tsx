@@ -33,40 +33,39 @@ export function FeaturedRoastHero({ lot, campaignId }: FeaturedRoastHeroProps) {
         ? `${lot.altitude_min}m`
         : null;
 
+  const heroImage = lot.images?.[0] ?? null;
+
   return (
     <section
       style={{
-        background: "#5A7A3A",
+        background: heroImage
+          ? `url(${heroImage}) center/cover no-repeat`
+          : "#F5C842",
         borderBottom: "3px solid #1C0F05",
         padding: "44px 24px 52px",
         position: "relative",
         overflow: "hidden",
       }}
     >
-      {/* Decorative leaf motif */}
-      <svg
-        viewBox="0 0 120 120"
-        style={{
-          position: "absolute",
-          top: -20,
-          right: -20,
-          width: 120,
-          height: 120,
-          opacity: 0.08,
-          pointerEvents: "none",
-        }}
-      >
-        <ellipse cx="60" cy="60" rx="24" ry="50" fill="#FDFAF0" transform="rotate(-30 60 60)" />
-        <line x1="60" y1="15" x2="60" y2="105" stroke="#FDFAF0" strokeWidth="2" />
-      </svg>
+      {/* Dark overlay when a photo is present so cards remain readable */}
+      {heroImage && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: "rgba(28, 15, 5, 0.65)",
+            zIndex: 0,
+          }}
+        />
+      )}
 
-      <div style={{ maxWidth: 1280, margin: "0 auto", position: "relative" }}>
+      <div style={{ maxWidth: 1280, margin: "0 auto", position: "relative", zIndex: 1 }}>
         {/* Label row */}
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
           <span
             style={{
-              background: "#E8913A",
-              color: "#1C0F05",
+              background: "#E8442A",
+              color: "#F5F0D8",
               fontFamily: "'Cal Sans', system-ui, sans-serif",
               fontSize: 10,
               fontWeight: 800,
@@ -84,8 +83,8 @@ export function FeaturedRoastHero({ lot, campaignId }: FeaturedRoastHeroProps) {
             style={{
               fontFamily: "'Cal Sans', system-ui, sans-serif",
               fontSize: 11,
-              color: "#FDFAF0",
-              opacity: 0.75,
+              color: heroImage ? "#F5F0D8" : "#1C0F05",
+              opacity: 0.8,
               letterSpacing: "0.04em",
             }}
           >
@@ -117,98 +116,88 @@ export function FeaturedRoastHero({ lot, campaignId }: FeaturedRoastHeroProps) {
               boxShadow: "5px 5px 0 #1C0F05",
             }}
           >
-            {/* Cup score badge — the one place Adore Cats lives */}
-            <div
-              style={{
-                position: "absolute",
-                top: -18,
-                right: -18,
-                width: 88,
-                height: 88,
-                borderRadius: "50%",
-                background: "#F5C842",
-                color: "#1C0F05",
-                border: "3px solid #1C0F05",
-                boxShadow: "4px 4px 0 #1C0F05",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                transform: "rotate(8deg)",
-                zIndex: 1,
-              }}
-            >
-              {lot.score ? (
-                <>
-                  <span
-                    style={{
-                      fontFamily: "'Adore Cats', 'Fredoka', cursive",
-                      fontSize: 32,
-                      lineHeight: 1,
-                    }}
-                  >
-                    {lot.score}
-                  </span>
-                  <span
-                    style={{
-                      fontFamily: "'Cal Sans', system-ui, sans-serif",
-                      fontSize: 8,
-                      fontWeight: 800,
-                      letterSpacing: "0.1em",
-                      textTransform: "uppercase",
-                      marginTop: 2,
-                    }}
-                  >
-                    cup score
-                  </span>
-                </>
-              ) : null}
-            </div>
+            {/* Cup score badge — Adore Cats only lives here */}
+            {lot.score ? (
+              <div
+                style={{
+                  position: "absolute",
+                  top: -18,
+                  right: -18,
+                  width: 88,
+                  height: 88,
+                  borderRadius: "50%",
+                  background: "#F5C842",
+                  color: "#1C0F05",
+                  border: "3px solid #1C0F05",
+                  boxShadow: "4px 4px 0 #1C0F05",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transform: "rotate(8deg)",
+                  zIndex: 1,
+                }}
+              >
+                <span
+                  style={{
+                    fontFamily: "'Adore Cats', 'Fredoka', cursive",
+                    fontSize: 32,
+                    lineHeight: 1,
+                  }}
+                >
+                  {lot.score}
+                </span>
+                <span
+                  style={{
+                    fontFamily: "'Cal Sans', system-ui, sans-serif",
+                    fontSize: 8,
+                    fontWeight: 800,
+                    letterSpacing: "0.1em",
+                    textTransform: "uppercase",
+                    marginTop: 2,
+                  }}
+                >
+                  cup score
+                </span>
+              </div>
+            ) : null}
 
-            {/* Hub info line */}
+            {/* Origin subtitle */}
             {lot.origin_country && (
               <div
                 style={{
                   fontFamily: "'Cal Sans', system-ui, sans-serif",
                   fontSize: 11,
                   color: "#7A6A50",
-                  letterSpacing: "0.06em",
+                  letterSpacing: "0.08em",
                   textTransform: "uppercase",
+                  fontWeight: 700,
                 }}
               >
-                {lot.region ? `${lot.region} · ` : ""}{lot.origin_country}
+                {[lot.region, lot.origin_country].filter(Boolean).join(" · ")}
               </div>
             )}
 
-            {/* Headline — Cal Sans, lowercase, heavy */}
+            {/* Title as the main headline */}
             <div>
               <h2
                 style={{
                   fontFamily: "'Cal Sans', system-ui, sans-serif",
-                  fontSize: "clamp(36px, 5vw, 60px)",
+                  fontSize: "clamp(24px, 3.5vw, 48px)",
                   fontWeight: 900,
                   lineHeight: 1.05,
                   margin: 0,
                   color: "#1C0F05",
                   letterSpacing: "-0.02em",
-                  textTransform: "lowercase",
                 }}
               >
-                {lot.origin_country?.toLowerCase()}
-                {lot.region && (
-                  <>
-                    <br />
-                    <span style={{ color: "#5A7A3A" }}>
-                      {lot.region.toLowerCase()}.
-                    </span>
-                  </>
-                )}
+                {lot.title}
               </h2>
               {lot.farm && (
                 <div
                   style={{
                     fontFamily: "'Cal Sans', system-ui, sans-serif",
-                    fontSize: 16,
+                    fontSize: 15,
                     fontWeight: 500,
                     fontStyle: "italic",
                     marginTop: 6,
@@ -219,20 +208,6 @@ export function FeaturedRoastHero({ lot, campaignId }: FeaturedRoastHeroProps) {
                 </div>
               )}
             </div>
-
-            {lot.title && (
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: 14,
-                  lineHeight: 1.55,
-                  color: "#7A6A50",
-                  maxWidth: 480,
-                }}
-              >
-                {lot.title}
-              </p>
-            )}
 
             {/* Spec grid */}
             <div
@@ -276,12 +251,13 @@ export function FeaturedRoastHero({ lot, campaignId }: FeaturedRoastHeroProps) {
                       fontWeight: 700,
                       fontSize: 13,
                       lineHeight: 1.1,
+                      color: "#1C0F05",
                     }}
                   >
                     {s.v}
                   </div>
                   {s.sub && (
-                    <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>{s.sub}</div>
+                    <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2, color: "#1C0F05" }}>{s.sub}</div>
                   )}
                 </div>
               ))}
@@ -328,6 +304,7 @@ export function FeaturedRoastHero({ lot, campaignId }: FeaturedRoastHeroProps) {
                         fontWeight: 600,
                         fontSize: 12,
                         whiteSpace: "nowrap",
+                        color: "#1C0F05",
                       }}
                     >
                       {note}
@@ -379,6 +356,7 @@ export function FeaturedRoastHero({ lot, campaignId }: FeaturedRoastHeroProps) {
                       fontFamily: "'Cal Sans', system-ui, sans-serif",
                       fontWeight: 800,
                       fontSize: 14,
+                      color: "#1C0F05",
                     }}
                   >
                     {commitPct}%
@@ -399,7 +377,6 @@ export function FeaturedRoastHero({ lot, campaignId }: FeaturedRoastHeroProps) {
                       height: "100%",
                       background: "#5A7A3A",
                       borderRadius: 999,
-                      transition: "width 0.3s ease",
                     }}
                   />
                 </div>
@@ -452,26 +429,10 @@ export function FeaturedRoastHero({ lot, campaignId }: FeaturedRoastHeroProps) {
                 </span>
               </div>
 
-              {/* CTA */}
+              {/* CTA — Tailwind hover/active for Mernin' press effect */}
               <Link
                 href={`/dashboard/buyer/lot/${lot.id}`}
-                style={{
-                  display: "block",
-                  background: "#E8442A",
-                  color: "#F5F0D8",
-                  border: "3px solid #1C0F05",
-                  borderRadius: 999,
-                  padding: "12px 24px",
-                  fontFamily: "'Cal Sans', system-ui, sans-serif",
-                  fontSize: 13,
-                  fontWeight: 800,
-                  letterSpacing: "0.1em",
-                  textTransform: "uppercase",
-                  textAlign: "center",
-                  boxShadow: "3px 3px 0 #1C0F05",
-                  textDecoration: "none",
-                  transition: "transform 0.1s, box-shadow 0.1s",
-                }}
+                className="block bg-tomato text-cream border-3 border-espresso rounded-pill px-6 py-3 font-headline text-xs font-bold tracking-[0.1em] uppercase text-center shadow-flat-sm transition-all duration-[120ms] hover:-translate-x-[2px] hover:-translate-y-[2px] hover:shadow-flat-md active:translate-x-[3px] active:translate-y-[3px] active:shadow-none no-underline"
               >
                 View &amp; Commit →
               </Link>

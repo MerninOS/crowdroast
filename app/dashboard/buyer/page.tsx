@@ -256,7 +256,7 @@ export default async function BuyerOverview({
     <div>
       {/* Featured Roast hero — renders above everything when an active lot is available */}
       {activeTab === "active" && (
-        <div className="-mx-6 mb-8">
+        <div className="-mx-4 md:-mx-6 lg:-mx-8 mb-8">
           <FeaturedRoastHero
             lot={featuredCampaign?.lot ?? null}
             campaignId={featuredCampaign?.id ?? null}
