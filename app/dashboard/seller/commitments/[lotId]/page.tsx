@@ -2,8 +2,8 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ShoppingCart } from "lucide-react";
-import { Card, CardContent } from "@/components/mernin/Card";
-import { Badge } from "@/components/mernin/Badge";
+import { Card, CardContent } from "@merninos/ui";
+import { Badge } from "@merninos/ui";
 import { UnitWeightText, UnitPriceText } from "@/components/unit-value";
 
 function getCurrentLotPrice(

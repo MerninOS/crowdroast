@@ -2,6 +2,22 @@
 @tailwind components;
 @tailwind utilities;
 
+/* CrowdRoast "Bulletin" palette — matcha-forward, peeled from CoffeeOS tomato/cream */
+:root {
+  --cr-bg:        #EFE7CF;
+  --cr-surface:   #FDFAF0;
+  --cr-surface-2: #F5F0D8;
+  --cr-accent:    #5A7A3A;
+  --cr-accent-fg: #F5F0D8;
+  --cr-accent-2:  #E8913A;
+  --cr-ink:       #1C0F05;
+  --cr-fg2:       #5A7A3A;
+  --cr-border:    #C9CFA8;
+  --cr-track:     #D8D0B8;
+  --cr-crate:     #3B1F0A;
+  --cr-head:      "Cal Sans", system-ui, sans-serif;
+}
+
 @font-face {
   font-family: 'Adore Cats';
   src: url('/fonts/Adore%20Cats.otf') format('opentype'),
@@ -47,6 +63,21 @@
 @keyframes campaignFill {
   0%   { width: 18%; }
   100% { width: 68%; }
+}
+
+@keyframes ticker-l {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+@keyframes ticker-r {
+  from { transform: translateX(-50%); }
+  to   { transform: translateX(0); }
+}
+
+@keyframes cr-pulse {
+  0%, 100% { opacity: 0.35; }
+  50%       { opacity: 0.95; }
 }
 
 @layer base {

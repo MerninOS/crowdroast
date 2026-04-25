@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/mernin/Card";
-import { Badge } from "@/components/mernin/Badge";
-import { Button } from "@/components/mernin/Button";
-import { Input } from "@/components/mernin/Input";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@merninos/ui";
+import { Badge } from "@merninos/ui";
+import { Button } from "@merninos/ui";
+import { Input } from "@merninos/ui";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {

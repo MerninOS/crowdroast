@@ -3,12 +3,12 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import Link from "next/link";
-import { Button } from "@/components/mernin/Button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/mernin/Card";
-import { Input } from "@/components/mernin/Input";
+import { Button } from "@merninos/ui";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@merninos/ui";
+import { Input } from "@merninos/ui";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/mernin/Badge";
+import { Badge } from "@merninos/ui";
 import {
   Select,
   SelectContent,

@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/mernin/Card";
-import { Badge } from "@/components/mernin/Badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@merninos/ui";
+import { Badge } from "@merninos/ui";
 import { StripeConnectButton } from "@/components/stripe-connect-button";
 import { AlertCircle, CheckCircle2, Landmark } from "lucide-react";
 

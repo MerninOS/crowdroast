@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button } from "@/components/mernin/Button";
+import { Button } from "@merninos/ui";
 import { toast } from "sonner";
 
 export function StripeConnectButton({

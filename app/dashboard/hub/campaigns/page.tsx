@@ -8,9 +8,9 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-} from "@/components/mernin/Card";
-import { Button } from "@/components/mernin/Button";
-import { Badge } from "@/components/mernin/Badge";
+} from "@merninos/ui";
+import { Button } from "@merninos/ui";
+import { Badge } from "@merninos/ui";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { Calendar, AlertCircle } from "lucide-react";

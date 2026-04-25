@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/mernin/Card";
-import { Badge } from "@/components/mernin/Badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@merninos/ui";
+import { Badge } from "@merninos/ui";
 import { Progress } from "@/components/ui/progress";
 import { Coffee, TrendingDown, Clock } from "lucide-react";
 import Link from "next/link";

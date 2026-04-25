@@ -1,15 +1,15 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Badge } from "@/components/mernin/Badge";
-import { Button } from "@/components/mernin/Button";
+import { Badge } from "@merninos/ui";
+import { Button } from "@merninos/ui";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/mernin/Card";
+} from "@merninos/ui";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import {

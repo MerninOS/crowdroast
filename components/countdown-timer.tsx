@@ -28,14 +28,15 @@ const Sep = () => (
 );
 
 export function CountdownTimer({ deadline }: { deadline: string | null | undefined }) {
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState<number | null>(null);
 
   useEffect(() => {
+    setNow(Date.now());
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
 
-  if (!deadline) return null;
+  if (!deadline || now === null) return null;
 
   const diff = Math.max(0, new Date(deadline).getTime() - now);
   const ended = diff === 0;
