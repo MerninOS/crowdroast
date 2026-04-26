@@ -51,9 +51,16 @@ export async function POST(request: Request) {
     .eq("lot_id", lot_id)
     .eq("hub_id", hub_id)
     .eq("status", "active")
-    .single();
+    .maybeSingle();
 
-  if (campaignError || !campaign) {
+  if (campaignError) {
+    return NextResponse.json(
+      { error: `Campaign lookup failed: ${campaignError.message}` },
+      { status: 500 }
+    );
+  }
+
+  if (!campaign) {
     return NextResponse.json(
       { error: "No active campaign for this lot in your hub" },
       { status: 400 }

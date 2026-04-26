@@ -101,7 +101,7 @@ export function RaisingLotCard({ group, pricingTiers }: RaisingLotCardProps) {
           {lot?.region && lot?.origin_country ? ` · ${lot.origin_country.toUpperCase()}` : ""}
         </div>
         <Link
-          href={`/dashboard/buyer/lot/${group.lotId}`}
+          href={`/dashboard/buyer/lot/${group.lotId}${group.hubId ? `?hub=${group.hubId}` : ""}`}
           className="mt-1 font-headline text-[20px] font-bold leading-tight text-espresso transition-colors hover:text-tomato"
         >
           {lot?.title || "Unknown lot"}
@@ -154,7 +154,7 @@ export function RaisingLotCard({ group, pricingTiers }: RaisingLotCardProps) {
           </div>
         </div>
         <Button asChild variant="sun" size="sm" className="mt-3">
-          <Link href={`/dashboard/buyer/lot/${group.lotId}`}>Commit more →</Link>
+          <Link href={`/dashboard/buyer/lot/${group.lotId}${group.hubId ? `?hub=${group.hubId}` : ""}`}>Commit more →</Link>
         </Button>
       </div>
     </div>
