@@ -462,9 +462,91 @@ async function main() {
   }
 }
 
-// Task 3.6 implements the body of refresh().
-async function refresh(_supabase: SupabaseClient): Promise<void> {
-  throw new Error("--refresh not yet implemented (task 3.6)");
+// ---- refresh path ----------------------------------------------------
+
+const SEED_EMAILS: string[] = [
+  HUB_OWNER.email,
+  SELLER.email,
+  ...BUYERS.map((b) => b.email),
+];
+
+async function deleteSeedConnectAccounts(): Promise<void> {
+  let startingAfter: string | undefined;
+  let totalDeleted = 0;
+  while (true) {
+    const url = new URL(`${STRIPE_API_BASE}/accounts`);
+    url.searchParams.set("limit", "100");
+    if (startingAfter) url.searchParams.set("starting_after", startingAfter);
+
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${requireEnv("STRIPE_SECRET_KEY")}` },
+    });
+    if (!res.ok) {
+      throw new Error(`Stripe list accounts ${res.status}: ${await res.text()}`);
+    }
+    const body = (await res.json()) as {
+      data: Array<{ id: string; metadata?: Record<string, string> }>;
+      has_more: boolean;
+    };
+
+    let lastId: string | undefined;
+    for (const acct of body.data) {
+      lastId = acct.id;
+      if (acct.metadata?.crowdroast_seed === "true") {
+        const delRes = await fetch(`${STRIPE_API_BASE}/accounts/${acct.id}`, {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${requireEnv("STRIPE_SECRET_KEY")}`,
+          },
+        });
+        if (!delRes.ok) {
+          throw new Error(
+            `Stripe delete account ${acct.id} ${delRes.status}: ${await delRes.text()}`,
+          );
+        }
+        totalDeleted += 1;
+      }
+    }
+
+    if (!body.has_more || !lastId) break;
+    startingAfter = lastId;
+  }
+  console.log(`  ✓ Deleted ${totalDeleted} tagged Stripe Connect account(s)`);
+}
+
+async function deleteSeedAuthUsers(supabase: SupabaseClient): Promise<void> {
+  const { data, error } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+  if (error) throw error;
+  const seedUsers = data.users.filter((u) =>
+    SEED_EMAILS.includes(u.email ?? ""),
+  );
+  for (const user of seedUsers) {
+    const { error: delErr } = await supabase.auth.admin.deleteUser(user.id);
+    if (delErr) throw delErr;
+  }
+  console.log(`  ✓ Deleted ${seedUsers.length} seed auth user(s) (cascades to profiles + downstream rows)`);
+}
+
+async function clearSeedRunsHistory(supabase: SupabaseClient): Promise<void> {
+  // delete all rows; .neq() with an impossible id is the supabase-js idiom
+  // for "delete all" since plain .delete() requires a filter.
+  const { error } = await supabase
+    .from("_seed_runs")
+    .delete()
+    .neq("id", "00000000-0000-0000-0000-000000000000");
+  if (error) throw error;
+  console.log("  ✓ Cleared _seed_runs history");
+}
+
+async function refresh(supabase: SupabaseClient): Promise<void> {
+  console.log("Refresh: cleaning up previous seed state...");
+  // Order matters loosely: kill Stripe accounts first (they're external),
+  // then auth users (which cascade-delete profiles → lots → campaigns →
+  // commitments → pricing_tiers → hubs).
+  await deleteSeedConnectAccounts();
+  await deleteSeedAuthUsers(supabase);
+  await clearSeedRunsHistory(supabase);
+  console.log("Refresh complete. Re-seeding...\n");
 }
 
 main().catch((err) => {
