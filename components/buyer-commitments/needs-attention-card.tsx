@@ -18,24 +18,26 @@ export function NeedsAttentionCard({ group }: NeedsAttentionCardProps) {
 
   return (
     <div
-      className="flex items-center gap-4 rounded-[14px] border-[3px] border-tomato bg-cream px-5 py-4 shadow-flat-sm"
+      className="flex flex-col gap-3 rounded-[14px] border-[3px] border-tomato bg-cream px-5 py-4 shadow-flat-sm sm:flex-row sm:items-center sm:gap-4"
       role="alert"
     >
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-[2.5px] border-espresso bg-tomato font-headline text-lg font-extrabold text-cream">
-        !
+      <div className="flex items-start gap-3 sm:contents">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-[2.5px] border-espresso bg-tomato font-headline text-lg font-extrabold text-cream">
+          !
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="font-headline text-[10px] font-extrabold uppercase tracking-[0.18em] text-tomato">
+            Charge issue
+          </div>
+          <div className="mt-0.5 font-headline text-[18px] font-bold leading-tight text-espresso">
+            {group.lot?.title || "Unknown lot"}
+          </div>
+          <div className="mt-1 font-headline text-[12px] text-espresso/70">
+            <UnitWeightText kg={failedKg} maximumFractionDigits={0} /> · {reason}
+          </div>
+        </div>
       </div>
-      <div className="min-w-0 flex-1">
-        <div className="font-headline text-[10px] font-extrabold uppercase tracking-[0.18em] text-tomato">
-          Charge issue
-        </div>
-        <div className="mt-0.5 font-headline text-[18px] font-bold leading-tight text-espresso">
-          {group.lot?.title || "Unknown lot"}
-        </div>
-        <div className="mt-1 font-headline text-[12px] text-espresso/70">
-          <UnitWeightText kg={failedKg} maximumFractionDigits={0} /> · {reason}
-        </div>
-      </div>
-      <Button asChild size="sm" variant="default">
+      <Button asChild size="sm" variant="default" className="self-stretch sm:self-auto">
         <Link href={`/dashboard/buyer/lot/${group.lotId}`}>Update payment →</Link>
       </Button>
     </div>

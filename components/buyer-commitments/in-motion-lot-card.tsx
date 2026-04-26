@@ -46,7 +46,7 @@ export function InMotionLotCard({ group }: InMotionLotCardProps) {
 
   return (
     <div className="rounded-[14px] border-[3px] border-espresso bg-chalk p-5 shadow-flat-md">
-      <div className="mb-3.5 flex items-start justify-between gap-4">
+      <div className="mb-3.5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="min-w-0 flex-1">
           <div className="font-headline text-[10px] font-extrabold uppercase tracking-[0.18em] text-espresso/60">
             {(lot?.region || lot?.origin_country || "").toString().toUpperCase()}
@@ -62,7 +62,7 @@ export function InMotionLotCard({ group }: InMotionLotCardProps) {
             )}
           </div>
         </div>
-        <div className="text-right">
+        <div className="text-left sm:text-right">
           {nextEvent && (
             <>
               <div className="font-headline text-[9px] font-extrabold uppercase tracking-[0.18em] text-espresso/55">
@@ -93,7 +93,7 @@ export function InMotionLotCard({ group }: InMotionLotCardProps) {
       )}
 
       {stage === "at_hub" && pickupCommitmentId && (
-        <div className="mt-3.5 flex items-center justify-between gap-3 border-t-2 border-dashed border-espresso/20 pt-3.5">
+        <div className="mt-3.5 flex flex-col gap-3 border-t-2 border-dashed border-espresso/20 pt-3.5 sm:flex-row sm:items-center sm:justify-between">
           <div className="font-headline text-xs text-espresso">
             <span className="font-extrabold">Ready for pickup</span>
             {group.shipment?.hub?.name && <span className="text-espresso/60"> · {group.shipment.hub.name}</span>}

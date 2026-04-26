@@ -311,13 +311,13 @@ export default async function BuyerCommitmentsPage({
 
 function PageHeader() {
   return (
-    <div className="mb-5 flex items-end justify-between gap-4">
+    <div className="mb-5 flex flex-col items-start gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
       <div>
         <div className="font-headline text-[11px] font-extrabold uppercase tracking-[0.22em] text-espresso/55">
           Your portfolio
         </div>
         {/* "Commitments" is intentionally the only Adore Cats moment on this page. */}
-        <h1 className="mt-1.5 font-display text-[44px] leading-[0.95] tracking-tight text-espresso">
+        <h1 className="mt-1.5 font-display text-[34px] leading-[0.95] tracking-tight text-espresso sm:text-[44px]">
           Commitments
         </h1>
       </div>
@@ -348,8 +348,8 @@ function SectionHead({
   note?: string;
 }) {
   return (
-    <div className="flex items-end justify-between gap-4 border-b-2 border-espresso/80 pb-2.5">
-      <div className="flex items-baseline gap-3">
+    <div className="flex flex-col items-start gap-2 border-b-2 border-espresso/80 pb-2.5 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5">
         <span
           className={`rounded-md border-2 border-espresso px-2.5 py-[3px] font-headline text-[10px] font-extrabold uppercase tracking-[0.18em] ${sectionAccent[accent]}`}
         >

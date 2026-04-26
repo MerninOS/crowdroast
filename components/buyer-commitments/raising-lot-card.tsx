@@ -69,8 +69,8 @@ export function RaisingLotCard({ group, pricingTiers }: RaisingLotCardProps) {
         goingFast ? "border-tomato" : "border-espresso"
       }`}
     >
-      {/* Photo column */}
-      <div className="relative min-h-[180px] bg-roast">
+      {/* Photo column — full width banner on mobile, side panel on desktop */}
+      <div className="relative h-[140px] bg-roast md:h-auto md:min-h-[180px]">
         {photoUrl ? (
           <Image
             src={photoUrl}
@@ -136,8 +136,8 @@ export function RaisingLotCard({ group, pricingTiers }: RaisingLotCardProps) {
         </div>
       </div>
 
-      {/* Position + CTA column */}
-      <div className="flex flex-col justify-between border-l-2 border-dashed border-espresso/20 bg-cream p-5">
+      {/* Position + CTA column — bottom strip on mobile, side panel on desktop */}
+      <div className="flex flex-col justify-between gap-3 border-t-2 border-dashed border-espresso/20 bg-cream p-5 md:border-l-2 md:border-t-0">
         <div>
           <div className="font-headline text-[9px] font-extrabold uppercase tracking-[0.18em] text-espresso/55">
             Closes in
