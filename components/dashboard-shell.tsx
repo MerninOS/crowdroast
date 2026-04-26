@@ -23,6 +23,7 @@ import {
 import type { User } from "@supabase/supabase-js";
 import type { Profile, UserRole } from "@/lib/types";
 import { UnitToggle } from "@/components/unit-toggle";
+import { CrTicker } from "@/components/cr-ticker";
 import { NavTab as UiNavTab } from "@merninos/ui";
 
 type DashboardRole = UserRole | "admin";
@@ -331,6 +332,7 @@ export function DashboardShell({
 
       {/* ─── MAIN ────────────────────────────────────────────────────────── */}
       <main className="flex-1 overflow-auto">
+        <CrTicker />
         <div className="mx-auto max-w-7xl p-4 md:p-6 lg:p-8">{children}</div>
       </main>
     </div>

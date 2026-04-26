@@ -6,6 +6,7 @@ const config: Config = {
     './pages/**/*.{js,ts,jsx,tsx,mdx}',
     './components/**/*.{js,ts,jsx,tsx,mdx}',
     './app/**/*.{js,ts,jsx,tsx,mdx}',
+    './node_modules/@merninos/ui/dist/**/*.{js,mjs}',
     '*.{js,ts,jsx,tsx,mdx}',
   ],
   theme: {
@@ -15,7 +16,7 @@ const config: Config = {
         mono:     ['var(--font-mono)', 'monospace'],
         display:  ["'Adore Cats'", 'var(--font-display)'],
         headline: ["'Cal Sans'", 'var(--font-headline)'],
-        body:     ['system-ui', 'sans-serif'],
+        body:     ["'Cal Sans'", 'system-ui', 'sans-serif'],
       },
       colors: {
         background: 'hsl(var(--background))',

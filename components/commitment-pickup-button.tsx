@@ -3,15 +3,23 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Button } from "@merninos/ui";
+import { Button, type ButtonProps } from "@merninos/ui";
+
+interface CommitmentPickupButtonProps {
+  commitmentId: string;
+  alreadyPickedUp: boolean;
+  variant?: ButtonProps["variant"];
+  size?: ButtonProps["size"];
+  label?: string;
+}
 
 export function CommitmentPickupButton({
   commitmentId,
   alreadyPickedUp,
-}: {
-  commitmentId: string;
-  alreadyPickedUp: boolean;
-}) {
+  variant = "outline",
+  size = "sm",
+  label = "Mark Picked Up",
+}: CommitmentPickupButtonProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
 
@@ -36,8 +44,8 @@ export function CommitmentPickupButton({
   };
 
   return (
-    <Button size="sm" variant="outline" onClick={handlePickup} disabled={loading}>
-      {loading ? "Saving..." : "Mark Picked Up"}
+    <Button size={size} variant={variant} onClick={handlePickup} disabled={loading}>
+      {loading ? "Saving..." : label}
     </Button>
   );
 }
