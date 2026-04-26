@@ -11,7 +11,9 @@
     "test:watch": "vitest",
     "db:bootstrap-prod-ledger": "tsx scripts/db-bootstrap-prod-ledger.ts",
     "db:seed": "tsx scripts/seed-test-env.ts",
-    "db:seed:refresh": "tsx scripts/seed-test-env.ts --refresh"
+    "db:seed:refresh": "tsx scripts/seed-test-env.ts --refresh",
+    "cron:settle-deadlines": "tsx scripts/cron-settle-deadlines.ts",
+    "cron:lot-expiry": "tsx scripts/cron-lot-expiry.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
