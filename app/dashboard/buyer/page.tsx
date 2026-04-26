@@ -6,7 +6,6 @@ import { Button } from "@merninos/ui";
 import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
 import { LeaveHubButton } from "@/components/leave-hub-button";
 import { FeaturedRoastHero } from "@/components/featured-roast-hero";
-import { CrTicker } from "@/components/cr-ticker";
 
 function getHubName(memberships: any[], hubId: string) {
   const membership = memberships.find((m: any) => m.hub_id === hubId);
@@ -253,11 +252,6 @@ export default async function BuyerOverview({
 
   return (
     <div>
-      {/* Dual-track live ticker */}
-      <div className="-mx-4 md:-mx-6 lg:-mx-8 mb-0">
-        <CrTicker />
-      </div>
-
       {/* Featured Roast hero — renders above everything when an active lot is available */}
       {activeTab === "active" && (
         <div className="-mx-4 md:-mx-6 lg:-mx-8 mb-8">
