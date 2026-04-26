@@ -92,7 +92,16 @@ async function createConnectAccount(email: string): Promise<StripeAccount> {
 
 const PASSWORD = "test-password-123";
 
-const HUB_OWNER = {
+interface UserSpec {
+  email: string;
+  user_metadata: {
+    role: "hub_owner" | "seller" | "buyer";
+    contact_name: string;
+    company_name: string;
+  };
+}
+
+const HUB_OWNER: UserSpec = {
   email: "hub-owner@crowdroast.local",
   user_metadata: {
     role: "hub_owner",
@@ -101,7 +110,7 @@ const HUB_OWNER = {
   },
 };
 
-const SELLER = {
+const SELLER: UserSpec = {
   email: "seller@crowdroast.local",
   user_metadata: {
     role: "seller",
@@ -109,6 +118,33 @@ const SELLER = {
     company_name: "Sam's Specialty Beans",
   },
 };
+
+const BUYERS: UserSpec[] = [
+  {
+    email: "buyer-1@crowdroast.local",
+    user_metadata: {
+      role: "buyer",
+      contact_name: "Buyer Bao",
+      company_name: "Acorn Coffee",
+    },
+  },
+  {
+    email: "buyer-2@crowdroast.local",
+    user_metadata: {
+      role: "buyer",
+      contact_name: "Buyer Bea",
+      company_name: "Beanstalk Roasters",
+    },
+  },
+  {
+    email: "buyer-3@crowdroast.local",
+    user_metadata: {
+      role: "buyer",
+      contact_name: "Buyer Bo",
+      company_name: "Brewbird Cafe",
+    },
+  },
+];
 
 const HUB = {
   name: "Roast Haven Hub",
@@ -118,6 +154,46 @@ const HUB = {
   country: "USA",
   capacity_kg: 1000,
 };
+
+const LOT = {
+  title: "Yirgacheffe Konga — Washed",
+  origin_country: "Ethiopia",
+  region: "Yirgacheffe",
+  farm: "Konga Cooperative",
+  variety: "Heirloom",
+  process: "Washed",
+  altitude_min: 1900,
+  altitude_max: 2100,
+  crop_year: "2025/26",
+  score: 87.5,
+  description: "Bright florals, citrus, jasmine. Honey body, clean finish.",
+  total_quantity_kg: 200,
+  min_commitment_kg: 5,
+  price_per_kg: 18.5,
+  currency: "USD",
+  status: "active",
+  flavor_notes: ["jasmine", "citrus", "honey"],
+  certifications: ["organic"],
+  // images: populated in task 3.5 after upload to Storage.
+  // commitment_deadline: set in task 3.5 (past-dated for cron testing).
+};
+
+// Tier rows for the lot — buy more, pay less per kg.
+const PRICING_TIERS = [
+  { min_quantity_kg: 5, price_per_kg: 18.5 },
+  { min_quantity_kg: 25, price_per_kg: 17.0 },
+  { min_quantity_kg: 50, price_per_kg: 15.5 },
+];
+
+// Image filenames in scripts/seed-assets/ to upload to local Storage.
+const LOT_IMAGE_FILES = ["lot-1.jpg", "lot-2.jpg", "lot-3.jpg"];
+
+// Past-dated by this many days so the cron jobs have work to do.
+const PAST_DAYS = 5;
+
+// One paid commitment from the first buyer at the middle pricing tier.
+const COMMITMENT_QUANTITY_KG = 50;
+const COMMITMENT_PRICE_PER_KG = 17.0; // matches PRICING_TIERS[1]
 
 // ---- seed steps -------------------------------------------------------
 
@@ -144,7 +220,7 @@ async function finishSeedRun(
 
 async function createUser(
   supabase: SupabaseClient,
-  spec: typeof HUB_OWNER,
+  spec: UserSpec,
 ): Promise<string> {
   const { data, error } = await supabase.auth.admin.createUser({
     email: spec.email,
@@ -175,6 +251,125 @@ async function createHub(
   const { data, error } = await supabase
     .from("hubs")
     .insert({ owner_id: ownerId, ...HUB })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
+async function createBuyers(supabase: SupabaseClient): Promise<string[]> {
+  const ids: string[] = [];
+  for (const buyer of BUYERS) {
+    ids.push(await createUser(supabase, buyer));
+  }
+  return ids;
+}
+
+async function createLot(
+  supabase: SupabaseClient,
+  sellerId: string,
+  hubId: string,
+): Promise<string> {
+  const { data, error } = await supabase
+    .from("lots")
+    .insert({ seller_id: sellerId, hub_id: hubId, ...LOT })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
+async function createPricingTiers(
+  supabase: SupabaseClient,
+  lotId: string,
+): Promise<void> {
+  const rows = PRICING_TIERS.map((t) => ({ lot_id: lotId, ...t }));
+  const { error } = await supabase.from("pricing_tiers").insert(rows);
+  if (error) throw error;
+}
+
+async function uploadLotImages(
+  supabase: SupabaseClient,
+  sellerId: string,
+): Promise<string[]> {
+  const urls: string[] = [];
+  for (const filename of LOT_IMAGE_FILES) {
+    const path = `${sellerId}/${filename}`;
+    const buffer = readFileSync(resolve(process.cwd(), "scripts/seed-assets", filename));
+    const { error: uploadErr } = await supabase.storage
+      .from("lot-images")
+      .upload(path, buffer, { contentType: "image/jpeg", upsert: true });
+    if (uploadErr) throw uploadErr;
+
+    const { data } = supabase.storage.from("lot-images").getPublicUrl(path);
+    urls.push(data.publicUrl);
+  }
+  return urls;
+}
+
+async function setLotImagesAndDeadlines(
+  supabase: SupabaseClient,
+  lotId: string,
+  imageUrls: string[],
+): Promise<void> {
+  const past = new Date();
+  past.setDate(past.getDate() - PAST_DAYS);
+  const { error } = await supabase
+    .from("lots")
+    .update({
+      images: imageUrls,
+      commitment_deadline: past.toISOString(),
+      expiry_date: past.toISOString(),
+    })
+    .eq("id", lotId);
+  if (error) throw error;
+}
+
+async function createCampaign(
+  supabase: SupabaseClient,
+  lotId: string,
+  hubId: string,
+): Promise<string> {
+  const past = new Date();
+  past.setDate(past.getDate() - PAST_DAYS);
+  const { data, error } = await supabase
+    .from("campaigns")
+    .insert({
+      lot_id: lotId,
+      hub_id: hubId,
+      deadline: past.toISOString(),
+      status: "active",
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
+async function createPaidCommitment(
+  supabase: SupabaseClient,
+  lotId: string,
+  buyerId: string,
+  hubId: string,
+  campaignId: string,
+): Promise<string> {
+  const total_price = COMMITMENT_QUANTITY_KG * COMMITMENT_PRICE_PER_KG;
+  const { data, error } = await supabase
+    .from("commitments")
+    .insert({
+      lot_id: lotId,
+      buyer_id: buyerId,
+      hub_id: hubId,
+      campaign_id: campaignId,
+      quantity_kg: COMMITMENT_QUANTITY_KG,
+      price_per_kg: COMMITMENT_PRICE_PER_KG,
+      total_price,
+      status: "confirmed",
+      payment_status: "charge_succeeded",
+      charge_amount_cents: Math.round(total_price * 100),
+      charge_currency: "USD",
+      charged_at: new Date().toISOString(),
+    })
     .select("id")
     .single();
   if (error) throw error;
@@ -232,8 +427,32 @@ async function main() {
     const hubId = await createHub(supabase, hubOwnerId);
     console.log(`✓ Hub created: ${hubId}`);
 
-    // Task 3.4 extends here: buyers + lot + tiered pricing.
-    // Task 3.5 extends here: image uploads + campaign + commitment.
+    const buyerIds = await createBuyers(supabase);
+    console.log(`✓ ${buyerIds.length} buyers created`);
+
+    const lotId = await createLot(supabase, sellerId, hubId);
+    console.log(`✓ Lot created: ${lotId}`);
+
+    await createPricingTiers(supabase, lotId);
+    console.log(`✓ ${PRICING_TIERS.length} pricing tiers created`);
+
+    const imageUrls = await uploadLotImages(supabase, sellerId);
+    console.log(`✓ ${imageUrls.length} lot images uploaded to Storage`);
+
+    await setLotImagesAndDeadlines(supabase, lotId, imageUrls);
+    console.log(`✓ Lot images + past-dated deadlines set`);
+
+    const campaignId = await createCampaign(supabase, lotId, hubId);
+    console.log(`✓ Active campaign created (deadline ${PAST_DAYS} days ago): ${campaignId}`);
+
+    const commitmentId = await createPaidCommitment(
+      supabase,
+      lotId,
+      buyerIds[0],
+      hubId,
+      campaignId,
+    );
+    console.log(`✓ Paid commitment created: ${commitmentId}`);
 
     await finishSeedRun(supabase, seedRunId, "completed");
     console.log("\nSeed completed.");
