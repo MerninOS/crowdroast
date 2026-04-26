@@ -335,6 +335,34 @@ async function settleDeadlines(request: Request) {
   const backgroundTasks: Promise<unknown>[] = [];
 
   for (const campaign of dueCampaigns || []) {
+    // Cancel orphans first — commitments where the buyer started checkout but never
+    // got `stripe_payment_intent_id` stamped. Webhooks should already have done this
+    // on `checkout.session.expired`/`payment_intent.payment_failed`; this is the
+    // safety net for races (last-minute commits, missed webhooks). Cancelling fires
+    // the lot trigger so committed_quantity_kg drops to truth before we read it.
+    let orphansCancelled = 0;
+    if (!debug) {
+      const { data: orphans } = await admin
+        .from("commitments")
+        .select("id")
+        .eq("campaign_id", campaign.id)
+        .is("stripe_payment_intent_id", null)
+        .neq("status", "cancelled")
+        .neq("status", "confirmed");
+
+      for (const orphan of orphans || []) {
+        await admin
+          .from("commitments")
+          .update({
+            status: "cancelled",
+            payment_status: "cancelled",
+            payment_error: "Cancelled at deadline: payment never completed",
+          })
+          .eq("id", orphan.id);
+        orphansCancelled += 1;
+      }
+    }
+
     const { data: lot, error: lotFetchError } = await admin
       .from("lots")
       .select(
@@ -573,13 +601,6 @@ async function settleDeadlines(request: Request) {
       continue;
     }
 
-    const { data: unpaidCommitments } = await admin
-      .from("commitments")
-      .select("id")
-      .eq("campaign_id", campaign.id)
-      .is("stripe_payment_intent_id", null)
-      .neq("status", "cancelled");
-
     const { data: tiers } = await admin
       .from("pricing_tiers")
       .select("min_quantity_kg, price_per_kg")
@@ -607,9 +628,8 @@ async function settleDeadlines(request: Request) {
       continue;
     }
 
-    const unpaidCount = unpaidCommitments?.length || 0;
     let transferFailedCount = 0;
-    let failedCount = unpaidCount;
+    let failedCount = 0;
     let succeededCount = 0;
     const debugCommitments: Array<Record<string, unknown>> = [];
     const hubConnectAccountByHubId = new Map<string, string | null>();
@@ -961,11 +981,12 @@ async function settleDeadlines(request: Request) {
       outcome: failedCount > 0 ? "failed" : "settled",
       commitments_succeeded: succeededCount,
       commitments_failed: failedCount,
+      orphans_cancelled: orphansCancelled,
       ...(debug ? { debug_commitments: debugCommitments } : {}),
     });
 
     // AC-6: notify all parties on successful settlement
-    console.log("[settle-deadlines] campaign", campaign.id, "lot", lot.id, "— debug:", debug, "transferFailedCount:", transferFailedCount, "failedCount:", failedCount, "succeededCount:", succeededCount, "unpaidCount:", unpaidCount);
+    console.log("[settle-deadlines] campaign", campaign.id, "lot", lot.id, "— debug:", debug, "transferFailedCount:", transferFailedCount, "failedCount:", failedCount, "succeededCount:", succeededCount, "orphansCancelled:", orphansCancelled);
     if (!debug && transferFailedCount === 0) {
       backgroundTasks.push(sendLotSuccessNotifications(admin, lot.id, campaign.hub_id));
       backgroundTasks.push(createShipmentForLot(lot.id, campaign.hub_id));
