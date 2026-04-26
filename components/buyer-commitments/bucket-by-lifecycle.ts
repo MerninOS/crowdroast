@@ -41,6 +41,7 @@ export interface CommitmentGroup {
   groupKey: string;
   lotId: string;
   campaignId: string | null;
+  hubId: string | null;
   lot: Lot | null;
   campaign: Pick<Campaign, "id" | "status" | "deadline" | "settled_at"> | null;
   commitments: Commitment[];

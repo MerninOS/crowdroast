@@ -123,11 +123,8 @@ describe("POST /api/commitments — campaign requirement", () => {
         return makeChain({ data: activeLot, error: null });
       }
       if (table === "campaigns") {
-        // No active campaign found — single() returns error
-        return makeChain({
-          data: null,
-          error: { code: "PGRST116", message: "no rows returned" },
-        });
+        // No active campaign found — maybeSingle() returns null with no error
+        return makeChain({ data: null, error: null });
       }
       return makeChain({ data: null, error: null });
     });

@@ -68,7 +68,7 @@ export function ClosedLotsTable({ groups }: ClosedLotsTableProps) {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <Link
-                    href={`/dashboard/buyer/lot/${g.lotId}`}
+                    href={`/dashboard/buyer/lot/${g.lotId}${g.hubId ? `?hub=${g.hubId}` : ""}`}
                     className="font-headline text-[16px] font-bold leading-tight text-espresso hover:text-tomato"
                   >
                     {g.lot?.title || "Unknown lot"}
@@ -128,7 +128,7 @@ export function ClosedLotsTable({ groups }: ClosedLotsTableProps) {
             >
               <div>
                 <Link
-                  href={`/dashboard/buyer/lot/${g.lotId}`}
+                  href={`/dashboard/buyer/lot/${g.lotId}${g.hubId ? `?hub=${g.hubId}` : ""}`}
                   className="font-headline text-[15px] font-bold leading-tight text-espresso transition-colors hover:text-tomato"
                 >
                   {g.lot?.title || "Unknown lot"}

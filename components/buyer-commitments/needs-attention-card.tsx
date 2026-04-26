@@ -38,7 +38,11 @@ export function NeedsAttentionCard({ group }: NeedsAttentionCardProps) {
         </div>
       </div>
       <Button asChild size="sm" variant="default" className="self-stretch sm:self-auto">
-        <Link href={`/dashboard/buyer/lot/${group.lotId}`}>Update payment →</Link>
+        <Link
+          href={`/dashboard/buyer/lot/${group.lotId}${group.hubId ? `?hub=${group.hubId}` : ""}`}
+        >
+          Update payment →
+        </Link>
       </Button>
     </div>
   );

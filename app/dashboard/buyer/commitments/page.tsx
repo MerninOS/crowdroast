@@ -199,6 +199,7 @@ export default async function BuyerCommitmentsPage({
         groupKey,
         lotId: c.lot_id,
         campaignId: c.campaign_id,
+        hubId: c.hub_id ?? null,
         lot: c.lot ?? null,
         campaign: c.campaign_id ? (campaignById[c.campaign_id] as any) ?? null : null,
         commitments: [c],
