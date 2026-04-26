@@ -195,6 +195,22 @@ const PAST_DAYS = 5;
 const COMMITMENT_QUANTITY_KG = 50;
 const COMMITMENT_PRICE_PER_KG = 17.0; // matches PRICING_TIERS[1]
 
+// A second lot that has NO campaign and a past expiry_date, so the
+// lot-expiry cron has work to do (the main lot above has an active
+// campaign, which lot-expiry intentionally skips).
+const EXPIRED_LOT = {
+  title: "Sidamo Natural — Expired Test Lot",
+  origin_country: "Ethiopia",
+  region: "Sidamo",
+  variety: "Heirloom",
+  process: "Natural",
+  total_quantity_kg: 100,
+  min_commitment_kg: 5,
+  price_per_kg: 16.0,
+  currency: "USD",
+  status: "active", // lot-expiry only acts on active or fully_committed lots
+};
+
 // ---- seed steps -------------------------------------------------------
 
 async function startSeedRun(supabase: SupabaseClient): Promise<string> {
@@ -346,6 +362,27 @@ async function createCampaign(
   return data.id;
 }
 
+async function createExpiredOnlyLot(
+  supabase: SupabaseClient,
+  sellerId: string,
+  hubId: string,
+): Promise<string> {
+  const past = new Date();
+  past.setDate(past.getDate() - PAST_DAYS);
+  const { data, error } = await supabase
+    .from("lots")
+    .insert({
+      seller_id: sellerId,
+      hub_id: hubId,
+      ...EXPIRED_LOT,
+      expiry_date: past.toISOString(),
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
 async function createPaidCommitment(
   supabase: SupabaseClient,
   lotId: string,
@@ -453,6 +490,9 @@ async function main() {
       campaignId,
     );
     console.log(`✓ Paid commitment created: ${commitmentId}`);
+
+    const expiredLotId = await createExpiredOnlyLot(supabase, sellerId, hubId);
+    console.log(`✓ Expired-only lot created (for lot-expiry cron): ${expiredLotId}`);
 
     await finishSeedRun(supabase, seedRunId, "completed");
     console.log("\nSeed completed.");
