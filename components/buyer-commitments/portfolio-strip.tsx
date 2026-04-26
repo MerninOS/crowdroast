@@ -23,36 +23,44 @@ const fmtKg = (kg: number) =>
  * Math definitions live in `bucket-by-lifecycle.ts:derivePortfolioStats`.
  * This component is presentation only.
  *
- * StatCard's value slot defaults to font-display (Adore Cats) — we override
- * with font-headline (Cal Sans in crowdroast) to keep the page calmer per
- * the buyer's tighter typographic brief on this surface.
+ * StatCard's value slot defaults to font-display (Adore Cats) at 38px and
+ * the card frame uses p-4 / border-4 / shadow-flat-md. On this page we want
+ * the strip to read as a compact KPI row, not a hero block, so we override:
+ *   - Val span: font-headline (Cal Sans) at a smaller size, overrides inherited
+ *   - StatCard root: lighter padding, border, and shadow via className
  */
 const Val = ({ children }: { children: React.ReactNode }) => (
-  <span className="font-headline">{children}</span>
+  <span className="font-headline text-[22px] leading-none">{children}</span>
 );
+
+const cardClass = "p-3 border-[3px] shadow-flat-sm rounded-[14px]";
 
 export function PortfolioStrip({ stats }: PortfolioStripProps) {
   return (
-    <div className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+    <div className="mb-6 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
       <StatCard
+        className={cardClass}
         variant="tomato"
         label="Live Exposure"
         value={<Val>{fmtMoney(stats.liveExposure)}</Val>}
         sub={`${stats.liveCount} lots raising`}
       />
       <StatCard
+        className={cardClass}
         variant="sky"
         label="Landing Soon"
         value={<Val>{fmtKg(stats.landingKg)}</Val>}
         sub={`${stats.inMotionCount} in motion`}
       />
       <StatCard
+        className={cardClass}
         variant="matcha"
         label="Saved via Tiers"
         value={<Val>{fmtMoney(stats.savedVsBase)}</Val>}
         sub="vs base price"
       />
       <StatCard
+        className={cardClass}
         variant="espresso"
         label="YTD Spend"
         value={<Val>{fmtMoney(stats.ytdSpend)}</Val>}

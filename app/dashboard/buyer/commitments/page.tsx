@@ -239,11 +239,9 @@ export default async function BuyerCommitmentsPage({
       {buckets.needsAttention.length > 0 && (
         <section className="mb-9">
           <SectionHead
-            eyebrow="Needs Attention"
-            title="Charge issues"
+            title="Needs Attention"
             count={buckets.needsAttention.length}
             accent="tomato"
-            note="payment retries"
           />
           <div className="mt-4 flex flex-col gap-3">
             {buckets.needsAttention.map((g) => (
@@ -256,11 +254,9 @@ export default async function BuyerCommitmentsPage({
       {buckets.raising.length > 0 && (
         <section className="mb-9">
           <SectionHead
-            eyebrow="Open commits"
             title="Still Raising"
             count={buckets.raising.length}
             accent="tomato"
-            note={`${stats.liveCount} lots live`}
           />
           <div className="mt-4 flex flex-col gap-4">
             {buckets.raising.map((g) => (
@@ -277,7 +273,6 @@ export default async function BuyerCommitmentsPage({
       {buckets.inMotion.length > 0 && (
         <section className="mb-9">
           <SectionHead
-            eyebrow="Underway"
             title="In Motion"
             count={buckets.inMotion.length}
             accent="sky"
@@ -294,7 +289,6 @@ export default async function BuyerCommitmentsPage({
       {buckets.closed.length > 0 && (
         <section>
           <SectionHead
-            eyebrow="In the books"
             title="Closed Lots"
             count={buckets.closed.length}
             accent="fog"
@@ -329,37 +323,32 @@ function PageHeader() {
 }
 
 const sectionAccent: Record<"tomato" | "sky" | "fog", string> = {
-  tomato: "bg-tomato text-cream",
-  sky:    "bg-sky text-espresso",
-  fog:    "bg-fog text-espresso",
+  tomato: "bg-tomato",
+  sky:    "bg-sky",
+  fog:    "bg-fog",
 };
 
 function SectionHead({
-  eyebrow,
   title,
   count,
   accent,
   note,
 }: {
-  eyebrow: string;
   title: string;
   count: number;
   accent: "tomato" | "sky" | "fog";
   note?: string;
 }) {
   return (
-    <div className="flex flex-col items-start gap-2 border-b-2 border-espresso/80 pb-2.5 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5">
-        <span
-          className={`rounded-md border-2 border-espresso px-2.5 py-[3px] font-headline text-[10px] font-extrabold uppercase tracking-[0.18em] ${sectionAccent[accent]}`}
-        >
-          {eyebrow.toUpperCase()}
-        </span>
-        <h2 className="m-0 font-headline text-[22px] font-bold leading-none text-espresso">{title}</h2>
-        <span className="font-headline text-[16px] font-bold leading-none text-espresso/50">{count}</span>
-      </div>
+    <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1 border-b-2 border-espresso/80 pb-2">
+      <span
+        className={`mb-px inline-block h-2.5 w-2.5 self-center rounded-full border-2 border-espresso ${sectionAccent[accent]}`}
+        aria-hidden
+      />
+      <h2 className="m-0 font-headline text-[18px] font-bold leading-none text-espresso">{title}</h2>
+      <span className="font-headline text-[14px] font-bold leading-none text-espresso/45">{count}</span>
       {note && (
-        <span className="font-headline text-[11px] font-bold lowercase text-espresso/55">{note}</span>
+        <span className="ml-auto font-headline text-[11px] font-bold lowercase text-espresso/55">{note}</span>
       )}
     </div>
   );
