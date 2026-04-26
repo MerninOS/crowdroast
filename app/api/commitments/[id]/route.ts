@@ -22,10 +22,9 @@ export async function PATCH(
     return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
   }
 
-  // Fetch the commitment to get lot_id for hub ownership verification
   const { data: commitment, error: fetchError } = await supabase
     .from("commitments")
-    .select("id, lot_id, picked_up_at")
+    .select("id, lot_id, buyer_id, picked_up_at")
     .eq("id", id)
     .single();
 
@@ -37,24 +36,29 @@ export async function PATCH(
     return NextResponse.json({ error: "Already marked as picked up" }, { status: 409 });
   }
 
-  // Verify the caller is the hub owner for this lot's hub
-  const { data: lot } = await supabase
-    .from("lots")
-    .select("hub_id")
-    .eq("id", commitment.lot_id)
-    .single();
+  // The caller is allowed if they are either:
+  //   (a) the buyer who placed the commitment (self-pickup at hub), or
+  //   (b) the hub owner for the lot's hub (hub-side confirmation).
+  let allowed = commitment.buyer_id === user.id;
 
-  if (!lot?.hub_id) {
-    return NextResponse.json({ error: "Lot has no associated hub" }, { status: 400 });
+  if (!allowed) {
+    const { data: lot } = await supabase
+      .from("lots")
+      .select("hub_id")
+      .eq("id", commitment.lot_id)
+      .single();
+
+    if (lot?.hub_id) {
+      const { data: hub } = await supabase
+        .from("hubs")
+        .select("owner_id")
+        .eq("id", lot.hub_id)
+        .single();
+      if (hub?.owner_id === user.id) allowed = true;
+    }
   }
 
-  const { data: hub } = await supabase
-    .from("hubs")
-    .select("owner_id")
-    .eq("id", lot.hub_id)
-    .single();
-
-  if (!hub || hub.owner_id !== user.id) {
+  if (!allowed) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
