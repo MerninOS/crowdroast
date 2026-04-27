@@ -213,27 +213,6 @@ const EXPIRED_LOT = {
 
 // ---- seed steps -------------------------------------------------------
 
-async function startSeedRun(supabase: SupabaseClient): Promise<string> {
-  const { data, error } = await supabase
-    .from("_seed_runs")
-    .insert({ status: "running" })
-    .select("id")
-    .single();
-  if (error) throw error;
-  return data.id;
-}
-
-async function finishSeedRun(
-  supabase: SupabaseClient,
-  id: string,
-  status: "completed" | "failed",
-): Promise<void> {
-  await supabase
-    .from("_seed_runs")
-    .update({ status, completed_at: new Date().toISOString() })
-    .eq("id", id);
-}
-
 async function createUser(
   supabase: SupabaseClient,
   spec: UserSpec,
@@ -445,9 +424,7 @@ async function main() {
     await refresh(supabase);
   }
 
-  const seedRunId = await startSeedRun(supabase);
-  console.log(`Seed run started: ${seedRunId}`);
-
+  console.log("Seed starting...\n");
   try {
     const hubOwnerId = await createUser(supabase, HUB_OWNER);
     console.log(`✓ Hub owner created (${HUB_OWNER.email})`);
@@ -494,10 +471,9 @@ async function main() {
     const expiredLotId = await createExpiredOnlyLot(supabase, sellerId, hubId);
     console.log(`✓ Expired-only lot created (for lot-expiry cron): ${expiredLotId}`);
 
-    await finishSeedRun(supabase, seedRunId, "completed");
     console.log("\nSeed completed.");
   } catch (err) {
-    await finishSeedRun(supabase, seedRunId, "failed");
+    console.error("\nSeed failed mid-run. Re-run with --refresh to clean up partial state.");
     throw err;
   }
 }
@@ -567,25 +543,14 @@ async function deleteSeedAuthUsers(supabase: SupabaseClient): Promise<void> {
   console.log(`  ✓ Deleted ${seedUsers.length} seed auth user(s) (cascades to profiles + downstream rows)`);
 }
 
-async function clearSeedRunsHistory(supabase: SupabaseClient): Promise<void> {
-  // delete all rows; .neq() with an impossible id is the supabase-js idiom
-  // for "delete all" since plain .delete() requires a filter.
-  const { error } = await supabase
-    .from("_seed_runs")
-    .delete()
-    .neq("id", "00000000-0000-0000-0000-000000000000");
-  if (error) throw error;
-  console.log("  ✓ Cleared _seed_runs history");
-}
-
 async function refresh(supabase: SupabaseClient): Promise<void> {
   console.log("Refresh: cleaning up previous seed state...");
-  // Order matters loosely: kill Stripe accounts first (they're external),
-  // then auth users (which cascade-delete profiles → lots → campaigns →
-  // commitments → pricing_tiers → hubs).
+  // Order matters: kill Stripe accounts first (they're external state we
+  // need to track via local references). Then delete auth users — that
+  // cascade-deletes profiles → lots → campaigns → commitments →
+  // pricing_tiers → hubs in one shot.
   await deleteSeedConnectAccounts();
   await deleteSeedAuthUsers(supabase);
-  await clearSeedRunsHistory(supabase);
   console.log("Refresh complete. Re-seeding...\n");
 }
 

@@ -338,9 +338,9 @@ Your `NEXT_PUBLIC_SUPABASE_URL` isn't local. Same fix as the boot validator: set
 
 Your `STRIPE_SECRET_KEY` is `sk_live_…` instead of `sk_test_…`. Swap to a sandbox key (Stripe Dashboard → Test mode → Developers → API keys).
 
-### Seed fails part-way and `_seed_runs` shows `status='failed'`
+### Seed fails part-way
 
-Run `npm run db:seed:refresh` — it cleans up any tagged Stripe Connect accounts and partial DB state, then re-seeds from scratch.
+Run `npm run db:seed:refresh` — it cleans up any tagged Stripe Connect accounts and cascade-deletes the partial DB state via the seed auth users, then re-seeds from scratch.
 
 ### `cron:*` wrapper exits with `401 Unauthorized`
 
