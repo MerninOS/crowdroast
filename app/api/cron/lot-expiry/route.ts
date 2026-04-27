@@ -56,7 +56,7 @@ export async function GET(request: Request) {
     }
 
     // Mark lot as expired
-    await admin
+    const { error: updateErr } = await admin
       .from("lots")
       .update({
         status: "expired",
@@ -64,6 +64,10 @@ export async function GET(request: Request) {
         settlement_processed_at: now,
       })
       .eq("id", lot.id);
+    if (updateErr) {
+      console.error(`lot-expiry: failed to update lot ${lot.id}`, updateErr);
+      continue;
+    }
 
     // Fetch seller profile and send notification
     const { data: seller } = await admin
