@@ -9,9 +9,12 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "dev:up": "tsx scripts/dev-up.ts",
     "db:bootstrap-prod-ledger": "tsx scripts/db-bootstrap-prod-ledger.ts",
+    "db:migrate:prod": "tsx scripts/migrate-prod.ts",
     "db:seed": "tsx scripts/seed-test-env.ts",
     "db:seed:refresh": "tsx scripts/seed-test-env.ts --refresh",
+    "migrations:check": "tsx scripts/check-migrations-applied.ts",
     "cron:settle-deadlines": "tsx scripts/cron-settle-deadlines.ts",
     "cron:lot-expiry": "tsx scripts/cron-lot-expiry.ts"
   },
