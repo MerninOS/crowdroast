@@ -84,6 +84,23 @@ export default async function SellerLotsPage() {
   const awaitingRelistLots = allLots.filter((l) => l.status === "awaiting_relist");
   const myLots = allLots.filter((l) => l.status !== "awaiting_relist");
 
+  // Look up which of the seller's lots have an active campaign so we can hide
+  // the active/draft toggle and mirror the API's 409 behavior in the UI.
+  const togglableLotIds = myLots
+    .filter((l) => l.status === "active" || l.status === "draft")
+    .map((l) => l.id);
+  const activeCampaignLotIds = new Set<string>();
+  if (togglableLotIds.length > 0) {
+    const { data: activeCampaigns } = await supabase
+      .from("campaigns")
+      .select("lot_id")
+      .in("lot_id", togglableLotIds)
+      .eq("status", "active");
+    for (const row of (activeCampaigns as { lot_id: string }[]) || []) {
+      activeCampaignLotIds.add(row.lot_id);
+    }
+  }
+
   // Pull all campaigns for the awaiting_relist lots in one round-trip.
   // For each lot we surface the most-recent terminal campaign (if any).
   let reviewCards: ReviewCard[] = [];
@@ -244,7 +261,7 @@ export default async function SellerLotsPage() {
                         <SellerLotStatusToggle
                           lotId={lot.id}
                           currentStatus={lot.status}
-                          hasContributors={Number(lot.committed_quantity_kg || 0) > 0}
+                          hasActiveCampaign={activeCampaignLotIds.has(lot.id)}
                         />
                       )}
                       <Button asChild size="sm" variant="outline" className="hidden sm:flex bg-transparent">

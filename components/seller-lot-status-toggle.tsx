@@ -8,16 +8,20 @@ import { Button } from "@merninos/ui";
 export function SellerLotStatusToggle({
   lotId,
   currentStatus,
-  hasContributors,
+  hasActiveCampaign,
 }: {
   lotId: string;
   currentStatus: "active" | "draft";
-  hasContributors: boolean;
+  /** A live campaign blocks any active↔draft toggle. Defaults to false. */
+  hasActiveCampaign?: boolean;
 }) {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
 
-  if (hasContributors) {
+  // The toggle is for active↔draft only. awaiting_relist transitions live on
+  // SellerAwaitingRelistCard. While a campaign is active, the API also returns
+  // 409 — hide the toggle to keep the UI consistent with the server.
+  if (hasActiveCampaign) {
     return null;
   }
 
