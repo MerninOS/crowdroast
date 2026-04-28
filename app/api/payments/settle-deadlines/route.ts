@@ -208,6 +208,7 @@ async function sendLotFailedNotifications(admin: AdminClient, lotId: string, hub
         sendLotFailedEmail({
           recipient: { email: seller.email, contact_name: seller.contact_name },
           lot: { id: lot.id, title: lot.title },
+          isSeller: true,
         }).catch(console.error)
       );
     }

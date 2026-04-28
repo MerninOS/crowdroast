@@ -370,6 +370,31 @@ describe("sendLotFailedEmail", () => {
     expect(result.success).toBe(false);
     expect(mockSendEmail).not.toHaveBeenCalled();
   });
+
+  it("passes relistReviewUrl to the template only when isSeller is true", async () => {
+    const { renderLotClosedFailedHtml } = await import(
+      "@/lib/email/templates/LotClosedFailed"
+    );
+
+    await sendLotFailedEmail({
+      recipient: { email: "seller@farm.com", contact_name: "Maria" },
+      lot: { id: "lot-1", title: "X" },
+      isSeller: true,
+    });
+    expect(renderLotClosedFailedHtml).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        relistReviewUrl: expect.stringContaining("/dashboard/seller/lots#needs-review"),
+      })
+    );
+
+    await sendLotFailedEmail({
+      recipient: { email: "buyer@example.com", contact_name: "Alice" },
+      lot: { id: "lot-1", title: "X" },
+    });
+    expect(renderLotClosedFailedHtml).toHaveBeenLastCalledWith(
+      expect.objectContaining({ relistReviewUrl: undefined })
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
