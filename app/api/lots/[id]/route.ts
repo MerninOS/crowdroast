@@ -74,16 +74,19 @@ export async function PATCH(
     return NextResponse.json({ error: "Lot not found or not yours" }, { status: 404 });
   }
 
-  // Check for existing commitments
-  const { count } = await supabase
-    .from("commitments")
-    .select("id", { count: "exact", head: true })
+  // Block edits only while an active campaign exists. Historical commitments
+  // from closed campaigns no longer lock the lot — sellers need to adjust
+  // their lot during the awaiting_relist review window.
+  const { data: activeCampaign } = await supabase
+    .from("campaigns")
+    .select("id")
     .eq("lot_id", id)
-    .not("stripe_payment_intent_id", "is", null);
+    .eq("status", "active")
+    .maybeSingle();
 
-  if ((count || 0) > 0) {
+  if (activeCampaign) {
     return NextResponse.json(
-      { error: "Cannot edit a lot with existing commitments" },
+      { error: "Cannot edit a lot with an active campaign" },
       { status: 409 }
     );
   }
