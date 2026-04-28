@@ -62,15 +62,14 @@ beforeEach(() => {
   mockSupabaseAuth.getUser.mockResolvedValue({ data: { user: { id: "seller-1" } } });
 });
 
-describe("PATCH /api/lots/[id] — campaign-status guard", () => {
-  it("allows status PATCH when no active campaign exists, even with historical commitments", async () => {
-    // Sequence:
-    //  1. ownership check
-    //  2. active-campaign lookup → none
-    //  3. update lots (status-only branch)
+describe("PATCH /api/lots/[id] — guards", () => {
+  it("allows status PATCH from awaiting_relist with historical commitments", async () => {
     mockSupabaseFrom
       .mockReturnValueOnce(
-        makeChain({ data: { id: "lot-1", seller_id: "seller-1" }, error: null })
+        makeChain({
+          data: { id: "lot-1", seller_id: "seller-1", status: "awaiting_relist" },
+          error: null,
+        })
       )
       .mockReturnValueOnce(makeChain({ data: null, error: null })) // no active campaign
       .mockReturnValueOnce(
@@ -87,7 +86,10 @@ describe("PATCH /api/lots/[id] — campaign-status guard", () => {
   it("rejects status PATCH with 409 when an active campaign exists", async () => {
     mockSupabaseFrom
       .mockReturnValueOnce(
-        makeChain({ data: { id: "lot-1", seller_id: "seller-1" }, error: null })
+        makeChain({
+          data: { id: "lot-1", seller_id: "seller-1", status: "active" },
+          error: null,
+        })
       )
       .mockReturnValueOnce(
         makeChain({
@@ -105,7 +107,10 @@ describe("PATCH /api/lots/[id] — campaign-status guard", () => {
   it("rejects an attempt to PATCH status='awaiting_relist' (system-set only)", async () => {
     mockSupabaseFrom
       .mockReturnValueOnce(
-        makeChain({ data: { id: "lot-1", seller_id: "seller-1" }, error: null })
+        makeChain({
+          data: { id: "lot-1", seller_id: "seller-1", status: "awaiting_relist" },
+          error: null,
+        })
       )
       .mockReturnValueOnce(makeChain({ data: null, error: null })); // no active campaign
 
@@ -113,5 +118,25 @@ describe("PATCH /api/lots/[id] — campaign-status guard", () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toMatch(/active or draft/i);
+  });
+
+  it.each([
+    ["fully_committed"],
+    ["shipped"],
+    ["delivered"],
+    ["closed"],
+    ["expired"],
+  ])("rejects edits when lot is in %s state, even without an active campaign", async (status) => {
+    mockSupabaseFrom.mockReturnValueOnce(
+      makeChain({
+        data: { id: "lot-1", seller_id: "seller-1", status },
+        error: null,
+      })
+    );
+
+    const res = await PATCH(makeRequest({ status: "draft" }), { params });
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toMatch(new RegExp(status));
   });
 });

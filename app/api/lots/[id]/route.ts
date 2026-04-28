@@ -63,10 +63,10 @@ export async function PATCH(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Verify ownership
+  // Verify ownership and read status — only certain statuses are editable.
   const { data: lot } = await supabase
     .from("lots")
-    .select("id, seller_id")
+    .select("id, seller_id, status")
     .eq("id", id)
     .eq("seller_id", user.id)
     .single();
@@ -75,7 +75,18 @@ export async function PATCH(
     return NextResponse.json({ error: "Lot not found or not yours" }, { status: 404 });
   }
 
-  // Block edits only while an active campaign exists. Historical commitments
+  // Status allowlist: a lot is only editable in pre-sale states. Once it
+  // ships, is delivered, or hits a closed/expired terminal state, sellers
+  // can't retroactively change the terms buyers committed against.
+  const editableStatuses = ["draft", "active", "awaiting_relist"];
+  if (!editableStatuses.includes(lot.status)) {
+    return NextResponse.json(
+      { error: `Cannot edit a lot in ${lot.status} state` },
+      { status: 409 }
+    );
+  }
+
+  // Block edits while an active campaign is running. Historical commitments
   // from closed campaigns no longer lock the lot — sellers need to adjust
   // their lot during the awaiting_relist review window.
   const { data: activeCampaign } = await supabase
