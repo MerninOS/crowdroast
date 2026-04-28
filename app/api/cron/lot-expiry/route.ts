@@ -14,7 +14,9 @@ function getBearerToken(header: string | null) {
  * Lot expiry cron — runs daily at 01:00 UTC (after settlement at 00:00 UTC).
  *
  * Finds lots whose expiry_date has passed and that have no active or settled
- * campaign. Marks them as expired and notifies the seller.
+ * campaign. Recycles them (clears hub_lots, sets status='awaiting_relist',
+ * resets committed_quantity_kg, nulls featured_lot_id) and notifies the
+ * seller so they can adjust the lot and decide whether to relist.
  */
 export async function GET(request: Request) {
   const cronSecret = process.env.CRON_SECRET;

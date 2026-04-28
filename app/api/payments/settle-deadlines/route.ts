@@ -376,7 +376,7 @@ async function settleDeadlines(request: Request) {
     const { data: lot, error: lotFetchError } = await admin
       .from("lots")
       .select(
-        "id, seller_id, status, currency, price_per_kg, committed_quantity_kg, min_commitment_kg, commitment_deadline, settlement_status, expiry_date"
+        "id, seller_id, status, currency, price_per_kg, committed_quantity_kg, min_commitment_kg, commitment_deadline"
       )
       .eq("id", campaign.lot_id)
       .single();
@@ -527,11 +527,17 @@ async function settleDeadlines(request: Request) {
       .single();
 
     if (!sellerProfile?.stripe_connect_account_id) {
+      // Seller never finished Stripe Connect onboarding — we can't transfer
+      // funds. Deliberately do NOT recycle here: the lot is in a stuck state
+      // that needs operator + seller intervention before any retry. Mark the
+      // campaign failed and tag the lot with settlement_status='failed' so
+      // the admin payouts dashboard can surface it.
       if (!debug) {
         await admin
           .from("campaigns")
           .update({ status: "failed" })
-          .eq("id", campaign.id);
+          .eq("id", campaign.id)
+          .eq("status", "active");
 
         await admin
           .from("lots")
@@ -561,11 +567,16 @@ async function settleDeadlines(request: Request) {
     }
 
     if (!sellerTransfersEnabled) {
+      // Same as the missing-account branch above: don't recycle a lot whose
+      // settlement is structurally blocked by the seller's Stripe Connect
+      // state. The lot stays 'closed' with settlement_status='failed' for
+      // operator triage; no retry will succeed until onboarding is fixed.
       if (!debug) {
         await admin
           .from("campaigns")
           .update({ status: "failed" })
-          .eq("id", campaign.id);
+          .eq("id", campaign.id)
+          .eq("status", "active");
 
         await admin
           .from("lots")

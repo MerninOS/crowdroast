@@ -18,10 +18,16 @@ export async function recycleLot(
   const { error } = await admin.rpc("recycle_lot", { p_lot_id: lotId });
 
   if (error) {
-    return {
-      ok: false,
-      error: (error as { message?: string }).message || "recycle_lot rpc failed",
+    const pgErr = error as {
+      message?: string;
+      code?: string;
+      details?: string;
+      hint?: string;
     };
+    const detail = [pgErr.code, pgErr.message, pgErr.details, pgErr.hint]
+      .filter(Boolean)
+      .join(" — ");
+    return { ok: false, error: detail || "recycle_lot rpc failed" };
   }
 
   return { ok: true };

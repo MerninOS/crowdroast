@@ -26,18 +26,21 @@ describe("recycleLot", () => {
     expect(result).toEqual({ ok: true });
   });
 
-  it("returns a tagged failure when the rpc errors", async () => {
+  it("returns a tagged failure with structured Postgres error metadata", async () => {
     const { admin } = buildAdminClient({
       data: null,
-      error: { message: "permission denied" },
+      error: { message: "permission denied", code: "42501", hint: "check grants" },
     });
 
     const result = await recycleLot(admin, "lot-123");
 
-    expect(result).toEqual({ ok: false, error: "permission denied" });
+    expect(result).toEqual({
+      ok: false,
+      error: "42501 — permission denied — check grants",
+    });
   });
 
-  it("falls back to a generic error message when the rpc error has no message", async () => {
+  it("falls back to a generic error message when the rpc error has no fields", async () => {
     const { admin } = buildAdminClient({ data: null, error: {} });
 
     const result = await recycleLot(admin, "lot-123");
