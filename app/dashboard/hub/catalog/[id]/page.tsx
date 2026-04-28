@@ -65,7 +65,7 @@ export default async function HubLotDetailPage({
     ? (
         await supabase
           .from("campaigns")
-          .select("id")
+          .select("id, deadline")
           .eq("lot_id", id)
           .eq("hub_id", hubId)
           .eq("status", "active")
@@ -113,6 +113,7 @@ export default async function HubLotDetailPage({
       }}
       pricingTiers={(tiers as PricingTier[]) || []}
       commitments={(commitments as unknown as Commitment[]) || []}
+      campaignDeadline={currentCampaign?.deadline ?? null}
       backHref="/dashboard/hub/catalog"
       backLabel="Back to Catalog"
     />
