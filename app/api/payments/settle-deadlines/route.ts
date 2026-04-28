@@ -210,8 +210,14 @@ async function sendLotFailedNotifications(admin: AdminClient, lotId: string, hub
     }
 
     const emailPromises: Promise<unknown>[] = [];
+    // Dedupe by lower-cased email so a seller who is also a hub member or
+    // a buyer (admin testing accounts, shared inboxes) doesn't get the
+    // failure email twice. Seller send wins because it carries the
+    // awaiting_relist CTA the seller actually needs.
+    const sentTo = new Set<string>();
 
     if (seller?.email) {
+      sentTo.add(seller.email.toLowerCase());
       emailPromises.push(
         sendLotFailedEmail({
           recipient: { email: seller.email, contact_name: seller.contact_name },
@@ -223,6 +229,9 @@ async function sendLotFailedNotifications(admin: AdminClient, lotId: string, hub
 
     for (const buyer of buyers || []) {
       if (!buyer.email) continue;
+      const key = buyer.email.toLowerCase();
+      if (sentTo.has(key)) continue;
+      sentTo.add(key);
       emailPromises.push(
         sendLotFailedEmail({
           recipient: { email: buyer.email, contact_name: buyer.contact_name },
@@ -233,6 +242,9 @@ async function sendLotFailedNotifications(admin: AdminClient, lotId: string, hub
 
     for (const owner of hubOwners) {
       if (!owner.email) continue;
+      const key = owner.email.toLowerCase();
+      if (sentTo.has(key)) continue;
+      sentTo.add(key);
       emailPromises.push(
         sendLotFailedEmail({
           recipient: { email: owner.email, contact_name: owner.contact_name },

@@ -52,7 +52,12 @@ function pickMostRecentTerminalCampaign(
     ["settled", "failed", "cancelled"].includes(r.status)
   );
   if (terminal.length === 0) return null;
-  // Sort by settled_at (when present) then created_at, both descending.
+  // Sort by settled_at (only populated for the 'settled' outcome) then
+  // created_at descending. The campaigns table has no terminated_at /
+  // updated_at column, so for failed/cancelled campaigns we fall back to
+  // created_at — accurate enough since only one terminal campaign of a
+  // given outcome can exist on a lot at a time (the recycle ends each
+  // cycle), so created_at preserves the actual ordering across cycles.
   return terminal.sort((a, b) => {
     const aTime = new Date(a.settled_at || a.created_at).getTime();
     const bTime = new Date(b.settled_at || b.created_at).getTime();
