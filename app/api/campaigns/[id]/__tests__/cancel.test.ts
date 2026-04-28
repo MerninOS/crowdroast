@@ -74,16 +74,15 @@ beforeEach(() => {
 });
 
 describe("PATCH /api/campaigns/[id]", () => {
-  it("recycles the lot after a hub owner cancels the campaign", async () => {
+  it("calls finalize_campaign with outcome=cancelled after a hub owner cancels", async () => {
     mockSupabaseAuth.getUser.mockResolvedValue({
       data: { user: { id: "owner-1" } },
     });
 
-    // Sequence:
+    // Sequence (route now collapses the campaign update + commitments cancel
+    // + lot recycle into a single finalize_campaign RPC):
     //  1. fetch campaign — found, active, lot-1, hub-1
     //  2. fetch hub for ownership — owner matches
-    //  3. update campaign status='cancelled'
-    //  4. update commitments status='cancelled' (the bulk cancel)
     mockSupabaseFrom
       .mockReturnValueOnce(
         makeChain({
@@ -91,16 +90,16 @@ describe("PATCH /api/campaigns/[id]", () => {
           error: null,
         })
       )
-      .mockReturnValueOnce(makeChain({ data: { id: "hub-1" }, error: null }))
-      .mockReturnValueOnce(makeChain({ data: null, error: null }))
-      .mockReturnValueOnce(makeChain({ data: null, error: null }));
+      .mockReturnValueOnce(makeChain({ data: { id: "hub-1" }, error: null }));
 
     const res = await PATCH(makeRequest({ status: "cancelled" }), { params });
     expect(res.status).toBe(200);
 
-    // The lot got recycled via the admin RPC
     expect(adminRpcCalls).toEqual([
-      { fn: "recycle_lot", args: { p_lot_id: "lot-1" } },
+      {
+        fn: "finalize_campaign",
+        args: { p_campaign_id: "camp-1", p_outcome: "cancelled" },
+      },
     ]);
   });
 
