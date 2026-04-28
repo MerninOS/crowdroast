@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendLotExpiredEmail } from "@/lib/email";
+import { recycleLot } from "@/lib/lots/recycle-lot";
 import { NextResponse } from "next/server";
 
 function getBearerToken(header: string | null) {
@@ -55,17 +56,11 @@ export async function GET(request: Request) {
       continue;
     }
 
-    // Mark lot as expired
-    const { error: updateErr } = await admin
-      .from("lots")
-      .update({
-        status: "expired",
-        settlement_status: "minimum_not_met",
-        settlement_processed_at: now,
-      })
-      .eq("id", lot.id);
-    if (updateErr) {
-      console.error(`lot-expiry: failed to update lot ${lot.id}`, updateErr);
+    // Recycle the lot: clear hub_lots, set status='awaiting_relist',
+    // committed_quantity_kg=0, and null any featured-lot references.
+    const recycleResult = await recycleLot(admin, lot.id);
+    if (!recycleResult.ok) {
+      console.error(`lot-expiry: failed to recycle lot ${lot.id}`, recycleResult.error);
       continue;
     }
 
