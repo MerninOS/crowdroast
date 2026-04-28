@@ -48,8 +48,7 @@ export default function EditLotPage({
   const [sellerId, setSellerId] = useState("");
   const [headerImageUrl, setHeaderImageUrl] = useState("");
   const [supportingImages, setSupportingImages] = useState<string[]>([]);
-  const [hasCommitments, setHasCommitments] = useState(false);
-  const [commitmentCount, setCommitmentCount] = useState(0);
+  const [hasActiveCampaign, setHasActiveCampaign] = useState(false);
   const [form, setForm] = useState({
     title: "",
     origin_country: "",
@@ -87,8 +86,7 @@ export default function EditLotPage({
       }
       const data = await res.json();
       const lot = data.lot;
-      setHasCommitments(data.has_commitments);
-      setCommitmentCount(data.commitment_count);
+      setHasActiveCampaign(Boolean(data.has_active_campaign));
       const existingImages = (lot.images || []) as string[];
       setHeaderImageUrl(existingImages[0] || "");
       setSupportingImages(existingImages.slice(1));
@@ -250,19 +248,15 @@ export default function EditLotPage({
         Back to Lots
       </Link>
 
-      {hasCommitments && (
+      {hasActiveCampaign && (
         <Card className="mb-6 border-amber-500/50 bg-amber-50 dark:bg-amber-950/20">
           <CardContent className="flex items-start gap-3 pt-6">
             <Lock className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
             <div>
               <p className="font-medium text-foreground">Editing Locked</p>
               <p className="text-sm text-muted-foreground mt-1">
-                This lot has{" "}
-                <span className="font-semibold">
-                  {commitmentCount} commitment{commitmentCount !== 1 ? "s" : ""}
-                </span>{" "}
-                from buyers. You cannot modify a lot once buyers have committed to
-                it. This protects the terms buyers agreed to.
+                A hub owner is currently running a campaign on this lot. You can
+                edit it again once the campaign closes.
               </p>
             </div>
           </CardContent>
@@ -273,7 +267,7 @@ export default function EditLotPage({
         <CardHeader>
           <div className="flex items-center gap-3">
             <CardTitle>Edit Lot</CardTitle>
-            {hasCommitments && (
+            {hasActiveCampaign && (
               <Badge variant="secondary" className="gap-1">
                 <Lock className="h-3 w-3" />
                 Locked
@@ -281,15 +275,15 @@ export default function EditLotPage({
             )}
           </div>
           <CardDescription>
-            {hasCommitments
-              ? "This lot cannot be edited because buyers have already committed."
+            {hasActiveCampaign
+              ? "This lot cannot be edited while a campaign is active."
               : "Update your lot details. Changes will remove this lot from hub catalogs so hub owners can review before re-adding."}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
-            <fieldset disabled={hasCommitments} className="space-y-6">
-              {!hasCommitments && (
+            <fieldset disabled={hasActiveCampaign} className="space-y-6">
+              {!hasActiveCampaign && (
                 <div className="rounded-lg border border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/10 p-3 flex items-start gap-2">
                   <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
                   <p className="text-sm text-muted-foreground">
@@ -506,7 +500,7 @@ export default function EditLotPage({
                     variant="outline"
                     size="sm"
                     onClick={addTier}
-                    disabled={hasCommitments}
+                    disabled={hasActiveCampaign}
                   >
                     <Plus className="mr-1 h-4 w-4" />
                     Add Tier
@@ -612,7 +606,7 @@ export default function EditLotPage({
                     setHeaderImageUrl(nextHeader);
                     setSupportingImages(nextSupporting);
                   }}
-                  disabled={hasCommitments || isLoading}
+                  disabled={hasActiveCampaign || isLoading}
                 />
               </div>
 
@@ -642,7 +636,7 @@ export default function EditLotPage({
               </div>
             </fieldset>
 
-            {!hasCommitments && (
+            {!hasActiveCampaign && (
               <div className="flex gap-3">
                 <Button type="submit" disabled={isLoading}>
                   {isLoading ? "Saving..." : "Save Changes"}

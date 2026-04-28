@@ -33,18 +33,19 @@ export async function GET(
     .eq("lot_id", id)
     .order("min_quantity_kg", { ascending: true });
 
-  // Check if any commitments exist
-  const { count } = await supabase
-    .from("commitments")
-    .select("id", { count: "exact", head: true })
+  // The edit-lock UI mirrors the PATCH guard: a lot is editable unless a
+  // campaign is currently active. Historical commitments don't lock it.
+  const { data: activeCampaign } = await supabase
+    .from("campaigns")
+    .select("id")
     .eq("lot_id", id)
-    .not("stripe_payment_intent_id", "is", null);
+    .eq("status", "active")
+    .maybeSingle();
 
   return NextResponse.json({
     lot,
     pricing_tiers: tiers || [],
-    has_commitments: (count || 0) > 0,
-    commitment_count: count || 0,
+    has_active_campaign: Boolean(activeCampaign),
   });
 }
 
