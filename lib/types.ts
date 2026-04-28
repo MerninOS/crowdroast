@@ -3,6 +3,7 @@ export type UserRole = "buyer" | "seller" | "hub_owner" | "admin";
 export type LotStatus =
   | "draft"
   | "active"
+  | "awaiting_relist"
   | "fully_committed"
   | "shipped"
   | "delivered"
