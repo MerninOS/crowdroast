@@ -130,19 +130,31 @@ export default async function SellerLotsPage() {
 
     let summaryByCampaignId = new Map<string, { committedKg: number; buyerCount: number }>();
     if (terminalCampaignIds.length > 0) {
+      // Exclude cancelled commitments so failed and cancelled campaigns
+      // don't over-count refunded buyers, and dedupe per-campaign by
+      // buyer_id so the buyerCount reflects distinct buyers, not rows.
       const { data: commitmentRows } = await supabase
         .from("commitments")
         .select("campaign_id, buyer_id, quantity_kg")
-        .in("campaign_id", terminalCampaignIds);
+        .in("campaign_id", terminalCampaignIds)
+        .neq("status", "cancelled");
 
+      const buyerSets = new Map<string, Set<string>>();
+      const kgByCampaign = new Map<string, number>();
       for (const row of (commitmentRows as { campaign_id: string; buyer_id: string; quantity_kg: number }[]) || []) {
-        const existing = summaryByCampaignId.get(row.campaign_id) ?? {
-          committedKg: 0,
-          buyerCount: 0,
-        };
-        existing.committedKg += Number(row.quantity_kg) || 0;
-        existing.buyerCount += 1;
-        summaryByCampaignId.set(row.campaign_id, existing);
+        kgByCampaign.set(
+          row.campaign_id,
+          (kgByCampaign.get(row.campaign_id) ?? 0) + (Number(row.quantity_kg) || 0)
+        );
+        const buyers = buyerSets.get(row.campaign_id) ?? new Set<string>();
+        if (row.buyer_id) buyers.add(row.buyer_id);
+        buyerSets.set(row.campaign_id, buyers);
+      }
+      for (const id of terminalCampaignIds) {
+        summaryByCampaignId.set(id, {
+          committedKg: kgByCampaign.get(id) ?? 0,
+          buyerCount: buyerSets.get(id)?.size ?? 0,
+        });
       }
     }
 
