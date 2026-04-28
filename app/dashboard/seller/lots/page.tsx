@@ -89,33 +89,38 @@ export default async function SellerLotsPage() {
   const awaitingRelistLots = allLots.filter((l) => l.status === "awaiting_relist");
   const myLots = allLots.filter((l) => l.status !== "awaiting_relist");
 
-  // Look up which of the seller's lots have an active campaign so we can hide
-  // the active/draft toggle and mirror the API's 409 behavior in the UI.
   const togglableLotIds = myLots
     .filter((l) => l.status === "active" || l.status === "draft")
     .map((l) => l.id);
+  const reviewLotIds = awaitingRelistLots.map((l) => l.id);
+
+  // Two independent queries (active campaigns for togglable lots vs. all
+  // campaigns for awaiting_relist lots) — fetch in parallel.
+  const [activeCampaignsResult, campaignRowsResult] = await Promise.all([
+    togglableLotIds.length > 0
+      ? supabase
+          .from("campaigns")
+          .select("lot_id")
+          .in("lot_id", togglableLotIds)
+          .eq("status", "active")
+      : Promise.resolve({ data: [] as { lot_id: string }[], error: null }),
+    reviewLotIds.length > 0
+      ? supabase
+          .from("campaigns")
+          .select("id, lot_id, hub_id, status, deadline, settled_at, created_at, hub:hubs(name)")
+          .in("lot_id", reviewLotIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
   const activeCampaignLotIds = new Set<string>();
-  if (togglableLotIds.length > 0) {
-    const { data: activeCampaigns } = await supabase
-      .from("campaigns")
-      .select("lot_id")
-      .in("lot_id", togglableLotIds)
-      .eq("status", "active");
-    for (const row of (activeCampaigns as { lot_id: string }[]) || []) {
-      activeCampaignLotIds.add(row.lot_id);
-    }
+  for (const row of (activeCampaignsResult.data as { lot_id: string }[]) || []) {
+    activeCampaignLotIds.add(row.lot_id);
   }
 
-  // Pull all campaigns for the awaiting_relist lots in one round-trip.
-  // For each lot we surface the most-recent terminal campaign (if any).
+  // Build review cards from the awaiting_relist lots + their campaign history.
   let reviewCards: ReviewCard[] = [];
   if (awaitingRelistLots.length > 0) {
-    const lotIds = awaitingRelistLots.map((l) => l.id);
-
-    const { data: campaignRows } = await supabase
-      .from("campaigns")
-      .select("id, lot_id, hub_id, status, deadline, settled_at, created_at, hub:hubs(name)")
-      .in("lot_id", lotIds);
+    const campaignRows = campaignRowsResult.data;
 
     // Supabase returns related records as an array even on a 1:1 join.
     type CampaignWithHubRaw = CampaignRow & {
@@ -128,10 +133,15 @@ export default async function SellerLotsPage() {
       byLot.set(row.lot_id, list);
     }
 
-    // Aggregate commitment counts and committed kg for each terminal campaign in one pass.
-    const terminalCampaignIds = Array.from(byLot.values())
-      .map((rows) => pickMostRecentTerminalCampaign(rows)?.id)
-      .filter((id): id is string => Boolean(id));
+    // Pick the most recent terminal campaign per lot once and cache it so
+    // the sort doesn't run twice (once for the id list, once inside the
+    // reviewCards.map below).
+    const terminalByLotId = new Map<string, CampaignWithHubRaw>();
+    for (const [lotId, rows] of byLot) {
+      const terminal = pickMostRecentTerminalCampaign(rows);
+      if (terminal) terminalByLotId.set(lotId, terminal as CampaignWithHubRaw);
+    }
+    const terminalCampaignIds = Array.from(terminalByLotId.values()).map((c) => c.id);
 
     let summaryByCampaignId = new Map<string, { committedKg: number; buyerCount: number }>();
     if (terminalCampaignIds.length > 0) {
@@ -164,10 +174,9 @@ export default async function SellerLotsPage() {
     }
 
     reviewCards = awaitingRelistLots.map((lot) => {
-      const rows = byLot.get(lot.id) ?? [];
-      const terminal = pickMostRecentTerminalCampaign(rows);
+      const terminal = terminalByLotId.get(lot.id) ?? null;
       const summary = terminal ? summaryByCampaignId.get(terminal.id) : undefined;
-      const hubField = terminal ? (terminal as CampaignWithHubRaw).hub : null;
+      const hubField = terminal ? terminal.hub : null;
       const hubName = Array.isArray(hubField)
         ? hubField[0]?.name ?? null
         : hubField?.name ?? null;
