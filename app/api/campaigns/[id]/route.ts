@@ -1,4 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { recycleLot } from "@/lib/lots/recycle-lot";
 import { NextResponse } from "next/server";
 
 export async function GET(
@@ -54,7 +56,7 @@ export async function PATCH(
   // Fetch campaign and verify it exists and is active
   const { data: campaign } = await supabase
     .from("campaigns")
-    .select("id, hub_id, status")
+    .select("id, hub_id, lot_id, status")
     .eq("id", id)
     .single();
 
@@ -109,6 +111,21 @@ export async function PATCH(
     })
     .eq("campaign_id", id)
     .neq("status", "cancelled");
+
+  // Recycle the lot back to the seller for review. Uses the admin client
+  // because recycle_lot is granted only to service_role.
+  const admin = createAdminClient();
+  const recycleResult = await recycleLot(admin, campaign.lot_id);
+  if (!recycleResult.ok) {
+    console.error(
+      `campaigns[id]: failed to recycle lot ${campaign.lot_id} after cancel`,
+      recycleResult.error
+    );
+    return NextResponse.json(
+      { error: "Campaign was cancelled but lot recycle failed; please contact support." },
+      { status: 500 }
+    );
+  }
 
   return NextResponse.json({ ok: true });
 }
