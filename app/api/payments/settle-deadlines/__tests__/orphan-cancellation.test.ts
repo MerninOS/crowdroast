@@ -67,12 +67,19 @@ function enqueue(table: string, response: { data: unknown; error: unknown }) {
   });
 }
 
+type RpcCall = { fn: string; args: unknown };
+const rpcCalls: RpcCall[] = [];
+
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: vi.fn(() => ({
     from: vi.fn((table: string) => {
       const next = fromQueue.shift();
       if (!next) throw new Error(`Unexpected from(${table}) — queue empty`);
       return next();
+    }),
+    rpc: vi.fn((fn: string, args: unknown) => {
+      rpcCalls.push({ fn, args });
+      return Promise.resolve({ data: null, error: null });
     }),
   })),
 }));
@@ -116,6 +123,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   updateCalls.length = 0;
   fromQueue.length = 0;
+  rpcCalls.length = 0;
   process.env.CRON_SECRET = CRON_SECRET;
   process.env.SUPABASE_SERVICE_ROLE_KEY = "test";
   process.env.NEXT_PUBLIC_SUPABASE_URL = "http://localhost:54321";
@@ -181,8 +189,7 @@ describe("settle-deadlines — orphan commitment handling", () => {
     enqueue("commitments", { data: [], error: null });
     // 7) campaign update — should be settled, NOT failed
     enqueue("campaigns", { data: null, error: null });
-    // 8) lot update — should be settled, NOT failed
-    enqueue("lots", { data: null, error: null });
+    // 8) lot is now recycled via the recycle_lot RPC (no from('lots').update call)
     // 9) success notifications: lot fetch
     enqueue("lots", {
       data: { id: "lot-1", title: "Test Lot", seller_id: "seller-1", committed_quantity_kg: 100 },
@@ -226,12 +233,10 @@ describe("settle-deadlines — orphan commitment handling", () => {
     const campaignUpdate = updateCalls.find((c) => c.table === "campaigns");
     expect(campaignUpdate?.payload).toMatchObject({ status: "settled" });
 
-    // Lot was marked settled, not failed.
-    const lotUpdate = updateCalls.find((c) => c.table === "lots");
-    expect(lotUpdate?.payload).toMatchObject({
-      status: "closed",
-      settlement_status: "settled",
-    });
+    // Lot was recycled via the recycle_lot RPC (replaces the bespoke
+    // closed/settled update that used to live here).
+    const recycleCall = rpcCalls.find((c) => c.fn === "recycle_lot");
+    expect(recycleCall?.args).toEqual({ p_lot_id: "lot-1" });
   });
 
   it("with NO orphans, behavior is unchanged (campaign settles cleanly)", async () => {
@@ -272,7 +277,7 @@ describe("settle-deadlines — orphan commitment handling", () => {
     enqueue("pricing_tiers", { data: [], error: null });
     enqueue("commitments", { data: [], error: null });
     enqueue("campaigns", { data: null, error: null });
-    enqueue("lots", { data: null, error: null });
+    // bespoke lot update replaced by recycle_lot RPC (see route.ts)
     enqueue("lots", {
       data: { id: "lot-2", title: "T", seller_id: "seller-2", committed_quantity_kg: 75 },
       error: null,
@@ -289,5 +294,62 @@ describe("settle-deadlines — orphan commitment handling", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.results[0]).toMatchObject({ outcome: "settled", orphans_cancelled: 0 });
+  });
+
+  it("recycles the lot when minimum is not met, even if expiry hasn't passed", async () => {
+    // Minimum-not-met path with future expiry. Behavior change: previously
+    // the lot stayed 'active' so other hubs could re-claim. After recycling,
+    // it goes to awaiting_relist and the seller decides what to do next.
+    enqueue("platform_settings", {
+      data: { platform_connect_account_id: "acct_platform" },
+      error: null,
+    });
+    enqueue("profiles", { data: [], error: null });
+    enqueue("campaigns", {
+      data: [
+        {
+          id: "camp-3",
+          lot_id: "lot-3",
+          hub_id: "hub-3",
+          deadline: new Date(Date.now() - 60_000).toISOString(),
+          status: "active",
+        },
+      ],
+      error: null,
+    });
+    // 1) orphan query — none
+    enqueue("commitments", { data: [], error: null });
+    // 2) lot fetch — committed below minimum, expiry still in future
+    enqueue("lots", {
+      data: {
+        id: "lot-3",
+        seller_id: "seller-3",
+        status: "active",
+        currency: "usd",
+        price_per_kg: 10,
+        committed_quantity_kg: 10,
+        min_commitment_kg: 50,
+        commitment_deadline: new Date(Date.now() - 60_000).toISOString(),
+        settlement_status: "pending",
+        expiry_date: new Date(Date.now() + 86_400_000).toISOString(), // future
+      },
+      error: null,
+    });
+    // 3) lotCommitments query for refund/cancel
+    enqueue("commitments", { data: [], error: null });
+    // 4) campaign update to failed
+    enqueue("campaigns", { data: null, error: null });
+    // (lot is now recycled via RPC, no more from('lots').update calls)
+
+    const res = await POST(makeReq());
+    expect(res.status).toBe(200);
+
+    expect(rpcCalls.find((c) => c.fn === "recycle_lot")?.args).toEqual({
+      p_lot_id: "lot-3",
+    });
+
+    // No bespoke lot update should have been queued
+    const lotUpdate = updateCalls.find((c) => c.table === "lots");
+    expect(lotUpdate).toBeUndefined();
   });
 });

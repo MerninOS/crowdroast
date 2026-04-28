@@ -4,6 +4,7 @@ import {
   sendLotClosedEmailsBatch,
   sendLotFailedEmail,
 } from "@/lib/email";
+import { recycleLot } from "@/lib/lots/recycle-lot";
 import { createShipmentForLot } from "@/lib/shipments";
 import {
   createRefund,
@@ -489,29 +490,15 @@ async function settleDeadlines(request: Request) {
           .update({ status: "failed" })
           .eq("id", campaign.id);
 
-        // If the lot's expiry_date has also passed, expire the lot.
-        // Otherwise the lot stays active so it can be recycled for other hubs.
-        const lotExpired = lot.expiry_date && new Date(lot.expiry_date) <= new Date(nowIso);
-        if (lotExpired) {
-          await admin
-            .from("lots")
-            .update({
-              status: "closed",
-              committed_quantity_kg: 0,
-              settlement_status: refundFailedCount > 0 ? "failed" : "minimum_not_met",
-              settlement_processed_at: nowIso,
-            })
-            .eq("id", lot.id);
-        } else {
-          // Reset committed_quantity_kg so the lot recycles clean for the next campaign
-          await admin
-            .from("lots")
-            .update({
-              committed_quantity_kg: 0,
-              settlement_status: "pending",
-              settlement_processed_at: null,
-            })
-            .eq("id", lot.id);
+        // Recycle the lot back to the seller for review regardless of the
+        // lot's expiry_date — every failed campaign now ends in awaiting_relist
+        // so the seller decides whether to relist.
+        const recycleResult = await recycleLot(admin, lot.id);
+        if (!recycleResult.ok) {
+          console.error(
+            `settle-deadlines: failed to recycle lot ${lot.id} after failed campaign`,
+            recycleResult.error
+          );
         }
       }
 
@@ -965,14 +952,28 @@ async function settleDeadlines(request: Request) {
         })
         .eq("id", campaign.id);
 
-      await admin
-        .from("lots")
-        .update({
-          status: "closed",
-          settlement_status: failedCount > 0 ? "failed" : "settled",
-          settlement_processed_at: nowIso,
-        })
-        .eq("id", lot.id);
+      if (failedCount > 0) {
+        // Transfer failures leave the lot in a stuck-closed state for
+        // manual investigation; do NOT recycle while transfers are still
+        // incomplete — recycling would clear hub_lots mid-Stripe-flow.
+        await admin
+          .from("lots")
+          .update({
+            status: "closed",
+            settlement_status: "failed",
+            settlement_processed_at: nowIso,
+          })
+          .eq("id", lot.id);
+      } else {
+        // Clean settle: recycle the lot back to the seller for review.
+        const recycleResult = await recycleLot(admin, lot.id);
+        if (!recycleResult.ok) {
+          console.error(
+            `settle-deadlines: failed to recycle lot ${lot.id} after settled campaign`,
+            recycleResult.error
+          );
+        }
+      }
     }
 
     results.push({
