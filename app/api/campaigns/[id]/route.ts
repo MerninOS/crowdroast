@@ -1,4 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { finalizeCampaign } from "@/lib/lots/finalize-campaign";
 import { NextResponse } from "next/server";
 
 export async function GET(
@@ -54,7 +56,7 @@ export async function PATCH(
   // Fetch campaign and verify it exists and is active
   const { data: campaign } = await supabase
     .from("campaigns")
-    .select("id, hub_id, status")
+    .select("id, hub_id, lot_id, status")
     .eq("id", id)
     .single();
 
@@ -87,28 +89,22 @@ export async function PATCH(
     );
   }
 
-  // Update campaign status to cancelled
-  const { error: updateError } = await supabase
-    .from("campaigns")
-    .update({ status: "cancelled" })
-    .eq("id", id);
-
-  if (updateError) {
+  // Atomically: cancel commitments, mark campaign cancelled, recycle the lot.
+  // The Postgres function does all three in one transaction; on failure
+  // nothing is committed and the next request can retry. Uses the admin
+  // client because finalize_campaign is granted only to service_role.
+  const admin = createAdminClient();
+  const finalizeResult = await finalizeCampaign(admin, id, "cancelled");
+  if (!finalizeResult.ok) {
+    console.error(
+      `campaigns[id]: finalize_campaign failed for cancel of ${id}`,
+      finalizeResult.error
+    );
     return NextResponse.json(
-      { error: updateError.message },
+      { error: "Failed to cancel the campaign; please try again." },
       { status: 500 }
     );
   }
-
-  // Cancel all pending commitments for this campaign
-  await supabase
-    .from("commitments")
-    .update({
-      status: "cancelled",
-      payment_error: "Campaign was cancelled by hub owner",
-    })
-    .eq("campaign_id", id)
-    .neq("status", "cancelled");
 
   return NextResponse.json({ ok: true });
 }

@@ -4,7 +4,8 @@
  *
  * Calls the route with the Bearer auth path (same as Vercel cron),
  * then queries the local DB to assert the seeded "Expired Test Lot"
- * transitioned from status='active' → status='expired'.
+ * transitioned from status='active' → status='awaiting_relist' (the
+ * recycle path, replacing the legacy 'expired' transition).
  *
  * The seed creates a second lot with no campaign and a past
  * expiry_date specifically so this cron has work to do; the main
@@ -78,14 +79,14 @@ async function assertExpiredLotMarked(supabase: SupabaseClient): Promise<void> {
     process.exit(1);
   }
   const lot = lots[0];
-  if (lot.status !== "expired") {
+  if (lot.status !== "awaiting_relist") {
     console.error(
-      `\nFAIL: expected lot ${lot.id} to be status='expired' after lot-expiry, got status='${lot.status}'.`,
+      `\nFAIL: expected lot ${lot.id} to be status='awaiting_relist' after lot-expiry, got status='${lot.status}'.`,
     );
     process.exit(1);
   }
   console.log(
-    `\n✓ Lot transitioned to 'expired'. settlement_status='${lot.settlement_status}', settlement_processed_at=${lot.settlement_processed_at}`,
+    `\n✓ Lot recycled to 'awaiting_relist'. settlement_processed_at=${lot.settlement_processed_at}`,
   );
 }
 

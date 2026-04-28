@@ -279,6 +279,7 @@ export async function sendLotClosedEmailsBatch(
 ): Promise<SendEmailResult> {
   const orderUrl = `${APP_URL}/dashboard/buyer/commitments`;
   const fulfillmentUrl = `${APP_URL}/dashboard/seller/lots`;
+  const relistReviewUrl = `${APP_URL}/dashboard/seller/lots#needs-review`;
   const dashboardUrl = `${APP_URL}/dashboard/hub`;
 
   const payloads: { to: string; subject: string; html: string }[] = [];
@@ -312,6 +313,7 @@ export async function sendLotClosedEmailsBatch(
         totalQuantityKg: params.lot.total_quantity_kg,
         hubAddress,
         fulfillmentUrl,
+        relistReviewUrl,
       }),
     });
   }
@@ -339,6 +341,8 @@ export async function sendLotClosedEmailsBatch(
 export interface LotFailedEmailParams {
   recipient: Pick<Profile, "email" | "contact_name">;
   lot: Pick<Lot, "id" | "title">;
+  /** Pass `true` for the seller send to add the awaiting_relist CTA. */
+  isSeller?: boolean;
 }
 
 export async function sendLotFailedEmail(
@@ -348,6 +352,9 @@ export async function sendLotFailedEmail(
   const html = await renderLotClosedFailedHtml({
     recipientName: params.recipient.contact_name || "there",
     lotTitle: params.lot.title,
+    relistReviewUrl: params.isSeller
+      ? `${APP_URL}/dashboard/seller/lots#needs-review`
+      : undefined,
   });
   return sendEmail({
     to: params.recipient.email,
@@ -372,6 +379,7 @@ export async function sendLotExpiredEmail(
   const html = await renderLotClosedFailedHtml({
     recipientName: params.seller.contact_name || "there",
     lotTitle: params.lot.title,
+    relistReviewUrl: `${APP_URL}/dashboard/seller/lots#needs-review`,
   });
   return sendEmail({
     to: params.seller.email,

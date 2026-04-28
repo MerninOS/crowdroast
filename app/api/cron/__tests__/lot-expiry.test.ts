@@ -11,10 +11,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // ---------------------------------------------------------------------------
 
 const mockFrom = vi.fn();
+const mockRpc = vi.fn();
 
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: vi.fn(() => ({
     from: (...args: unknown[]) => mockFrom(...args),
+    rpc: (...args: unknown[]) => mockRpc(...args),
   })),
 }));
 
@@ -104,7 +106,7 @@ describe("GET /api/cron/lot-expiry", () => {
     expect(res.status).toBe(200);
   });
 
-  it("expires lots past expiry_date with no active/settled campaigns", async () => {
+  it("recycles lots past expiry_date with no active/settled campaigns", async () => {
     const expiredLot = {
       id: "lot-1",
       title: "Ethiopian Yirgacheffe",
@@ -116,20 +118,16 @@ describe("GET /api/cron/lot-expiry", () => {
       contact_name: "Jane Seller",
     };
 
-    // First call: lots query
     const lotsChain = makeChain({ data: [expiredLot], error: null });
-    // Second call: campaigns query (no active/settled campaigns)
     const campaignsChain = makeChain({ data: [], error: null });
-    // Third call: lots update
-    const updateChain = makeChain({ data: null, error: null });
-    // Fourth call: profiles query
     const profilesChain = makeChain({ data: sellerProfile, error: null });
 
     mockFrom
       .mockReturnValueOnce(lotsChain)       // lots select
       .mockReturnValueOnce(campaignsChain)  // campaigns select
-      .mockReturnValueOnce(updateChain)     // lots update
       .mockReturnValueOnce(profilesChain);  // profiles select
+
+    mockRpc.mockResolvedValue({ data: null, error: null });
 
     const res = await GET(makeRequest({ authorization: `Bearer ${CRON_SECRET}` }));
     expect(res.status).toBe(200);
@@ -138,7 +136,10 @@ describe("GET /api/cron/lot-expiry", () => {
     expect(body.expired_lots).toBe(1);
     expect(body.checked_lots).toBe(1);
 
-    // Verify lot was updated
+    // Verify the recycle RPC was invoked with the right lot id
+    expect(mockRpc).toHaveBeenCalledWith("recycle_lot", { p_lot_id: "lot-1" });
+
+    // Verify lot lookups happened
     expect(mockFrom).toHaveBeenCalledWith("lots");
     expect(mockFrom).toHaveBeenCalledWith("campaigns");
     expect(mockFrom).toHaveBeenCalledWith("profiles");
@@ -148,6 +149,38 @@ describe("GET /api/cron/lot-expiry", () => {
       seller: { email: "seller@example.com", contact_name: "Jane Seller" },
       lot: { id: "lot-1", title: "Ethiopian Yirgacheffe" },
     });
+  });
+
+  it("skips email and logs when recycle RPC fails", async () => {
+    const expiredLot = {
+      id: "lot-fail",
+      title: "Failing Lot",
+      seller_id: "seller-1",
+    };
+
+    const lotsChain = makeChain({ data: [expiredLot], error: null });
+    const campaignsChain = makeChain({ data: [], error: null });
+
+    mockFrom
+      .mockReturnValueOnce(lotsChain)
+      .mockReturnValueOnce(campaignsChain);
+
+    mockRpc.mockResolvedValue({
+      data: null,
+      error: { message: "rpc unavailable" },
+    });
+
+    const res = await GET(makeRequest({ authorization: `Bearer ${CRON_SECRET}` }));
+    // 207 because at least one lot's recycle failed
+    expect(res.status).toBe(207);
+
+    const body = await res.json();
+    expect(body.expired_lots).toBe(0);
+    expect(body.checked_lots).toBe(1);
+    expect(body.recycle_failures).toHaveLength(1);
+    expect(body.recycle_failures[0]).toMatchObject({ lot_id: "lot-fail" });
+
+    expect(sendLotExpiredEmail).not.toHaveBeenCalled();
   });
 
   it("skips lots that have an active campaign", async () => {

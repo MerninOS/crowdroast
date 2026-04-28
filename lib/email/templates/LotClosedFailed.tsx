@@ -10,13 +10,20 @@ import {
 } from "@react-email/components";
 import { render } from "@react-email/render";
 import React from "react";
+import { AwaitingRelistCTA } from "@/lib/email/components/AwaitingRelistCTA";
 
 export interface LotClosedFailedProps {
   recipientName: string;
   lotTitle: string;
+  /** When set, a "review your lot" CTA renders. Pass only on the seller send. */
+  relistReviewUrl?: string;
 }
 
-export function LotClosedFailed({ recipientName, lotTitle }: LotClosedFailedProps) {
+export function LotClosedFailed({
+  recipientName,
+  lotTitle,
+  relistReviewUrl,
+}: LotClosedFailedProps) {
   return (
     <Html>
       <Head />
@@ -37,6 +44,10 @@ export function LotClosedFailed({ recipientName, lotTitle }: LotClosedFailedProp
             Thank you for your participation on CrowdRoast. New lots are added regularly
             — check back to find your next opportunity.
           </Text>
+
+          {relistReviewUrl && (
+            <AwaitingRelistCTA lotTitle={lotTitle} reviewUrl={relistReviewUrl} />
+          )}
 
           <Hr style={hr} />
           <Text style={footer}>

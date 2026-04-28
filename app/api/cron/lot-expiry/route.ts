@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendLotExpiredEmail } from "@/lib/email";
+import { recycleLot } from "@/lib/lots/recycle-lot";
 import { NextResponse } from "next/server";
 
 function getBearerToken(header: string | null) {
@@ -13,7 +14,9 @@ function getBearerToken(header: string | null) {
  * Lot expiry cron — runs daily at 01:00 UTC (after settlement at 00:00 UTC).
  *
  * Finds lots whose expiry_date has passed and that have no active or settled
- * campaign. Marks them as expired and notifies the seller.
+ * campaign. Recycles them (clears hub_lots, sets status='awaiting_relist',
+ * resets committed_quantity_kg, nulls featured_lot_id) and notifies the
+ * seller so they can adjust the lot and decide whether to relist.
  */
 export async function GET(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
@@ -42,6 +45,7 @@ export async function GET(request: Request) {
   }
 
   let expiredCount = 0;
+  const recycleFailures: Array<{ lot_id: string; error: string }> = [];
 
   for (const lot of lots || []) {
     // Check if there's an active or settled campaign for this lot — if so, skip
@@ -55,17 +59,12 @@ export async function GET(request: Request) {
       continue;
     }
 
-    // Mark lot as expired
-    const { error: updateErr } = await admin
-      .from("lots")
-      .update({
-        status: "expired",
-        settlement_status: "minimum_not_met",
-        settlement_processed_at: now,
-      })
-      .eq("id", lot.id);
-    if (updateErr) {
-      console.error(`lot-expiry: failed to update lot ${lot.id}`, updateErr);
+    // Recycle the lot: clear hub_lots, set status='awaiting_relist',
+    // committed_quantity_kg=0, and null any featured-lot references.
+    const recycleResult = await recycleLot(admin, lot.id);
+    if (!recycleResult.ok) {
+      console.error(`lot-expiry: failed to recycle lot ${lot.id}`, recycleResult.error);
+      recycleFailures.push({ lot_id: lot.id, error: recycleResult.error });
       continue;
     }
 
@@ -87,7 +86,14 @@ export async function GET(request: Request) {
   }
 
   return NextResponse.json(
-    { expired_lots: expiredCount, checked_lots: (lots || []).length },
-    { status: 200 }
+    {
+      expired_lots: expiredCount,
+      checked_lots: (lots || []).length,
+      recycle_failures: recycleFailures,
+    },
+    // 207 (Multi-Status) when some lots failed to recycle. Cron retry logic
+    // can use the non-2xx status to surface the failure; the success metrics
+    // remain in the body so partial progress is still visible.
+    { status: recycleFailures.length > 0 ? 207 : 200 }
   );
 }

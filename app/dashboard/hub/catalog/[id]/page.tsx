@@ -57,14 +57,32 @@ export default async function HubLotDetailPage({
     .eq("lot_id", id)
     .order("min_quantity_kg", { ascending: true });
 
-  const { data: commitments } = await supabase
-    .from("commitments")
-    .select(
-      "*, buyer:profiles!commitments_buyer_id_fkey(company_name, contact_name)"
-    )
-    .eq("lot_id", id)
-    .not("stripe_payment_intent_id", "is", null)
-    .order("created_at", { ascending: true });
+  // Scope the Backers list to the *current* campaign for this lot+hub.
+  // Historical commitment rows from prior campaigns stay in the DB for the
+  // Stripe paper trail, but they should not show up on a recycled or fresh
+  // lot's detail page.
+  const currentCampaign = hubId
+    ? (
+        await supabase
+          .from("campaigns")
+          .select("id, deadline")
+          .eq("lot_id", id)
+          .eq("hub_id", hubId)
+          .eq("status", "active")
+          .maybeSingle()
+      ).data
+    : null;
+
+  const { data: commitments } = currentCampaign
+    ? await supabase
+        .from("commitments")
+        .select(
+          "*, buyer:profiles!commitments_buyer_id_fkey(company_name, contact_name)"
+        )
+        .eq("campaign_id", currentCampaign.id)
+        .not("stripe_payment_intent_id", "is", null)
+        .order("created_at", { ascending: true })
+    : { data: [] };
 
   const existingSampleRequest = hubId
     ? (
@@ -95,6 +113,7 @@ export default async function HubLotDetailPage({
       }}
       pricingTiers={(tiers as PricingTier[]) || []}
       commitments={(commitments as unknown as Commitment[]) || []}
+      campaignDeadline={currentCampaign?.deadline ?? null}
       backHref="/dashboard/hub/catalog"
       backLabel="Back to Catalog"
     />

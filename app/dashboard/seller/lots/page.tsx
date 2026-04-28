@@ -10,12 +10,67 @@ import type { Lot } from "@/lib/types";
 import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
 import { SellerLotCsvUploadModal } from "@/components/seller-lot-csv-upload-modal";
 import { SellerLotStatusToggle } from "@/components/seller-lot-status-toggle";
+import {
+  SellerAwaitingRelistCard,
+  type RelistOutcome,
+} from "@/components/seller-awaiting-relist-card";
 
 const statusStyles: Record<string, string> = {
   active: "bg-emerald-50 text-emerald-700 border-emerald-200",
   fully_committed: "bg-blue-50 text-blue-700 border-blue-200",
   draft: "bg-secondary text-secondary-foreground",
+  awaiting_relist: "bg-amber-50 text-amber-700 border-amber-200",
 };
+
+type CampaignRow = {
+  id: string;
+  lot_id: string;
+  hub_id: string;
+  status: string;
+  deadline: string | null;
+  settled_at: string | null;
+  created_at: string;
+};
+
+type ReviewCard = {
+  lotId: string;
+  lotTitle: string;
+  expiryDate: string | null;
+  outcome: RelistOutcome;
+  campaign: {
+    hubName: string | null;
+    deadline: string | null;
+    committedKg: number;
+    buyerCount: number;
+  } | null;
+};
+
+function pickMostRecentTerminalCampaign(
+  rows: CampaignRow[]
+): CampaignRow | null {
+  const terminal = rows.filter((r) =>
+    ["settled", "failed", "cancelled"].includes(r.status)
+  );
+  if (terminal.length === 0) return null;
+  // Sort by settled_at (only populated for the 'settled' outcome) then
+  // created_at descending. The campaigns table has no terminated_at /
+  // updated_at column, so for failed/cancelled campaigns we fall back to
+  // created_at — accurate enough since only one terminal campaign of a
+  // given outcome can exist on a lot at a time (the recycle ends each
+  // cycle), so created_at preserves the actual ordering across cycles.
+  return terminal.sort((a, b) => {
+    const aTime = new Date(a.settled_at || a.created_at).getTime();
+    const bTime = new Date(b.settled_at || b.created_at).getTime();
+    return bTime - aTime;
+  })[0];
+}
+
+function statusToOutcome(status: string): RelistOutcome {
+  if (status === "settled") return "settled";
+  if (status === "failed") return "failed";
+  if (status === "cancelled") return "cancelled";
+  return "expired";
+}
 
 export default async function SellerLotsPage() {
   const supabase = await createClient();
@@ -30,7 +85,117 @@ export default async function SellerLotsPage() {
     .eq("seller_id", user.id)
     .order("created_at", { ascending: false });
 
-  const myLots = (lots as Lot[]) || [];
+  const allLots = (lots as Lot[]) || [];
+  const awaitingRelistLots = allLots.filter((l) => l.status === "awaiting_relist");
+  const myLots = allLots.filter((l) => l.status !== "awaiting_relist");
+
+  const togglableLotIds = myLots
+    .filter((l) => l.status === "active" || l.status === "draft")
+    .map((l) => l.id);
+  const reviewLotIds = awaitingRelistLots.map((l) => l.id);
+
+  // Two independent queries (active campaigns for togglable lots vs. all
+  // campaigns for awaiting_relist lots) — fetch in parallel.
+  const [activeCampaignsResult, campaignRowsResult] = await Promise.all([
+    togglableLotIds.length > 0
+      ? supabase
+          .from("campaigns")
+          .select("lot_id")
+          .in("lot_id", togglableLotIds)
+          .eq("status", "active")
+      : Promise.resolve({ data: [] as { lot_id: string }[], error: null }),
+    reviewLotIds.length > 0
+      ? supabase
+          .from("campaigns")
+          .select("id, lot_id, hub_id, status, deadline, settled_at, created_at, hub:hubs(name)")
+          .in("lot_id", reviewLotIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  const activeCampaignLotIds = new Set<string>();
+  for (const row of (activeCampaignsResult.data as { lot_id: string }[]) || []) {
+    activeCampaignLotIds.add(row.lot_id);
+  }
+
+  // Build review cards from the awaiting_relist lots + their campaign history.
+  let reviewCards: ReviewCard[] = [];
+  if (awaitingRelistLots.length > 0) {
+    const campaignRows = campaignRowsResult.data;
+
+    // Supabase returns related records as an array even on a 1:1 join.
+    type CampaignWithHubRaw = CampaignRow & {
+      hub: { name: string }[] | { name: string } | null;
+    };
+    const byLot = new Map<string, CampaignWithHubRaw[]>();
+    for (const row of (campaignRows as unknown as CampaignWithHubRaw[]) || []) {
+      const list = byLot.get(row.lot_id) ?? [];
+      list.push(row);
+      byLot.set(row.lot_id, list);
+    }
+
+    // Pick the most recent terminal campaign per lot once and cache it so
+    // the sort doesn't run twice (once for the id list, once inside the
+    // reviewCards.map below).
+    const terminalByLotId = new Map<string, CampaignWithHubRaw>();
+    for (const [lotId, rows] of byLot) {
+      const terminal = pickMostRecentTerminalCampaign(rows);
+      if (terminal) terminalByLotId.set(lotId, terminal as CampaignWithHubRaw);
+    }
+    const terminalCampaignIds = Array.from(terminalByLotId.values()).map((c) => c.id);
+
+    let summaryByCampaignId = new Map<string, { committedKg: number; buyerCount: number }>();
+    if (terminalCampaignIds.length > 0) {
+      // Exclude cancelled commitments so failed and cancelled campaigns
+      // don't over-count refunded buyers, and dedupe per-campaign by
+      // buyer_id so the buyerCount reflects distinct buyers, not rows.
+      const { data: commitmentRows } = await supabase
+        .from("commitments")
+        .select("campaign_id, buyer_id, quantity_kg")
+        .in("campaign_id", terminalCampaignIds)
+        .neq("status", "cancelled");
+
+      const buyerSets = new Map<string, Set<string>>();
+      const kgByCampaign = new Map<string, number>();
+      for (const row of (commitmentRows as { campaign_id: string; buyer_id: string; quantity_kg: number }[]) || []) {
+        kgByCampaign.set(
+          row.campaign_id,
+          (kgByCampaign.get(row.campaign_id) ?? 0) + (Number(row.quantity_kg) || 0)
+        );
+        const buyers = buyerSets.get(row.campaign_id) ?? new Set<string>();
+        if (row.buyer_id) buyers.add(row.buyer_id);
+        buyerSets.set(row.campaign_id, buyers);
+      }
+      for (const id of terminalCampaignIds) {
+        summaryByCampaignId.set(id, {
+          committedKg: kgByCampaign.get(id) ?? 0,
+          buyerCount: buyerSets.get(id)?.size ?? 0,
+        });
+      }
+    }
+
+    reviewCards = awaitingRelistLots.map((lot) => {
+      const terminal = terminalByLotId.get(lot.id) ?? null;
+      const summary = terminal ? summaryByCampaignId.get(terminal.id) : undefined;
+      const hubField = terminal ? terminal.hub : null;
+      const hubName = Array.isArray(hubField)
+        ? hubField[0]?.name ?? null
+        : hubField?.name ?? null;
+      return {
+        lotId: lot.id,
+        lotTitle: lot.title,
+        expiryDate: lot.expiry_date,
+        outcome: terminal ? statusToOutcome(terminal.status) : "expired",
+        campaign: terminal
+          ? {
+              hubName,
+              deadline: terminal.deadline,
+              committedKg: summary?.committedKg ?? 0,
+              buyerCount: summary?.buyerCount ?? 0,
+            }
+          : null,
+      };
+    });
+  }
 
   return (
     <div>
@@ -50,7 +215,23 @@ export default async function SellerLotsPage() {
         </div>
       </div>
 
-      {myLots.length === 0 ? (
+      {reviewCards.length > 0 && (
+        <section id="needs-review" className="mb-10">
+          <div className="mb-3 flex items-baseline justify-between">
+            <h2 className="text-lg font-semibold text-foreground">Needs Review</h2>
+            <span className="text-xs text-muted-foreground">
+              {reviewCards.length} lot{reviewCards.length !== 1 ? "s" : ""} to decide on
+            </span>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {reviewCards.map((card) => (
+              <SellerAwaitingRelistCard key={card.lotId} {...card} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {myLots.length === 0 && reviewCards.length === 0 ? (
         <Card className="shadow-sm">
           <CardContent className="flex flex-col items-center py-10 px-4">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-secondary text-muted-foreground mb-4">
@@ -67,7 +248,7 @@ export default async function SellerLotsPage() {
             </div>
           </CardContent>
         </Card>
-      ) : (
+      ) : myLots.length === 0 ? null : (
         <div className="space-y-3">
           {myLots.map((lot) => {
             const pct =
@@ -106,7 +287,7 @@ export default async function SellerLotsPage() {
                         <SellerLotStatusToggle
                           lotId={lot.id}
                           currentStatus={lot.status}
-                          hasContributors={Number(lot.committed_quantity_kg || 0) > 0}
+                          hasActiveCampaign={activeCampaignLotIds.has(lot.id)}
                         />
                       )}
                       <Button asChild size="sm" variant="outline" className="hidden sm:flex bg-transparent">

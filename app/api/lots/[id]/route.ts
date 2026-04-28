@@ -33,18 +33,19 @@ export async function GET(
     .eq("lot_id", id)
     .order("min_quantity_kg", { ascending: true });
 
-  // Check if any commitments exist
-  const { count } = await supabase
-    .from("commitments")
-    .select("id", { count: "exact", head: true })
+  // The edit-lock UI mirrors the PATCH guard: a lot is editable unless a
+  // campaign is currently active. Historical commitments don't lock it.
+  const { data: activeCampaign } = await supabase
+    .from("campaigns")
+    .select("id")
     .eq("lot_id", id)
-    .not("stripe_payment_intent_id", "is", null);
+    .eq("status", "active")
+    .maybeSingle();
 
   return NextResponse.json({
     lot,
     pricing_tiers: tiers || [],
-    has_commitments: (count || 0) > 0,
-    commitment_count: count || 0,
+    has_active_campaign: Boolean(activeCampaign),
   });
 }
 
@@ -62,10 +63,10 @@ export async function PATCH(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Verify ownership
+  // Verify ownership and read status — only certain statuses are editable.
   const { data: lot } = await supabase
     .from("lots")
-    .select("id, seller_id")
+    .select("id, seller_id, status")
     .eq("id", id)
     .eq("seller_id", user.id)
     .single();
@@ -74,16 +75,30 @@ export async function PATCH(
     return NextResponse.json({ error: "Lot not found or not yours" }, { status: 404 });
   }
 
-  // Check for existing commitments
-  const { count } = await supabase
-    .from("commitments")
-    .select("id", { count: "exact", head: true })
-    .eq("lot_id", id)
-    .not("stripe_payment_intent_id", "is", null);
-
-  if ((count || 0) > 0) {
+  // Status allowlist: a lot is only editable in pre-sale states. Once it
+  // ships, is delivered, or hits a closed/expired terminal state, sellers
+  // can't retroactively change the terms buyers committed against.
+  const editableStatuses = ["draft", "active", "awaiting_relist"];
+  if (!editableStatuses.includes(lot.status)) {
     return NextResponse.json(
-      { error: "Cannot edit a lot with existing commitments" },
+      { error: `Cannot edit a lot in ${lot.status} state` },
+      { status: 409 }
+    );
+  }
+
+  // Block edits while an active campaign is running. Historical commitments
+  // from closed campaigns no longer lock the lot — sellers need to adjust
+  // their lot during the awaiting_relist review window.
+  const { data: activeCampaign } = await supabase
+    .from("campaigns")
+    .select("id")
+    .eq("lot_id", id)
+    .eq("status", "active")
+    .maybeSingle();
+
+  if (activeCampaign) {
+    return NextResponse.json(
+      { error: "Cannot edit a lot with an active campaign" },
       { status: 409 }
     );
   }

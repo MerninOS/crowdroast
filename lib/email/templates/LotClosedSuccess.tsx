@@ -12,6 +12,7 @@ import {
 } from "@react-email/components";
 import { render } from "@react-email/render";
 import React from "react";
+import { AwaitingRelistCTA } from "@/lib/email/components/AwaitingRelistCTA";
 
 // ---------------------------------------------------------------------------
 // Buyer variant (AC-6a)
@@ -85,6 +86,8 @@ export interface LotClosedSellerProps {
   totalQuantityKg: number;
   hubAddress: string;
   fulfillmentUrl: string;
+  /** When set, a "review your lot" CTA renders below fulfillment. */
+  relistReviewUrl?: string;
 }
 
 export function LotClosedSeller({
@@ -93,6 +96,7 @@ export function LotClosedSeller({
   totalQuantityKg,
   hubAddress,
   fulfillmentUrl,
+  relistReviewUrl,
 }: LotClosedSellerProps) {
   return (
     <Html>
@@ -123,6 +127,10 @@ export function LotClosedSeller({
               Manage fulfillment
             </Button>
           </Section>
+
+          {relistReviewUrl && (
+            <AwaitingRelistCTA lotTitle={lotTitle} reviewUrl={relistReviewUrl} />
+          )}
 
           <Hr style={hr} />
           <Text style={footer}>

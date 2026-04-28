@@ -4,6 +4,7 @@ import {
   sendLotClosedEmailsBatch,
   sendLotFailedEmail,
 } from "@/lib/email";
+import { finalizeCampaign } from "@/lib/lots/finalize-campaign";
 import { createShipmentForLot } from "@/lib/shipments";
 import {
   createRefund,
@@ -145,8 +146,16 @@ async function sendLotSuccessNotifications(admin: AdminClient, lotId: string, hu
       hub: hub?.id ?? "none",
     });
 
+    // Sum confirmed commitments rather than reading lot.committed_quantity_kg
+    // — by the time this runs, finalize_campaign has already reset the lot
+    // row to committed_quantity_kg=0 as part of the recycle.
+    const totalQuantityKg = (commitments || []).reduce(
+      (sum, c) => sum + Number(c.quantity_kg || 0),
+      0
+    );
+
     const result = await sendLotClosedEmailsBatch({
-      lot: { id: lot.id, title: lot.title, total_quantity_kg: lot.committed_quantity_kg },
+      lot: { id: lot.id, title: lot.title, total_quantity_kg: totalQuantityKg },
       buyers: buyerPayloads,
       seller,
       hub,
@@ -201,18 +210,28 @@ async function sendLotFailedNotifications(admin: AdminClient, lotId: string, hub
     }
 
     const emailPromises: Promise<unknown>[] = [];
+    // Dedupe by lower-cased email so a seller who is also a hub member or
+    // a buyer (admin testing accounts, shared inboxes) doesn't get the
+    // failure email twice. Seller send wins because it carries the
+    // awaiting_relist CTA the seller actually needs.
+    const sentTo = new Set<string>();
 
     if (seller?.email) {
+      sentTo.add(seller.email.toLowerCase());
       emailPromises.push(
         sendLotFailedEmail({
           recipient: { email: seller.email, contact_name: seller.contact_name },
           lot: { id: lot.id, title: lot.title },
+          isSeller: true,
         }).catch(console.error)
       );
     }
 
     for (const buyer of buyers || []) {
       if (!buyer.email) continue;
+      const key = buyer.email.toLowerCase();
+      if (sentTo.has(key)) continue;
+      sentTo.add(key);
       emailPromises.push(
         sendLotFailedEmail({
           recipient: { email: buyer.email, contact_name: buyer.contact_name },
@@ -223,6 +242,9 @@ async function sendLotFailedNotifications(admin: AdminClient, lotId: string, hub
 
     for (const owner of hubOwners) {
       if (!owner.email) continue;
+      const key = owner.email.toLowerCase();
+      if (sentTo.has(key)) continue;
+      sentTo.add(key);
       emailPromises.push(
         sendLotFailedEmail({
           recipient: { email: owner.email, contact_name: owner.contact_name },
@@ -332,6 +354,7 @@ async function settleDeadlines(request: Request) {
   }
 
   const results: Array<Record<string, unknown>> = [];
+  const finalizeFailures: Array<{ campaign_id: string; outcome: string; error: string }> = [];
   const backgroundTasks: Promise<unknown>[] = [];
 
   for (const campaign of dueCampaigns || []) {
@@ -366,7 +389,7 @@ async function settleDeadlines(request: Request) {
     const { data: lot, error: lotFetchError } = await admin
       .from("lots")
       .select(
-        "id, seller_id, status, currency, price_per_kg, committed_quantity_kg, min_commitment_kg, commitment_deadline, settlement_status, expiry_date"
+        "id, seller_id, status, currency, price_per_kg, committed_quantity_kg, min_commitment_kg, commitment_deadline"
       )
       .eq("id", campaign.lot_id)
       .single();
@@ -483,35 +506,21 @@ async function settleDeadlines(request: Request) {
       }
 
       if (!debug) {
-        // Campaign is always marked failed when minimum not met
-        await admin
-          .from("campaigns")
-          .update({ status: "failed" })
-          .eq("id", campaign.id);
-
-        // If the lot's expiry_date has also passed, expire the lot.
-        // Otherwise the lot stays active so it can be recycled for other hubs.
-        const lotExpired = lot.expiry_date && new Date(lot.expiry_date) <= new Date(nowIso);
-        if (lotExpired) {
-          await admin
-            .from("lots")
-            .update({
-              status: "closed",
-              committed_quantity_kg: 0,
-              settlement_status: refundFailedCount > 0 ? "failed" : "minimum_not_met",
-              settlement_processed_at: nowIso,
-            })
-            .eq("id", lot.id);
-        } else {
-          // Reset committed_quantity_kg so the lot recycles clean for the next campaign
-          await admin
-            .from("lots")
-            .update({
-              committed_quantity_kg: 0,
-              settlement_status: "pending",
-              settlement_processed_at: null,
-            })
-            .eq("id", lot.id);
+        // Atomically mark the campaign failed AND recycle the lot. The
+        // per-commitment refund/cancel work above already ran; if finalize
+        // fails the campaign stays 'active' and the next cron tick retries
+        // (refunds and commitment cancels are both idempotent).
+        const finalizeResult = await finalizeCampaign(admin, campaign.id, "failed");
+        if (!finalizeResult.ok) {
+          console.error(
+            `settle-deadlines: finalize_campaign failed for failed campaign ${campaign.id}`,
+            finalizeResult.error
+          );
+          finalizeFailures.push({
+            campaign_id: campaign.id,
+            outcome: "failed",
+            error: finalizeResult.error,
+          });
         }
       }
 
@@ -536,11 +545,17 @@ async function settleDeadlines(request: Request) {
       .single();
 
     if (!sellerProfile?.stripe_connect_account_id) {
+      // Seller never finished Stripe Connect onboarding — we can't transfer
+      // funds. Deliberately do NOT recycle here: the lot is in a stuck state
+      // that needs operator + seller intervention before any retry. Mark the
+      // campaign failed and tag the lot with settlement_status='failed' so
+      // the admin payouts dashboard can surface it.
       if (!debug) {
         await admin
           .from("campaigns")
           .update({ status: "failed" })
-          .eq("id", campaign.id);
+          .eq("id", campaign.id)
+          .eq("status", "active");
 
         await admin
           .from("lots")
@@ -570,11 +585,16 @@ async function settleDeadlines(request: Request) {
     }
 
     if (!sellerTransfersEnabled) {
+      // Same as the missing-account branch above: don't recycle a lot whose
+      // settlement is structurally blocked by the seller's Stripe Connect
+      // state. The lot stays 'closed' with settlement_status='failed' for
+      // operator triage; no retry will succeed until onboarding is fixed.
       if (!debug) {
         await admin
           .from("campaigns")
           .update({ status: "failed" })
-          .eq("id", campaign.id);
+          .eq("id", campaign.id)
+          .eq("status", "active");
 
         await admin
           .from("lots")
@@ -955,24 +975,45 @@ async function settleDeadlines(request: Request) {
     }
 
     if (!debug) {
-      const campaignOutcome = failedCount > 0 ? "failed" : "settled";
+      if (failedCount > 0) {
+        // Transfer failures leave the lot in a stuck-closed state for manual
+        // investigation. We do NOT call finalize_campaign here — recycling
+        // mid-Stripe-flow would clear hub_lots while transfers are still
+        // incomplete. Mark the campaign failed inline (no retry hazard since
+        // there's nothing left to recycle) and leave the lot 'closed' for
+        // operator triage.
+        await admin
+          .from("campaigns")
+          .update({ status: "failed" })
+          .eq("id", campaign.id)
+          .eq("status", "active");
 
-      await admin
-        .from("campaigns")
-        .update({
-          status: campaignOutcome === "settled" ? "settled" : "failed",
-          settled_at: campaignOutcome === "settled" ? nowIso : null,
-        })
-        .eq("id", campaign.id);
-
-      await admin
-        .from("lots")
-        .update({
-          status: "closed",
-          settlement_status: failedCount > 0 ? "failed" : "settled",
-          settlement_processed_at: nowIso,
-        })
-        .eq("id", lot.id);
+        await admin
+          .from("lots")
+          .update({
+            status: "closed",
+            settlement_status: "failed",
+            settlement_processed_at: nowIso,
+          })
+          .eq("id", lot.id);
+      } else {
+        // Clean settle: atomically mark the campaign settled AND recycle
+        // the lot. If finalize fails, the campaign stays 'active' and the
+        // next cron tick re-attempts (the per-commitment confirmed updates
+        // above are idempotent).
+        const finalizeResult = await finalizeCampaign(admin, campaign.id, "settled");
+        if (!finalizeResult.ok) {
+          console.error(
+            `settle-deadlines: finalize_campaign failed for settled campaign ${campaign.id}`,
+            finalizeResult.error
+          );
+          finalizeFailures.push({
+            campaign_id: campaign.id,
+            outcome: "settled",
+            error: finalizeResult.error,
+          });
+        }
+      }
     }
 
     results.push({
@@ -1004,8 +1045,12 @@ async function settleDeadlines(request: Request) {
     {
       processed_campaigns: results.length,
       results,
+      finalize_failures: finalizeFailures,
     },
-    { status: 200 }
+    // 207 (Multi-Status) when any finalize_campaign call failed; the cron
+    // runner can use the non-2xx status to surface partial failure while
+    // the body still reports per-campaign progress.
+    { status: finalizeFailures.length > 0 ? 207 : 200 }
   );
 }
 
