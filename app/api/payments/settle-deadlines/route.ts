@@ -342,6 +342,7 @@ async function settleDeadlines(request: Request) {
   }
 
   const results: Array<Record<string, unknown>> = [];
+  const finalizeFailures: Array<{ campaign_id: string; outcome: string; error: string }> = [];
   const backgroundTasks: Promise<unknown>[] = [];
 
   for (const campaign of dueCampaigns || []) {
@@ -503,6 +504,11 @@ async function settleDeadlines(request: Request) {
             `settle-deadlines: finalize_campaign failed for failed campaign ${campaign.id}`,
             finalizeResult.error
           );
+          finalizeFailures.push({
+            campaign_id: campaign.id,
+            outcome: "failed",
+            error: finalizeResult.error,
+          });
         }
       }
 
@@ -989,6 +995,11 @@ async function settleDeadlines(request: Request) {
             `settle-deadlines: finalize_campaign failed for settled campaign ${campaign.id}`,
             finalizeResult.error
           );
+          finalizeFailures.push({
+            campaign_id: campaign.id,
+            outcome: "settled",
+            error: finalizeResult.error,
+          });
         }
       }
     }
@@ -1022,8 +1033,12 @@ async function settleDeadlines(request: Request) {
     {
       processed_campaigns: results.length,
       results,
+      finalize_failures: finalizeFailures,
     },
-    { status: 200 }
+    // 207 (Multi-Status) when any finalize_campaign call failed; the cron
+    // runner can use the non-2xx status to surface partial failure while
+    // the body still reports per-campaign progress.
+    { status: finalizeFailures.length > 0 ? 207 : 200 }
   );
 }
 

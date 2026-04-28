@@ -171,11 +171,14 @@ describe("GET /api/cron/lot-expiry", () => {
     });
 
     const res = await GET(makeRequest({ authorization: `Bearer ${CRON_SECRET}` }));
-    expect(res.status).toBe(200);
+    // 207 because at least one lot's recycle failed
+    expect(res.status).toBe(207);
 
     const body = await res.json();
     expect(body.expired_lots).toBe(0);
     expect(body.checked_lots).toBe(1);
+    expect(body.recycle_failures).toHaveLength(1);
+    expect(body.recycle_failures[0]).toMatchObject({ lot_id: "lot-fail" });
 
     expect(sendLotExpiredEmail).not.toHaveBeenCalled();
   });
