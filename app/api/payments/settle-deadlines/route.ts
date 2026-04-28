@@ -4,7 +4,7 @@ import {
   sendLotClosedEmailsBatch,
   sendLotFailedEmail,
 } from "@/lib/email";
-import { recycleLot } from "@/lib/lots/recycle-lot";
+import { finalizeCampaign } from "@/lib/lots/finalize-campaign";
 import { createShipmentForLot } from "@/lib/shipments";
 import {
   createRefund,
@@ -485,20 +485,15 @@ async function settleDeadlines(request: Request) {
       }
 
       if (!debug) {
-        // Campaign is always marked failed when minimum not met
-        await admin
-          .from("campaigns")
-          .update({ status: "failed" })
-          .eq("id", campaign.id);
-
-        // Recycle the lot back to the seller for review regardless of the
-        // lot's expiry_date — every failed campaign now ends in awaiting_relist
-        // so the seller decides whether to relist.
-        const recycleResult = await recycleLot(admin, lot.id);
-        if (!recycleResult.ok) {
+        // Atomically mark the campaign failed AND recycle the lot. The
+        // per-commitment refund/cancel work above already ran; if finalize
+        // fails the campaign stays 'active' and the next cron tick retries
+        // (refunds and commitment cancels are both idempotent).
+        const finalizeResult = await finalizeCampaign(admin, campaign.id, "failed");
+        if (!finalizeResult.ok) {
           console.error(
-            `settle-deadlines: failed to recycle lot ${lot.id} after failed campaign`,
-            recycleResult.error
+            `settle-deadlines: finalize_campaign failed for failed campaign ${campaign.id}`,
+            finalizeResult.error
           );
         }
       }
@@ -943,20 +938,19 @@ async function settleDeadlines(request: Request) {
     }
 
     if (!debug) {
-      const campaignOutcome = failedCount > 0 ? "failed" : "settled";
-
-      await admin
-        .from("campaigns")
-        .update({
-          status: campaignOutcome === "settled" ? "settled" : "failed",
-          settled_at: campaignOutcome === "settled" ? nowIso : null,
-        })
-        .eq("id", campaign.id);
-
       if (failedCount > 0) {
-        // Transfer failures leave the lot in a stuck-closed state for
-        // manual investigation; do NOT recycle while transfers are still
-        // incomplete — recycling would clear hub_lots mid-Stripe-flow.
+        // Transfer failures leave the lot in a stuck-closed state for manual
+        // investigation. We do NOT call finalize_campaign here — recycling
+        // mid-Stripe-flow would clear hub_lots while transfers are still
+        // incomplete. Mark the campaign failed inline (no retry hazard since
+        // there's nothing left to recycle) and leave the lot 'closed' for
+        // operator triage.
+        await admin
+          .from("campaigns")
+          .update({ status: "failed" })
+          .eq("id", campaign.id)
+          .eq("status", "active");
+
         await admin
           .from("lots")
           .update({
@@ -966,12 +960,15 @@ async function settleDeadlines(request: Request) {
           })
           .eq("id", lot.id);
       } else {
-        // Clean settle: recycle the lot back to the seller for review.
-        const recycleResult = await recycleLot(admin, lot.id);
-        if (!recycleResult.ok) {
+        // Clean settle: atomically mark the campaign settled AND recycle
+        // the lot. If finalize fails, the campaign stays 'active' and the
+        // next cron tick re-attempts (the per-commitment confirmed updates
+        // above are idempotent).
+        const finalizeResult = await finalizeCampaign(admin, campaign.id, "settled");
+        if (!finalizeResult.ok) {
           console.error(
-            `settle-deadlines: failed to recycle lot ${lot.id} after settled campaign`,
-            recycleResult.error
+            `settle-deadlines: finalize_campaign failed for settled campaign ${campaign.id}`,
+            finalizeResult.error
           );
         }
       }

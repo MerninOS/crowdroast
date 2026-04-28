@@ -187,10 +187,9 @@ describe("settle-deadlines — orphan commitment handling", () => {
     enqueue("pricing_tiers", { data: [], error: null });
     // 6) chargeable commitments query — empty (everything was already confirmed before this run)
     enqueue("commitments", { data: [], error: null });
-    // 7) campaign update — should be settled, NOT failed
-    enqueue("campaigns", { data: null, error: null });
-    // 8) lot is now recycled via the recycle_lot RPC (no from('lots').update call)
-    // 9) success notifications: lot fetch
+    // 7) campaign + lot transition is now atomic via finalize_campaign RPC
+    //    (no from('campaigns').update or from('lots').update from this route)
+    // 8) success notifications: lot fetch
     enqueue("lots", {
       data: { id: "lot-1", title: "Test Lot", seller_id: "seller-1", committed_quantity_kg: 100 },
       error: null,
@@ -228,15 +227,14 @@ describe("settle-deadlines — orphan commitment handling", () => {
       payment_status: "cancelled",
     });
 
-    // Campaign was marked settled — the regression we're guarding against
-    // (it used to be marked 'failed' because the orphan inflated failedCount).
-    const campaignUpdate = updateCalls.find((c) => c.table === "campaigns");
-    expect(campaignUpdate?.payload).toMatchObject({ status: "settled" });
-
-    // Lot was recycled via the recycle_lot RPC (replaces the bespoke
-    // closed/settled update that used to live here).
-    const recycleCall = rpcCalls.find((c) => c.fn === "recycle_lot");
-    expect(recycleCall?.args).toEqual({ p_lot_id: "lot-1" });
+    // Campaign + lot transition collapsed into the finalize_campaign RPC.
+    // The regression we're guarding against (campaign incorrectly marked
+    // 'failed' due to inflated failedCount) is now caught by the rpc args.
+    const finalizeCall = rpcCalls.find((c) => c.fn === "finalize_campaign");
+    expect(finalizeCall?.args).toEqual({
+      p_campaign_id: "camp-1",
+      p_outcome: "settled",
+    });
   });
 
   it("with NO orphans, behavior is unchanged (campaign settles cleanly)", async () => {
@@ -276,8 +274,7 @@ describe("settle-deadlines — orphan commitment handling", () => {
     enqueue("profiles", { data: { stripe_connect_account_id: "acct_seller" }, error: null });
     enqueue("pricing_tiers", { data: [], error: null });
     enqueue("commitments", { data: [], error: null });
-    enqueue("campaigns", { data: null, error: null });
-    // bespoke lot update replaced by recycle_lot RPC (see route.ts)
+    // campaign + lot transition is now atomic via finalize_campaign RPC
     enqueue("lots", {
       data: { id: "lot-2", title: "T", seller_id: "seller-2", committed_quantity_kg: 75 },
       error: null,
@@ -337,19 +334,18 @@ describe("settle-deadlines — orphan commitment handling", () => {
     });
     // 3) lotCommitments query for refund/cancel
     enqueue("commitments", { data: [], error: null });
-    // 4) campaign update to failed
-    enqueue("campaigns", { data: null, error: null });
-    // (lot is now recycled via RPC, no more from('lots').update calls)
+    // (campaign + lot transition is now atomic via finalize_campaign RPC)
 
     const res = await POST(makeReq());
     expect(res.status).toBe(200);
 
-    expect(rpcCalls.find((c) => c.fn === "recycle_lot")?.args).toEqual({
-      p_lot_id: "lot-3",
+    expect(rpcCalls.find((c) => c.fn === "finalize_campaign")?.args).toEqual({
+      p_campaign_id: "camp-3",
+      p_outcome: "failed",
     });
 
-    // No bespoke lot update should have been queued
-    const lotUpdate = updateCalls.find((c) => c.table === "lots");
-    expect(lotUpdate).toBeUndefined();
+    // No bespoke lot or campaign update should have been queued
+    expect(updateCalls.find((c) => c.table === "lots")).toBeUndefined();
+    expect(updateCalls.find((c) => c.table === "campaigns")).toBeUndefined();
   });
 });
