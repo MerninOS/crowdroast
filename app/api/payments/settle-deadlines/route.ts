@@ -146,8 +146,16 @@ async function sendLotSuccessNotifications(admin: AdminClient, lotId: string, hu
       hub: hub?.id ?? "none",
     });
 
+    // Sum confirmed commitments rather than reading lot.committed_quantity_kg
+    // — by the time this runs, finalize_campaign has already reset the lot
+    // row to committed_quantity_kg=0 as part of the recycle.
+    const totalQuantityKg = (commitments || []).reduce(
+      (sum, c) => sum + Number(c.quantity_kg || 0),
+      0
+    );
+
     const result = await sendLotClosedEmailsBatch({
-      lot: { id: lot.id, title: lot.title, total_quantity_kg: lot.committed_quantity_kg },
+      lot: { id: lot.id, title: lot.title, total_quantity_kg: totalQuantityKg },
       buyers: buyerPayloads,
       seller,
       hub,
