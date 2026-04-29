@@ -1030,7 +1030,7 @@ async function settleDeadlines(request: Request) {
     console.log("[settle-deadlines] campaign", campaign.id, "lot", lot.id, "— debug:", debug, "transferFailedCount:", transferFailedCount, "failedCount:", failedCount, "succeededCount:", succeededCount, "orphansCancelled:", orphansCancelled);
     if (!debug && transferFailedCount === 0) {
       backgroundTasks.push(sendLotSuccessNotifications(admin, lot.id, campaign.hub_id));
-      backgroundTasks.push(createShipmentForLot(lot.id, campaign.hub_id));
+      backgroundTasks.push(createShipmentForLot(lot.id, campaign.hub_id, campaign.id));
     } else {
       console.log("[settle-deadlines] skipping success emails and shipment creation — condition not met");
     }
