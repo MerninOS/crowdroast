@@ -47,17 +47,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Only buyers can be added to a hub" }, { status: 400 });
   }
 
-  // Check for duplicate membership
-  const { data: existing } = await supabase
+  // Check for duplicate membership. Build a separate equality query per branch
+  // instead of interpolating the user-supplied email into a `.or()` filter
+  // string — that would let a caller smuggle additional PostgREST predicates
+  // (e.g. `attacker@x.com,user_id.eq.<uuid>`) into the filter.
+  const duplicateQuery = supabase
     .from("hub_members")
     .select("id")
-    .eq("hub_id", hubId)
-    .or(
-      existingProfile
-        ? `user_id.eq.${existingProfile.id}`
-        : `invited_email.eq.${inviteEmail}`
-    )
-    .maybeSingle();
+    .eq("hub_id", hubId);
+
+  const { data: existing } = await (existingProfile
+    ? duplicateQuery.eq("user_id", existingProfile.id)
+    : duplicateQuery.eq("invited_email", inviteEmail)
+  ).maybeSingle();
 
   if (existing) {
     return NextResponse.json({ error: "This person is already a member of this hub" }, { status: 409 });

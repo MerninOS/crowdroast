@@ -24,23 +24,29 @@ export async function POST(request: Request) {
   }
 
   const email =
-    typeof body?.email === "string" ? body.email.trim() : "";
+    typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
 
-  if (!email) {
+  // Basic shape + length checks. This endpoint is unauthenticated, so reject
+  // obvious garbage before it reaches the database.
+  const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!email || email.length > 254 || !EMAIL_PATTERN.test(email)) {
     return NextResponse.json(
-      { error: "email is required." },
+      { error: "A valid email is required." },
       { status: 400 }
     );
   }
 
-  const companyName =
-    typeof body?.company_name === "string" ? body.company_name.trim() || null : null;
-  const contactName =
-    typeof body?.contact_name === "string" ? body.contact_name.trim() || null : null;
-  const phone =
-    typeof body?.phone === "string" ? body.phone.trim() || null : null;
-  const notes =
-    typeof body?.notes === "string" ? body.notes.trim() || null : null;
+  const trimToLength = (value: unknown, max: number): string | null => {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    return trimmed.slice(0, max);
+  };
+
+  const companyName = trimToLength(body?.company_name, 200);
+  const contactName = trimToLength(body?.contact_name, 200);
+  const phone = trimToLength(body?.phone, 50);
+  const notes = trimToLength(body?.notes, 2000);
 
   const supabase = createAdminClient();
 

@@ -1,14 +1,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendLotExpiredEmail } from "@/lib/email";
 import { recycleLot } from "@/lib/lots/recycle-lot";
+import { authorizeCronRequest } from "@/lib/auth/cron-route";
 import { NextResponse } from "next/server";
-
-function getBearerToken(header: string | null) {
-  if (!header) return null;
-  const [scheme, token] = header.split(" ");
-  if (scheme?.toLowerCase() !== "bearer") return null;
-  return token || null;
-}
 
 /**
  * Lot expiry cron — runs daily at 01:00 UTC (after settlement at 00:00 UTC).
@@ -19,16 +13,8 @@ function getBearerToken(header: string | null) {
  * seller so they can adjust the lot and decide whether to relist.
  */
 export async function GET(request: Request) {
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) {
-    return NextResponse.json({ error: "Missing CRON_SECRET" }, { status: 500 });
-  }
-
-  const bearer = getBearerToken(request.headers.get("authorization"));
-  const headerSecret = request.headers.get("x-cron-secret");
-  if (bearer !== cronSecret && headerSecret !== cronSecret) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const unauthorized = authorizeCronRequest(request);
+  if (unauthorized) return unauthorized;
 
   const admin = createAdminClient();
   const now = new Date().toISOString();

@@ -44,8 +44,10 @@ export async function PATCH(
     ? accessRequest.hub[0]
     : accessRequest.hub;
 
-  // Verify caller is the hub owner
-  if (hub.owner_id !== user.id) {
+  // Verify caller is the hub owner. If the joined hub is missing (e.g. row
+  // deleted) treat that as forbidden rather than dereferencing null — leaking
+  // a 500 here would also bypass the explicit ownership check.
+  if (!hub || hub.owner_id !== user.id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

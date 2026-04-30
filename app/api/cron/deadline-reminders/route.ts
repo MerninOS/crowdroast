@@ -1,13 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendDeadlineReminderEmail } from "@/lib/email";
+import { authorizeCronRequest } from "@/lib/auth/cron-route";
 import { NextResponse } from "next/server";
-
-function getBearerToken(header: string | null) {
-  if (!header) return null;
-  const [scheme, token] = header.split(" ");
-  if (scheme?.toLowerCase() !== "bearer") return null;
-  return token || null;
-}
 
 /**
  * AC-8a: Lot deadline reminder — 24 hours before deadline.
@@ -19,16 +13,8 @@ function getBearerToken(header: string | null) {
  * Schedule suggestion (vercel.json): every hour — "0 * * * *"
  */
 async function sendDeadlineReminders(request: Request) {
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) {
-    return NextResponse.json({ error: "Missing CRON_SECRET" }, { status: 500 });
-  }
-
-  const bearer = getBearerToken(request.headers.get("authorization"));
-  const headerSecret = request.headers.get("x-cron-secret");
-  if (bearer !== cronSecret && headerSecret !== cronSecret) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const unauthorized = authorizeCronRequest(request);
+  if (unauthorized) return unauthorized;
 
   const { searchParams } = new URL(request.url);
   const debug = searchParams.get("debug") === "1";
