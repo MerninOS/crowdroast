@@ -354,6 +354,10 @@ function parseStripeSignature(signatureHeader: string) {
   return { timestamp, signatures };
 }
 
+// Stripe's official tolerance for webhook timestamp drift. Older signed
+// payloads are rejected so a captured webhook can't be replayed indefinitely.
+const STRIPE_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS = 300;
+
 export function verifyStripeWebhookSignature(payload: string, signatureHeader: string) {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!secret) {
@@ -363,12 +367,20 @@ export function verifyStripeWebhookSignature(payload: string, signatureHeader: s
   const { timestamp, signatures } = parseStripeSignature(signatureHeader);
   if (!timestamp || signatures.length === 0) return false;
 
+  const timestampSeconds = Number.parseInt(timestamp, 10);
+  if (!Number.isFinite(timestampSeconds)) return false;
+  const ageSeconds = Math.abs(Math.floor(Date.now() / 1000) - timestampSeconds);
+  if (ageSeconds > STRIPE_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS) return false;
+
   const signedPayload = `${timestamp}.${payload}`;
   const expected = crypto.createHmac("sha256", secret).update(signedPayload, "utf8").digest("hex");
+  const expectedBuffer = Buffer.from(expected, "hex");
 
   return signatures.some((sig) => {
     try {
-      return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+      const sigBuffer = Buffer.from(sig, "hex");
+      if (sigBuffer.length !== expectedBuffer.length) return false;
+      return crypto.timingSafeEqual(sigBuffer, expectedBuffer);
     } catch {
       return false;
     }
