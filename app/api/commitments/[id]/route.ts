@@ -24,7 +24,7 @@ export async function PATCH(
 
   const { data: commitment, error: fetchError } = await supabase
     .from("commitments")
-    .select("id, lot_id, buyer_id, picked_up_at")
+    .select("id, lot_id, buyer_id, hub_id, picked_up_at")
     .eq("id", id)
     .single();
 
@@ -38,24 +38,18 @@ export async function PATCH(
 
   // The caller is allowed if they are either:
   //   (a) the buyer who placed the commitment (self-pickup at hub), or
-  //   (b) the hub owner for the lot's hub (hub-side confirmation).
+  //   (b) the hub owner of the commitment's hub (hub-side confirmation).
+  // Resolve via commitments.hub_id, not lots.hub_id — the latter is frequently
+  // NULL since a lot can be campaigned at different hubs across cycles.
   let allowed = commitment.buyer_id === user.id;
 
-  if (!allowed) {
-    const { data: lot } = await supabase
-      .from("lots")
-      .select("hub_id")
-      .eq("id", commitment.lot_id)
+  if (!allowed && commitment.hub_id) {
+    const { data: hub } = await supabase
+      .from("hubs")
+      .select("owner_id")
+      .eq("id", commitment.hub_id)
       .single();
-
-    if (lot?.hub_id) {
-      const { data: hub } = await supabase
-        .from("hubs")
-        .select("owner_id")
-        .eq("id", lot.hub_id)
-        .single();
-      if (hub?.owner_id === user.id) allowed = true;
-    }
+    if (hub?.owner_id === user.id) allowed = true;
   }
 
   if (!allowed) {
