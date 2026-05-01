@@ -105,6 +105,7 @@ export default async function BuyerCommitmentsPage({
     )
     .eq("buyer_id", user.id)
     .not("stripe_payment_intent_id", "is", null)
+    .neq("status", "cancelled")
     .order("created_at", { ascending: false });
 
   const items = (commitments || []) as Commitment[];
