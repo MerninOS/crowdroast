@@ -1,4 +1,6 @@
+import * as React from "react";
 import { addPlatformFee } from "@/lib/pricing";
+import { UnitWeightText } from "@/components/unit-value";
 import { ContributionsTable } from "./contributions-table";
 import {
   STAGE_META,
@@ -17,9 +19,6 @@ const fmtMoney = (n: number) =>
     currency: "USD",
     maximumFractionDigits: 2,
   }).format(n || 0);
-
-const fmtKg = (n: number) =>
-  new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(n || 0);
 
 const STAGE_PILL_BG: Record<StageColor, string> = {
   tomato: "bg-tomato text-cream",
@@ -82,7 +81,7 @@ export function InMotionDrawerBody({ group }: InMotionDrawerBodyProps) {
         <SummaryStat
           testId="in-motion-stat-settled"
           label="Settled"
-          value={`${fmtKg(settledKg)} kg`}
+          value={<UnitWeightText kg={settledKg} maximumFractionDigits={1} />}
         />
         <SummaryStat
           testId="in-motion-stat-paid"
@@ -114,7 +113,7 @@ function SummaryStat({
   testId,
 }: {
   label: string;
-  value: string;
+  value: React.ReactNode;
   tone?: "matcha";
   testId?: string;
 }) {

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Button } from "@merninos/ui";
 import { addPlatformFee } from "@/lib/pricing";
+import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
 import { ContributionsTable } from "./contributions-table";
 import type { CommitmentGroup } from "../bucket-by-lifecycle";
 
@@ -18,9 +19,6 @@ const fmtMoney = (n: number) =>
     currency: "USD",
     maximumFractionDigits: 2,
   }).format(n || 0);
-
-const fmtKg = (n: number) =>
-  new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(n || 0);
 
 function fmtCountdown(deadline: string | null | undefined): string {
   if (!deadline) return "—";
@@ -93,7 +91,9 @@ export function RaisingDrawerBody({ group, tiers }: RaisingDrawerBodyProps) {
             Below minimum
           </div>
           <div className="mt-1">
-            <span className="font-bold tabular-nums">{fmtKg(gapToMin)} kg</span>{" "}
+            <span className="font-bold tabular-nums">
+              <UnitWeightText kg={gapToMin} maximumFractionDigits={0} />
+            </span>{" "}
             still needed. If the lot doesn't hit its minimum, all commits get
             refunded.
           </div>
@@ -101,13 +101,19 @@ export function RaisingDrawerBody({ group, tiers }: RaisingDrawerBodyProps) {
       )}
 
       <div className="grid grid-cols-2 gap-3 rounded-md border-2 border-espresso bg-chalk p-4">
-        <SummaryStat label="Your commits" value={`${fmtKg(myKg)} kg`} />
+        <SummaryStat
+          label="Your commits"
+          value={<UnitWeightText kg={myKg} maximumFractionDigits={1} />}
+        />
         <SummaryStat label="Your exposure" value={fmtMoney(myExposure)} />
         <SummaryStat
           label="Campaign total"
-          value={`${fmtKg(campaignTotal)} kg`}
+          value={<UnitWeightText kg={campaignTotal} maximumFractionDigits={0} />}
         />
-        <SummaryStat label="Minimum" value={`${fmtKg(minKg)} kg`} />
+        <SummaryStat
+          label="Minimum"
+          value={<UnitWeightText kg={minKg} maximumFractionDigits={0} />}
+        />
       </div>
 
       {sortedTiers.length > 0 && (
@@ -119,6 +125,7 @@ export function RaisingDrawerBody({ group, tiers }: RaisingDrawerBodyProps) {
             {sortedTiers.map((t) => {
               const tierThreshold = Number(t.min_quantity_kg);
               const tierBuyerPrice = addPlatformFee(Number(t.price_per_kg));
+              const tierSellerPrice = Number(t.price_per_kg);
               const unlocked = campaignTotal >= tierThreshold;
               const personalDelta = unlocked
                 ? 0
@@ -136,10 +143,14 @@ export function RaisingDrawerBody({ group, tiers }: RaisingDrawerBodyProps) {
                 >
                   <div className="flex items-center gap-3">
                     <span className="font-headline text-sm font-extrabold tabular-nums text-espresso">
-                      {fmtKg(tierThreshold)} kg
+                      <UnitWeightText kg={tierThreshold} maximumFractionDigits={0} />
                     </span>
                     <span className="font-body text-sm text-espresso/70 tabular-nums">
-                      {fmtMoney(tierBuyerPrice)}/kg
+                      <UnitPriceText
+                        pricePerKg={tierSellerPrice}
+                        currency="USD"
+                        includePlatformFee
+                      />
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
@@ -186,7 +197,13 @@ export function RaisingDrawerBody({ group, tiers }: RaisingDrawerBodyProps) {
   );
 }
 
-function SummaryStat({ label, value }: { label: string; value: string }) {
+function SummaryStat({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
   return (
     <div className="flex flex-col">
       <span className="font-body text-[10px] font-extrabold uppercase tracking-[0.14em] text-espresso/55">

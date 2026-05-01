@@ -1,12 +1,10 @@
 import { Fragment } from "react";
 import type { Commitment } from "@/lib/types";
+import { UnitWeightText } from "@/components/unit-value";
 
 export interface ContributionsTableProps {
   commitments: Commitment[];
 }
-
-const fmtKg = (n: number) =>
-  new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(n || 0);
 
 const fmtMoney = (n: number) =>
   new Intl.NumberFormat("en-US", {
@@ -96,7 +94,10 @@ export function ContributionsTable({ commitments }: ContributionsTableProps) {
                 >
                   <td className="px-3 py-2.5 align-top">{fmtDate(c.created_at)}</td>
                   <td className="px-3 py-2.5 text-right align-top tabular-nums">
-                    {fmtKg(Number(c.quantity_kg || 0))} kg
+                    <UnitWeightText
+                      kg={Number(c.quantity_kg || 0)}
+                      maximumFractionDigits={1}
+                    />
                   </td>
                   <td className="px-3 py-2.5 text-right align-top tabular-nums">
                     {fmtMoney(total)}

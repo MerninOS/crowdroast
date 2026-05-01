@@ -1,4 +1,5 @@
 import { addPlatformFee } from "@/lib/pricing";
+import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
 import { ContributionsTable } from "./contributions-table";
 import type { CommitmentGroup } from "../bucket-by-lifecycle";
 
@@ -18,9 +19,6 @@ const fmtMoney = (n: number) =>
     currency: "USD",
     maximumFractionDigits: 2,
   }).format(n || 0);
-
-const fmtKg = (n: number) =>
-  new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(n || 0);
 
 export function ClosedDrawerBody({
   group,
@@ -127,7 +125,7 @@ export function ClosedDrawerBody({
           className="mt-1 font-headline text-3xl font-bold text-espresso tabular-nums"
           data-testid="closed-quantity"
         >
-          {fmtKg(totalKg)} kg
+          <UnitWeightText kg={totalKg} maximumFractionDigits={1} />
         </div>
       </div>
 
@@ -144,11 +142,18 @@ export function ClosedDrawerBody({
             data-testid="closed-tier-threshold"
           >
             <span className="font-bold tabular-nums">
-              {fmtKg(Number(settledTier.min_quantity_kg))} kg
+              <UnitWeightText
+                kg={Number(settledTier.min_quantity_kg)}
+                maximumFractionDigits={0}
+              />
             </span>{" "}
             tier · final price{" "}
             <span className="font-bold tabular-nums">
-              {fmtMoney(finalBuyerPrice)}/kg
+              <UnitPriceText
+                pricePerKg={Number(settledTier.price_per_kg)}
+                currency="USD"
+                includePlatformFee
+              />
             </span>
           </div>
         </div>
