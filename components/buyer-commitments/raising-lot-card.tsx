@@ -7,6 +7,8 @@ import { ChevronRight } from "lucide-react";
 import { Button, TierBar, type TierBarTick } from "@merninos/ui";
 import { addPlatformFee } from "@/lib/pricing";
 import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
+import { useUnitPreference } from "@/components/unit-provider";
+import { formatUnitPrice, toDisplayWeight } from "@/lib/units";
 import type { CommitmentGroup } from "./bucket-by-lifecycle";
 
 export interface RaisingLotCardProps {
@@ -44,6 +46,8 @@ export function RaisingLotCard({ group, pricingTiers, onSelect, triggerRef }: Ra
     return () => clearInterval(t);
   }, []);
 
+  const { unit } = useUnitPreference();
+
   const lot = group.lot;
   const myCommits = group.commitments.filter((c) => c.status !== "cancelled" && c.payment_status !== "charge_failed");
   const myKg = myCommits.reduce((s, c) => s + Number(c.quantity_kg || 0), 0);
@@ -55,12 +59,14 @@ export function RaisingLotCard({ group, pricingTiers, onSelect, triggerRef }: Ra
   const committedKg = lotCommittedKg > 0 ? lotCommittedKg : myKg;
   const targetKg = Number(lot?.total_quantity_kg || 0);
   const tierMaxes = pricingTiers.map((t) => Number(t.min_quantity_kg));
-  const maxBarUnits = Math.max(targetKg, ...tierMaxes, committedKg, 1);
+  const maxKg = Math.max(targetKg, ...tierMaxes, committedKg, 1);
+  const committedDisplay = toDisplayWeight(committedKg, unit);
+  const maxBarUnits = toDisplayWeight(maxKg, unit);
   const ticks: TierBarTick[] = pricingTiers
     .filter((t) => Number(t.min_quantity_kg) > 0)
     .map((t) => ({
-      position: Number(t.min_quantity_kg),
-      sub: `${new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(addPlatformFee(Number(t.price_per_kg)))}/lb`,
+      position: toDisplayWeight(Number(t.min_quantity_kg), unit),
+      sub: `${formatUnitPrice(addPlatformFee(Number(t.price_per_kg)), unit, "USD")}/${unit}`,
     }));
 
   const nextTier = pricingTiers.find((t) => Number(t.min_quantity_kg) > committedKg);
@@ -130,7 +136,7 @@ export function RaisingLotCard({ group, pricingTiers, onSelect, triggerRef }: Ra
           </div>
         )}
 
-        <TierBar value={committedKg} max={maxBarUnits} ticks={ticks} variant="tomato" />
+        <TierBar value={committedDisplay} max={maxBarUnits} ticks={ticks} variant="tomato" />
 
         <div className="mt-3 flex items-center gap-1.5 font-headline text-[11px] text-espresso">
           {nextTier ? (
