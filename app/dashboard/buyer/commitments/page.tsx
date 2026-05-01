@@ -105,7 +105,6 @@ export default async function BuyerCommitmentsPage({
     )
     .eq("buyer_id", user.id)
     .not("stripe_payment_intent_id", "is", null)
-    .neq("status", "cancelled")
     .order("created_at", { ascending: false });
 
   const items = (commitments || []) as Commitment[];
@@ -209,7 +208,21 @@ export default async function BuyerCommitmentsPage({
     }
   }
 
-  const groups = Array.from(grouped.values());
+  // A "live" group has at least one non-cancelled commitment. We use this to
+  // drop redundant Min-Not-Met cards when a later campaign on the same lot
+  // succeeded — but keep them when the failed campaign is the only thing the
+  // buyer has on that lot (so they still see the refund in their history).
+  const lotsWithLiveGroup = new Set<string>();
+  for (const g of grouped.values()) {
+    if (g.commitments.some((c) => c.status !== "cancelled")) {
+      lotsWithLiveGroup.add(g.lotId);
+    }
+  }
+
+  const groups = Array.from(grouped.values()).filter((g) => {
+    const allCancelled = g.commitments.every((c) => c.status === "cancelled");
+    return !(allCancelled && lotsWithLiveGroup.has(g.lotId));
+  });
   const buckets = bucketByLifecycle(groups);
   const stats = derivePortfolioStats(groups, addPlatformFee);
 
