@@ -149,6 +149,12 @@ export interface Commitment {
   notes: string | null;
   picked_up_at: string | null;
   picked_up_by: string | null;
+  refund_status: string;
+  refunded_amount_cents: number;
+  refunded_at: string | null;
+  refunded_by: string | null;
+  last_refund_id: string | null;
+  refund_reason: string | null;
   created_at: string;
   updated_at: string;
   // Joined fields

@@ -51,6 +51,12 @@ const mkCommit = (over: Partial<Commitment> = {}): Commitment => {
     notes: null,
     picked_up_at: null,
     picked_up_by: null,
+    refund_status: "not_refunded",
+    refunded_amount_cents: 0,
+    refunded_at: null,
+    refunded_by: null,
+    last_refund_id: null,
+    refund_reason: null,
     created_at: dayOffset(-30),
     updated_at: new Date().toISOString(),
   };
