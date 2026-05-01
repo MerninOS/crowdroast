@@ -1,6 +1,7 @@
 import { addPlatformFee } from "@/lib/pricing";
 import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
 import { ContributionsTable } from "./contributions-table";
+import { refundDollarsFor } from "./refund-amount";
 import type { CommitmentGroup } from "../bucket-by-lifecycle";
 
 export interface ClosedDrawerBodyProps {
@@ -40,7 +41,7 @@ export function ClosedDrawerBody({
     0
   );
   const totalRefund = group.commitments.reduce(
-    (s, c) => s + Number(c.refunded_amount_cents || 0),
+    (s, c) => s + refundDollarsFor(c),
     0
   );
 
@@ -55,7 +56,7 @@ export function ClosedDrawerBody({
             Lot didn't hit minimum
           </div>
           <div className="mt-1 font-headline text-3xl font-bold text-espresso tabular-nums">
-            {fmtMoney(totalRefund / 100)} refunded
+            {fmtMoney(totalRefund)} refunded
           </div>
           <div className="mt-2 font-body text-sm text-espresso/70">
             Your card has been credited. No further action needed.

@@ -195,6 +195,47 @@ const PAST_DAYS = 5;
 const COMMITMENT_QUANTITY_KG = 50;
 const COMMITMENT_PRICE_PER_KG = 17.0; // matches PRICING_TIERS[1]
 
+// A min-not-met lot for buyer-1: realistic post-refund state so the
+// commitments page renders a Closed Lots card / drawer in "refund" mode
+// without having to step through the full charge → cron flow.
+//
+// Mirrors what app/api/payments/settle-deadlines/route.ts leaves behind:
+// the cron issues a Stripe refund and writes status=cancelled /
+// payment_status=cancelled on the commitment but does NOT touch
+// refunded_amount_cents — so the drawer's refundDollarsFor() helper has
+// to fall back to total_price for the displayed refund amount.
+const MIN_NOT_MET_LOT = {
+  title: "Sidamo Heirloom — Below Minimum Test",
+  origin_country: "Ethiopia",
+  region: "Sidamo",
+  farm: "Tabe Burka Cooperative",
+  variety: "Heirloom",
+  process: "Washed",
+  altitude_min: 1850,
+  altitude_max: 2050,
+  crop_year: "2025/26",
+  score: 86.0,
+  description:
+    "Test fixture: charged buyer-1 then refunded after the campaign failed to hit minimum.",
+  total_quantity_kg: 200,
+  min_commitment_kg: 100, // intentionally above what buyer-1 will commit
+  price_per_kg: 19.0,
+  currency: "USD",
+  status: "active",
+  flavor_notes: ["bergamot", "stone fruit"],
+  certifications: ["organic"],
+};
+
+const MIN_NOT_MET_PRICING_TIERS = [
+  { min_quantity_kg: 100, price_per_kg: 19.0 },
+  { min_quantity_kg: 150, price_per_kg: 17.5 },
+];
+
+// Buyer-1's commitment on the failed campaign. Below the 100kg minimum
+// so the campaign couldn't have hit it.
+const MIN_NOT_MET_QUANTITY_KG = 30;
+const MIN_NOT_MET_PRICE_PER_KG = 19.0;
+
 // A second lot that has NO campaign and a past expiry_date, so the
 // lot-expiry cron has work to do (the main lot above has an active
 // campaign, which lot-expiry intentionally skips).
@@ -392,6 +433,110 @@ async function createPaidCommitment(
   return data.id;
 }
 
+async function createMinNotMetLot(
+  supabase: SupabaseClient,
+  sellerId: string,
+  hubId: string,
+): Promise<string> {
+  const past = new Date();
+  past.setDate(past.getDate() - PAST_DAYS - 2);
+  const { data, error } = await supabase
+    .from("lots")
+    .insert({
+      seller_id: sellerId,
+      hub_id: hubId,
+      ...MIN_NOT_MET_LOT,
+      committed_quantity_kg: MIN_NOT_MET_QUANTITY_KG,
+      commitment_deadline: past.toISOString(),
+      settlement_status: "minimum_not_met",
+      settlement_processed_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
+async function createMinNotMetPricingTiers(
+  supabase: SupabaseClient,
+  lotId: string,
+): Promise<void> {
+  const rows = MIN_NOT_MET_PRICING_TIERS.map((t) => ({ lot_id: lotId, ...t }));
+  const { error } = await supabase.from("pricing_tiers").insert(rows);
+  if (error) throw error;
+}
+
+async function createFailedCampaign(
+  supabase: SupabaseClient,
+  lotId: string,
+  hubId: string,
+): Promise<string> {
+  const past = new Date();
+  past.setDate(past.getDate() - PAST_DAYS - 2);
+  const { data, error } = await supabase
+    .from("campaigns")
+    .insert({
+      lot_id: lotId,
+      hub_id: hubId,
+      deadline: past.toISOString(),
+      status: "failed",
+      settled_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
+/**
+ * Mirrors the post-cron state from app/api/payments/settle-deadlines after
+ * it issues a Stripe refund on a min-not-met campaign:
+ * - status: cancelled
+ * - payment_status: cancelled
+ * - stripe_payment_intent_id: present (charge happened)
+ * - charge_amount_cents: still the original charged amount
+ * - refunded_amount_cents: 0 (the cron does NOT update this — only the
+ *   admin manual-refund route does)
+ * - payment_error: "Refunded: ..."
+ *
+ * The drawer's refundDollarsFor() helper detects this shape via
+ * payment_status=cancelled + a present payment_intent_id and falls back
+ * to total_price as the displayed refund amount.
+ */
+async function createRefundedMinNotMetCommitment(
+  supabase: SupabaseClient,
+  lotId: string,
+  buyerId: string,
+  hubId: string,
+  campaignId: string,
+): Promise<string> {
+  const total_price = MIN_NOT_MET_QUANTITY_KG * MIN_NOT_MET_PRICE_PER_KG;
+  const chargedAt = new Date();
+  chargedAt.setDate(chargedAt.getDate() - PAST_DAYS - 1);
+  const { data, error } = await supabase
+    .from("commitments")
+    .insert({
+      lot_id: lotId,
+      buyer_id: buyerId,
+      hub_id: hubId,
+      campaign_id: campaignId,
+      quantity_kg: MIN_NOT_MET_QUANTITY_KG,
+      price_per_kg: MIN_NOT_MET_PRICE_PER_KG,
+      total_price,
+      status: "cancelled",
+      payment_status: "cancelled",
+      charge_amount_cents: Math.round(total_price * 100),
+      charge_currency: "USD",
+      charged_at: chargedAt.toISOString(),
+      stripe_payment_intent_id: `pi_seed_minnotmet_${Date.now()}`,
+      payment_error: "Refunded: lot minimum not met by deadline",
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
 // ---- main -------------------------------------------------------------
 
 async function main() {
@@ -470,6 +615,30 @@ async function main() {
 
     const expiredLotId = await createExpiredOnlyLot(supabase, sellerId, hubId);
     console.log(`✓ Expired-only lot created (for lot-expiry cron): ${expiredLotId}`);
+
+    const minNotMetLotId = await createMinNotMetLot(supabase, sellerId, hubId);
+    console.log(`✓ Min-not-met lot created: ${minNotMetLotId}`);
+
+    await createMinNotMetPricingTiers(supabase, minNotMetLotId);
+    console.log(`✓ ${MIN_NOT_MET_PRICING_TIERS.length} pricing tiers created for min-not-met lot`);
+
+    const failedCampaignId = await createFailedCampaign(
+      supabase,
+      minNotMetLotId,
+      hubId,
+    );
+    console.log(`✓ Failed campaign created: ${failedCampaignId}`);
+
+    const refundedCommitmentId = await createRefundedMinNotMetCommitment(
+      supabase,
+      minNotMetLotId,
+      buyerIds[0],
+      hubId,
+      failedCampaignId,
+    );
+    console.log(
+      `✓ Refunded commitment for buyer-1 on failed campaign: ${refundedCommitmentId}`,
+    );
 
     console.log("\nSeed completed.");
   } catch (err) {
