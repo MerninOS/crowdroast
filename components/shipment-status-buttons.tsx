@@ -6,9 +6,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 const nextStatus: Record<string, { label: string; status: string }> = {
-  pending: { label: "Mark Shipped", status: "in_transit" },
   in_transit: { label: "Mark Received", status: "at_hub" },
-  out_for_delivery: { label: "Mark Delivered", status: "delivered" },
 };
 
 export function ShipmentStatusButtons({
