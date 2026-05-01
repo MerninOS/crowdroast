@@ -215,9 +215,11 @@ export function DashboardShell({
 
           <div className="flex-1 lg:hidden" />
 
-          {/* Right rail — unit toggle + user chip */}
+          {/* Unit toggle — visible on every breakpoint */}
+          <UnitToggle />
+
+          {/* Right rail — user chip + sign out (desktop only) */}
           <div className="hidden items-center gap-2.5 lg:flex">
-            <UnitToggle />
             <div className="text-right leading-tight whitespace-nowrap">
               <div className="font-headline text-[14px] font-bold tracking-[-0.01em] text-espresso">
                 {displayName}
