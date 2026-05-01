@@ -1,3 +1,4 @@
+import { ChevronRight } from "lucide-react";
 import { CommitmentPickupButton } from "@/components/commitment-pickup-button";
 import { UnitWeightText } from "@/components/unit-value";
 import { LifecycleTrack } from "./lifecycle-track";
@@ -5,6 +6,8 @@ import { stageOfGroup, type CommitmentGroup } from "./bucket-by-lifecycle";
 
 export interface InMotionLotCardProps {
   group: CommitmentGroup;
+  onSelect?: () => void;
+  triggerRef?: React.Ref<HTMLButtonElement>;
 }
 
 const fmtMoney = (n: number) =>
@@ -19,7 +22,7 @@ function fmtRelDays(iso: string | null | undefined): string | null {
   return `${-d}d ago`;
 }
 
-export function InMotionLotCard({ group }: InMotionLotCardProps) {
+export function InMotionLotCard({ group, onSelect, triggerRef }: InMotionLotCardProps) {
   const lot = group.lot;
   const stage = stageOfGroup(group);
   const succeeded = group.commitments.filter((c) => c.payment_status === "charge_succeeded");
@@ -52,9 +55,22 @@ export function InMotionLotCard({ group }: InMotionLotCardProps) {
             {(lot?.region || lot?.origin_country || "").toString().toUpperCase()}
             {lot?.region && lot?.origin_country ? ` · ${lot.origin_country.toUpperCase()}` : ""}
           </div>
-          <div className="mt-1 font-headline text-[20px] font-bold leading-tight text-espresso">
-            {lot?.title || "Unknown lot"}
-          </div>
+          {onSelect ? (
+            <button
+              ref={triggerRef}
+              type="button"
+              onClick={onSelect}
+              data-testid={`in-motion-card-trigger-${group.groupKey}`}
+              className="mt-1 inline-flex items-center gap-1.5 text-left font-headline text-[20px] font-bold leading-tight text-espresso transition-colors hover:text-tomato focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tomato focus-visible:ring-offset-2 focus-visible:ring-offset-chalk rounded-sm"
+            >
+              {lot?.title || "Unknown lot"}
+              <ChevronRight className="h-4 w-4 shrink-0 text-espresso/55" strokeWidth={2.5} />
+            </button>
+          ) : (
+            <div className="mt-1 font-headline text-[20px] font-bold leading-tight text-espresso">
+              {lot?.title || "Unknown lot"}
+            </div>
+          )}
           <div className="mt-1 font-headline text-xs text-espresso/60">
             <UnitWeightText kg={myKg} maximumFractionDigits={0} /> · {fmtMoney(paid)} settled
             {refunded > 0 && (

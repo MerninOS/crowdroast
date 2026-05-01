@@ -1,9 +1,12 @@
 import Link from "next/link";
+import { ChevronRight } from "lucide-react";
 import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
 import { stageOfGroup, STAGE_META, type CommitmentGroup, type StageColor } from "./bucket-by-lifecycle";
 
 export interface ClosedLotsTableProps {
   groups: CommitmentGroup[];
+  onSelect?: (groupKey: string) => void;
+  registerTriggerRef?: (groupKey: string, el: HTMLButtonElement | null) => void;
 }
 
 const fmtMoney = (n: number) =>
@@ -53,7 +56,7 @@ function buildRow(g: CommitmentGroup) {
   return { stage, securedKg, avg, totalCell, date };
 }
 
-export function ClosedLotsTable({ groups }: ClosedLotsTableProps) {
+export function ClosedLotsTable({ groups, onSelect, registerTriggerRef }: ClosedLotsTableProps) {
   return (
     <>
       {/* Phone: stacked card list (the 6-col table won't fit) */}
@@ -67,12 +70,25 @@ export function ClosedLotsTable({ groups }: ClosedLotsTableProps) {
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
-                  <Link
-                    href={`/dashboard/buyer/lot/${g.lotId}${g.hubId ? `?hub=${g.hubId}` : ""}`}
-                    className="font-headline text-[16px] font-bold leading-tight text-espresso hover:text-tomato"
-                  >
-                    {g.lot?.title || "Unknown lot"}
-                  </Link>
+                  {onSelect ? (
+                    <button
+                      ref={(el) => registerTriggerRef?.(g.groupKey, el)}
+                      type="button"
+                      onClick={() => onSelect(g.groupKey)}
+                      data-testid={`closed-card-trigger-${g.groupKey}`}
+                      className="inline-flex items-center gap-1.5 text-left font-headline text-[16px] font-bold leading-tight text-espresso transition-colors hover:text-tomato focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tomato focus-visible:ring-offset-2 focus-visible:ring-offset-chalk rounded-sm"
+                    >
+                      {g.lot?.title || "Unknown lot"}
+                      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-espresso/55" strokeWidth={2.5} />
+                    </button>
+                  ) : (
+                    <Link
+                      href={`/dashboard/buyer/lot/${g.lotId}${g.hubId ? `?hub=${g.hubId}` : ""}`}
+                      className="font-headline text-[16px] font-bold leading-tight text-espresso hover:text-tomato"
+                    >
+                      {g.lot?.title || "Unknown lot"}
+                    </Link>
+                  )}
                   <div className="mt-0.5 font-headline text-[11px] text-espresso/60">
                     {[g.lot?.region, g.lot?.origin_country].filter(Boolean).join(" · ")}
                   </div>
@@ -127,12 +143,25 @@ export function ClosedLotsTable({ groups }: ClosedLotsTableProps) {
               }`}
             >
               <div>
-                <Link
-                  href={`/dashboard/buyer/lot/${g.lotId}${g.hubId ? `?hub=${g.hubId}` : ""}`}
-                  className="font-headline text-[15px] font-bold leading-tight text-espresso transition-colors hover:text-tomato"
-                >
-                  {g.lot?.title || "Unknown lot"}
-                </Link>
+                {onSelect ? (
+                  <button
+                    ref={(el) => registerTriggerRef?.(g.groupKey, el)}
+                    type="button"
+                    onClick={() => onSelect(g.groupKey)}
+                    data-testid={`closed-row-trigger-${g.groupKey}`}
+                    className="inline-flex items-center gap-1.5 text-left font-headline text-[15px] font-bold leading-tight text-espresso transition-colors hover:text-tomato focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tomato focus-visible:ring-offset-2 focus-visible:ring-offset-chalk rounded-sm"
+                  >
+                    {g.lot?.title || "Unknown lot"}
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-espresso/55" strokeWidth={2.5} />
+                  </button>
+                ) : (
+                  <Link
+                    href={`/dashboard/buyer/lot/${g.lotId}${g.hubId ? `?hub=${g.hubId}` : ""}`}
+                    className="font-headline text-[15px] font-bold leading-tight text-espresso transition-colors hover:text-tomato"
+                  >
+                    {g.lot?.title || "Unknown lot"}
+                  </Link>
+                )}
                 <div className="mt-0.5 text-[11px] text-espresso/60">
                   {[g.lot?.region, g.lot?.origin_country].filter(Boolean).join(" · ")}
                 </div>

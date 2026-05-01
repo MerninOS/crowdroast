@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, type ReactNode } from "react";
 import { RaisingLotCard } from "@/components/buyer-commitments/raising-lot-card";
 import { InMotionLotCard } from "@/components/buyer-commitments/in-motion-lot-card";
 import { ClosedLotsTable } from "@/components/buyer-commitments/closed-lots-table";
 import { CommitmentDrawer } from "@/components/buyer-commitments/commitment-drawer";
+import { UnitWeightText } from "@/components/unit-value";
 import type { BucketedGroups, CommitmentGroup } from "@/components/buyer-commitments/bucket-by-lifecycle";
 import type { PricingTier } from "@/lib/types";
 
@@ -111,6 +112,11 @@ export function BuyerCommitmentsBoard({
                 key={g.groupKey}
                 group={g}
                 pricingTiers={tiersByLotId[g.lotId] || []}
+                onSelect={() => setOpenGroupKey(g.groupKey)}
+                triggerRef={(el) => {
+                  if (el) triggerRefs.current.set(g.groupKey, el);
+                  else triggerRefs.current.delete(g.groupKey);
+                }}
               />
             ))}
           </div>
@@ -123,11 +129,23 @@ export function BuyerCommitmentsBoard({
             title="In Motion"
             count={buckets.inMotion.length}
             accent="sky"
-            note={`${landingKg.toLocaleString()} lb landing soon`}
+            note={
+              <>
+                <UnitWeightText kg={landingKg} maximumFractionDigits={0} /> landing soon
+              </>
+            }
           />
           <div className="mt-4 flex flex-col gap-3.5">
             {buckets.inMotion.map((g) => (
-              <InMotionLotCard key={g.groupKey} group={g} />
+              <InMotionLotCard
+                key={g.groupKey}
+                group={g}
+                onSelect={() => setOpenGroupKey(g.groupKey)}
+                triggerRef={(el) => {
+                  if (el) triggerRefs.current.set(g.groupKey, el);
+                  else triggerRefs.current.delete(g.groupKey);
+                }}
+              />
             ))}
           </div>
         </section>
@@ -142,7 +160,14 @@ export function BuyerCommitmentsBoard({
             note={`${fmtMoney(ytdSpend)} YTD`}
           />
           <div className="mt-4">
-            <ClosedLotsTable groups={buckets.closed} />
+            <ClosedLotsTable
+              groups={buckets.closed}
+              onSelect={(key) => setOpenGroupKey(key)}
+              registerTriggerRef={(key, el) => {
+                if (el) triggerRefs.current.set(key, el);
+                else triggerRefs.current.delete(key);
+              }}
+            />
           </div>
         </section>
       )}
@@ -166,7 +191,7 @@ function SectionHead({
   title: string;
   count: number;
   accent: SectionAccent;
-  note?: string;
+  note?: ReactNode;
 }) {
   return (
     <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1 border-b-2 border-espresso/80 pb-2">
