@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import React from "react";
+
+vi.mock("@/components/unit-provider", () => ({
+  useUnitPreference: () => ({ unit: "kg", setUnit: () => {} }),
+}));
+
 import type { Commitment, Lot } from "@/lib/types";
 import type { CommitmentGroup } from "@/components/buyer-commitments/bucket-by-lifecycle";
 import { InMotionDrawerBody } from "@/components/buyer-commitments/commitment-drawer/in-motion-body";

@@ -4,6 +4,10 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import React, { useState } from "react";
 
+vi.mock("@/components/unit-provider", () => ({
+  useUnitPreference: () => ({ unit: "kg", setUnit: () => {} }),
+}));
+
 // Mock @merninos/ui Drawer parts to avoid the npm-link / dupe-React symlink
 // issue in unit tests. We're testing the wrapper's state management; Radix
 // Dialog's own behavior is verified via the manual cross-browser sweep in

@@ -20,6 +20,11 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+// Force kg unit so legacy assertions like "50 kg" / "$9.90/kg" stay stable.
+vi.mock("@/components/unit-provider", () => ({
+  useUnitPreference: () => ({ unit: "kg", setUnit: () => {} }),
+}));
+
 import { RaisingDrawerBody } from "@/components/buyer-commitments/commitment-drawer/raising-body";
 
 function makeCommit(over: Partial<Commitment> = {}): Commitment {
