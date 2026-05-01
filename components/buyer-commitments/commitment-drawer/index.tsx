@@ -11,6 +11,9 @@ import {
 } from "@merninos/ui";
 import { stageOfGroup, type CommitmentGroup } from "../bucket-by-lifecycle";
 import type { PricingTier } from "@/lib/types";
+import { RaisingDrawerBody } from "./raising-body";
+import { InMotionDrawerBody } from "./in-motion-body";
+import { ClosedDrawerBody } from "./closed-body";
 
 export interface CommitmentDrawerProps {
   open: boolean;
@@ -71,22 +74,22 @@ export function CommitmentDrawer({
             <DrawerBody>
               {dataMode === "raising" && (
                 <div data-testid="drawer-body-raising">
-                  Raising body — placeholder (Stage 3)
+                  <RaisingDrawerBody group={group} tiers={tiers} />
                 </div>
               )}
               {dataMode === "in-motion" && (
                 <div data-testid="drawer-body-in-motion">
-                  In motion body — placeholder (Stage 3)
+                  <InMotionDrawerBody group={group} />
                 </div>
               )}
               {dataMode === "closed-value" && (
                 <div data-testid="drawer-body-closed-value">
-                  Closed (value) body — placeholder (Stage 3)
+                  <ClosedDrawerBody group={group} mode="value" tiers={tiers} />
                 </div>
               )}
               {dataMode === "min-not-met" && (
                 <div data-testid="drawer-body-min-not-met">
-                  Closed (refund) body — placeholder (Stage 3)
+                  <ClosedDrawerBody group={group} mode="refund" tiers={tiers} />
                 </div>
               )}
             </DrawerBody>

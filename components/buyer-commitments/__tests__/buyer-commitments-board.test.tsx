@@ -44,6 +44,7 @@ vi.mock("@merninos/ui", () => {
     DrawerOverlay: Passthrough,
     DrawerPortal: Passthrough,
     DrawerTrigger: Passthrough,
+    Button: ({ children, asChild, ...rest }: any) => <div {...rest}>{children}</div>,
   };
 });
 
