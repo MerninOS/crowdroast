@@ -1,6 +1,7 @@
 import { Fragment } from "react";
 import type { Commitment } from "@/lib/types";
 import { UnitWeightText } from "@/components/unit-value";
+import { refundDollarsFor } from "./refund-amount";
 
 export interface ContributionsTableProps {
   commitments: Commitment[];
@@ -80,9 +81,9 @@ export function ContributionsTable({ commitments }: ContributionsTableProps) {
               c.charge_amount_cents != null
                 ? c.charge_amount_cents / 100
                 : Number(c.total_price || 0);
-            const refundCents = c.refunded_amount_cents ?? 0;
+            const refundDollars = refundDollarsFor(c);
             const refundedAt = c.refunded_at;
-            const hasRefund = refundCents > 0;
+            const hasRefund = refundDollars > 0;
             const isLast = idx === rows.length - 1;
             const parentBorder = hasRefund || !isLast ? "border-b border-espresso/15" : "";
             const refundBorder = !isLast ? "border-b border-espresso/15" : "";
@@ -121,7 +122,7 @@ export function ContributionsTable({ commitments }: ContributionsTableProps) {
                       colSpan={4}
                       className="bg-tomato/5 px-3 py-2 text-left font-body text-xs italic text-tomato"
                     >
-                      Refunded {fmtMoney(refundCents / 100)}
+                      Refunded {fmtMoney(refundDollars)}
                       {refundedAt ? ` on ${fmtDate(refundedAt)}` : ""}
                     </td>
                   </tr>
