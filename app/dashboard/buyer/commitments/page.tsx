@@ -13,9 +13,7 @@ import {
 } from "@/components/buyer-commitments/bucket-by-lifecycle";
 import { PortfolioStrip } from "@/components/buyer-commitments/portfolio-strip";
 import { NeedsAttentionCard } from "@/components/buyer-commitments/needs-attention-card";
-import { RaisingLotCard } from "@/components/buyer-commitments/raising-lot-card";
-import { InMotionLotCard } from "@/components/buyer-commitments/in-motion-lot-card";
-import { ClosedLotsTable } from "@/components/buyer-commitments/closed-lots-table";
+import { BuyerCommitmentsBoard } from "@/components/buyer-commitments/buyer-commitments-board";
 
 async function syncPendingSetupCommitments(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -266,54 +264,12 @@ export default async function BuyerCommitmentsPage({
         </section>
       )}
 
-      {buckets.raising.length > 0 && (
-        <section className="mb-9">
-          <SectionHead
-            title="Still Raising"
-            count={buckets.raising.length}
-            accent="tomato"
-          />
-          <div className="mt-4 flex flex-col gap-4">
-            {buckets.raising.map((g) => (
-              <RaisingLotCard
-                key={g.groupKey}
-                group={g}
-                pricingTiers={tiersByLotId[g.lotId] || []}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {buckets.inMotion.length > 0 && (
-        <section className="mb-9">
-          <SectionHead
-            title="In Motion"
-            count={buckets.inMotion.length}
-            accent="sky"
-            note={`${stats.landingKg.toLocaleString()} lb landing soon`}
-          />
-          <div className="mt-4 flex flex-col gap-3.5">
-            {buckets.inMotion.map((g) => (
-              <InMotionLotCard key={g.groupKey} group={g} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {buckets.closed.length > 0 && (
-        <section>
-          <SectionHead
-            title="Closed Lots"
-            count={buckets.closed.length}
-            accent="fog"
-            note={`${new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(stats.ytdSpend)} YTD`}
-          />
-          <div className="mt-4">
-            <ClosedLotsTable groups={buckets.closed} />
-          </div>
-        </section>
-      )}
+      <BuyerCommitmentsBoard
+        buckets={buckets}
+        tiersByLotId={tiersByLotId}
+        landingKg={stats.landingKg}
+        ytdSpend={stats.ytdSpend}
+      />
     </div>
   );
 }

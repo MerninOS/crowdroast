@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { forwardRef, useEffect, useState } from "react";
+import { ChevronRight } from "lucide-react";
 import { Button, TierBar, type TierBarTick } from "@merninos/ui";
 import { addPlatformFee } from "@/lib/pricing";
 import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
@@ -12,6 +13,10 @@ export interface RaisingLotCardProps {
   group: CommitmentGroup;
   /** Sorted ascending by min_quantity_kg from the page query. */
   pricingTiers: { min_quantity_kg: number; price_per_kg: number }[];
+  /** Fired when the buyer wants to open the per-lot drawer. */
+  onSelect?: () => void;
+  /** Forwarded to the chevron button so the parent can return focus on close. */
+  triggerRef?: React.Ref<HTMLButtonElement>;
 }
 
 const fmtMoney = (n: number) =>
@@ -32,7 +37,7 @@ function fmtCountdown(deadline: string | null | undefined, nowMs: number): { lab
   return { label: `${s}s`, goingFast };
 }
 
-export function RaisingLotCard({ group, pricingTiers }: RaisingLotCardProps) {
+export function RaisingLotCard({ group, pricingTiers, onSelect, triggerRef }: RaisingLotCardProps) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -65,7 +70,7 @@ export function RaisingLotCard({ group, pricingTiers }: RaisingLotCardProps) {
 
   return (
     <div
-      className={`relative grid grid-cols-1 overflow-hidden rounded-[14px] border-[3px] bg-chalk shadow-flat-md md:grid-cols-[180px_1fr_220px] ${
+      className={`grid grid-cols-1 overflow-hidden rounded-[14px] border-[3px] bg-chalk shadow-flat-md md:grid-cols-[180px_1fr_220px] ${
         goingFast ? "border-tomato" : "border-espresso"
       }`}
     >
@@ -100,12 +105,25 @@ export function RaisingLotCard({ group, pricingTiers }: RaisingLotCardProps) {
           {(lot?.region || lot?.origin_country || "").toString().toUpperCase()}
           {lot?.region && lot?.origin_country ? ` · ${lot.origin_country.toUpperCase()}` : ""}
         </div>
-        <Link
-          href={`/dashboard/buyer/lot/${group.lotId}${group.hubId ? `?hub=${group.hubId}` : ""}`}
-          className="mt-1 font-headline text-[20px] font-bold leading-tight text-espresso transition-colors hover:text-tomato"
-        >
-          {lot?.title || "Unknown lot"}
-        </Link>
+        {onSelect ? (
+          <button
+            ref={triggerRef}
+            type="button"
+            onClick={onSelect}
+            data-testid={`raising-card-trigger-${group.groupKey}`}
+            className="mt-1 inline-flex items-center gap-1.5 text-left font-headline text-[20px] font-bold leading-tight text-espresso transition-colors hover:text-tomato focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tomato focus-visible:ring-offset-2 focus-visible:ring-offset-chalk rounded-sm"
+          >
+            {lot?.title || "Unknown lot"}
+            <ChevronRight className="h-4 w-4 shrink-0 text-espresso/55" strokeWidth={2.5} />
+          </button>
+        ) : (
+          <Link
+            href={`/dashboard/buyer/lot/${group.lotId}${group.hubId ? `?hub=${group.hubId}` : ""}`}
+            className="mt-1 font-headline text-[20px] font-bold leading-tight text-espresso transition-colors hover:text-tomato"
+          >
+            {lot?.title || "Unknown lot"}
+          </Link>
+        )}
         {(lot?.farm || lot?.process) && (
           <div className="mb-3.5 mt-1 font-headline text-xs italic text-espresso/60">
             {[lot?.farm, lot?.process].filter(Boolean).join(" · ")}

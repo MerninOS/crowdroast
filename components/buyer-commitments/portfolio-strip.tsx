@@ -1,4 +1,5 @@
 import { StatCard } from "@merninos/ui";
+import { UnitWeightText } from "@/components/unit-value";
 import type { PortfolioStats } from "./bucket-by-lifecycle";
 
 export interface PortfolioStripProps {
@@ -11,11 +12,6 @@ const fmtMoney = (n: number) =>
     currency: "USD",
     maximumFractionDigits: 0,
   }).format(n || 0);
-
-const fmtKg = (kg: number) =>
-  kg >= 1000
-    ? `${(kg / 1000).toFixed(2).replace(/\.?0+$/, "")} t`
-    : `${(kg || 0).toLocaleString()} lb`;
 
 /**
  * 4-card portfolio strip for the buyer commitments page.
@@ -49,7 +45,11 @@ export function PortfolioStrip({ stats }: PortfolioStripProps) {
         className={cardClass}
         variant="sky"
         label="Landing Soon"
-        value={<Val>{fmtKg(stats.landingKg)}</Val>}
+        value={
+          <Val>
+            <UnitWeightText kg={stats.landingKg} maximumFractionDigits={0} />
+          </Val>
+        }
         sub={`${stats.inMotionCount} in motion`}
       />
       <StatCard

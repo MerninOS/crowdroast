@@ -7,6 +7,7 @@ export default defineConfig({
   test: {
     globals: true,
     include: ["**/*.test.{ts,tsx}"],
+    exclude: ["**/node_modules/**", "**/.claude/**", "**/.next/**"],
     environmentMatchGlobs: [
       // Component tests run in jsdom
       ["app/browse/**/*.test.tsx", "jsdom"],
