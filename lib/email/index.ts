@@ -31,6 +31,7 @@ import { renderBuyerHubInviteHtml } from "./templates/BuyerHubInvite";
 import { renderLotShippedHtml } from "./templates/LotShipped";
 import { renderReadyForPickupHtml } from "./templates/ReadyForPickup";
 import { renderReferralSignupHtml } from "./templates/ReferralSignup";
+import { renderReferralCreditEarnedHtml } from "./templates/ReferralCreditEarned";
 import type { Profile, Hub, Lot, Commitment } from "@/lib/types";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://crowdroast.com";
@@ -724,6 +725,33 @@ export async function sendReferralSignupEmail(
   return sendEmail({
     to: params.inviter.email,
     subject: `${inviteeName} joined ${params.hubName} via your invite`,
+    html,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Buyer-referral: invitee's lot settled successfully → inviter earned $10
+// ---------------------------------------------------------------------------
+
+export interface ReferralCreditEarnedEmailParams {
+  inviter: Pick<Profile, "email" | "contact_name">;
+  inviteeName: string;
+  lotTitle: string | null;
+}
+
+export async function sendReferralCreditEarnedEmail(
+  params: ReferralCreditEarnedEmailParams
+): Promise<SendEmailResult> {
+  if (!params.inviter.email) return { success: false, error: "Inviter has no email address" };
+  const html = await renderReferralCreditEarnedHtml({
+    inviterName: params.inviter.contact_name || "there",
+    inviteeName: params.inviteeName,
+    lotTitle: params.lotTitle,
+    dashboardUrl: `${APP_URL}/dashboard/buyer`,
+  });
+  return sendEmail({
+    to: params.inviter.email,
+    subject: `${params.inviteeName}'s lot closed — you've earned $10 in credits`,
     html,
   });
 }

@@ -4,6 +4,7 @@ import { authorizeCronRequest } from "@/lib/auth/cron-route";
 import {
   sendLotClosedEmailsBatch,
   sendLotFailedEmail,
+  sendReferralCreditEarnedEmail,
 } from "@/lib/email";
 import { finalizeCampaign } from "@/lib/lots/finalize-campaign";
 import { createShipmentForLot } from "@/lib/shipments";
@@ -973,8 +974,37 @@ async function settleDeadlines(request: Request) {
         // invitee's first-charged commitment was this one, flip the pending
         // attribution to earned and emit the +$10 credit_ledger row for the
         // inviter. Idempotent — partial unique index handles cron retries.
+        // When the helper signals a fresh ledger insert (earned=true), fire
+        // ReferralCreditEarned to the inviter as a background task so a
+        // delivery hiccup never fails the cron loop.
         if (!debug) {
-          await settleAttributionIfPending(admin, commitment.id);
+          const settleResult = await settleAttributionIfPending(admin, commitment.id);
+          if (settleResult.earned && settleResult.inviterUserId) {
+            const inviterUserId = settleResult.inviterUserId;
+            backgroundTasks.push(
+              (async () => {
+                const { data: inviterProfile } = await admin
+                  .from("profiles")
+                  .select("email, contact_name")
+                  .eq("id", inviterUserId)
+                  .maybeSingle();
+                const { data: inviteeProfile } = await admin
+                  .from("profiles")
+                  .select("contact_name")
+                  .eq("id", commitment.buyer_id)
+                  .maybeSingle();
+                if (!inviterProfile?.email) return;
+                await sendReferralCreditEarnedEmail({
+                  inviter: {
+                    email: inviterProfile.email,
+                    contact_name: inviterProfile.contact_name,
+                  },
+                  inviteeName: inviteeProfile?.contact_name || "A new roaster",
+                  lotTitle: lot?.title ?? null,
+                });
+              })().catch(() => undefined)
+            );
+          }
         }
 
         succeededCount += 1;
