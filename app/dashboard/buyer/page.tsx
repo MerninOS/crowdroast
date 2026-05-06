@@ -7,6 +7,7 @@ import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
 import { LeaveHubButton } from "@/components/leave-hub-button";
 import { FeaturedRoastHero } from "@/components/featured-roast-hero";
 import { InviteShareCard } from "@/components/referrals/InviteShareCard";
+import { MyReferralsList } from "@/components/referrals/MyReferralsList";
 
 function getHubName(memberships: any[], hubId: string) {
   const membership = memberships.find((m: any) => m.hub_id === hubId);
@@ -266,12 +267,11 @@ export default async function BuyerOverview({
       )}
 
       {/* Referral surfaces — render only when buyer has at least one
-          membership (the InviteShareCard returns null on its own when the
-          POST /api/invite-codes endpoint 403s). Future cards
-          (CreditBalanceCard, MyReferralsList) slot here too. */}
+          membership. CreditBalanceCard slots here next. */}
       {(memberships?.length ?? 0) > 0 && (
-        <div className="mb-8">
+        <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-4">
           <InviteShareCard />
+          <MyReferralsList />
         </div>
       )}
 
