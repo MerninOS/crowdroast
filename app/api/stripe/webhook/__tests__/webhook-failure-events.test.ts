@@ -39,6 +39,11 @@ function makeChain(table: string) {
       filters.push({ op: "is", col, val });
       return chain;
     }),
+    // Post-update commitment lookup added by buyer-referral wiring uses
+    // .maybeSingle(); resolving to null means the helper short-circuits
+    // (no commitment row to look up an inviter for) which is fine for these
+    // failure-path tests that don't need attribution behavior.
+    maybeSingle: vi.fn(async () => ({ data: null, error: null })),
     then: (resolve: (v: unknown) => void) => {
       if (pendingPayload) {
         updateCalls.push({ table, payload: pendingPayload, filters: [...filters] });

@@ -21,6 +21,7 @@ import {
   computeSplit,
   getFinalPricePerKg,
 } from "@/lib/payments/settlement-logic";
+import { insertReferralAttributionIfEligible } from "@/lib/referrals/insert-attribution";
 import { NextResponse } from "next/server";
 
 function isMissingPlatformSettingsTable(error: { message?: string } | null) {
@@ -734,6 +735,12 @@ async function settleDeadlines(request: Request) {
                 payment_status: "charge_succeeded",
               })
               .eq("id", commitment.id);
+
+            // Buyer-referral: settlement just self-corrected this commitment
+            // to charge_succeeded after a missed webhook. Helper is
+            // idempotent so calling it here is safe even if the webhook
+            // ever lands later.
+            await insertReferralAttributionIfEligible(admin, commitment.id);
           }
         } catch {
           // Keep original flow below; commitment will be marked failed with details.
