@@ -36,6 +36,11 @@ function SignUpForm() {
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
+  // Buyer referral invites: any ?invite=[code] query param is threaded through
+  // raw_user_meta_data so the handle_new_user trigger (migration 32) writes
+  // profile + hub_members attribution at signup time.
+  const inviteCode = searchParams.get("invite") ?? "";
+
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     const supabase = createClient();
@@ -49,6 +54,13 @@ function SignUpForm() {
     }
 
     try {
+      const signUpData: Record<string, unknown> = {
+        role: "buyer",
+        company_name: companyName,
+        contact_name: contactName,
+      };
+      if (inviteCode) signUpData.invite_code = inviteCode;
+
       const { error } = await supabase.auth.signUp({
         email,
         password,
@@ -56,11 +68,7 @@ function SignUpForm() {
           emailRedirectTo:
             process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ||
             `${window.location.origin}/dashboard`,
-          data: {
-            role: "buyer",
-            company_name: companyName,
-            contact_name: contactName,
-          },
+          data: signUpData,
         },
       });
       if (error) throw error;

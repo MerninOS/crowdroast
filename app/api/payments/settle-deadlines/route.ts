@@ -4,6 +4,7 @@ import { authorizeCronRequest } from "@/lib/auth/cron-route";
 import {
   sendLotClosedEmailsBatch,
   sendLotFailedEmail,
+  sendReferralCreditEarnedEmail,
 } from "@/lib/email";
 import { finalizeCampaign } from "@/lib/lots/finalize-campaign";
 import { createShipmentForLot } from "@/lib/shipments";
@@ -21,6 +22,10 @@ import {
   computeSplit,
   getFinalPricePerKg,
 } from "@/lib/payments/settlement-logic";
+import { insertReferralAttributionIfEligible } from "@/lib/referrals/insert-attribution";
+import { settleAttributionIfPending } from "@/lib/referrals/settle-attribution";
+import { voidAttributionsForCampaign } from "@/lib/referrals/void-attribution";
+import { applyInviterCreditOnSettle } from "@/lib/referrals/apply-credit";
 import { NextResponse } from "next/server";
 
 function isMissingPlatformSettingsTable(error: { message?: string } | null) {
@@ -521,6 +526,12 @@ async function settleDeadlines(request: Request) {
 
       // AC-7: notify all parties that the campaign failed
       if (!debug) backgroundTasks.push(sendLotFailedNotifications(admin, lot.id, campaign.hub_id));
+
+      // Buyer-referral: lot failed → void any pending attributions tied to
+      // this campaign. Earned attributions are untouched (criterion 8).
+      // No credit_ledger writes — voiding never moves money.
+      if (!debug) await voidAttributionsForCampaign(admin, campaign.id);
+
       continue;
     }
 
@@ -734,6 +745,12 @@ async function settleDeadlines(request: Request) {
                 payment_status: "charge_succeeded",
               })
               .eq("id", commitment.id);
+
+            // Buyer-referral: settlement just self-corrected this commitment
+            // to charge_succeeded after a missed webhook. Helper is
+            // idempotent so calling it here is safe even if the webhook
+            // ever lands later.
+            await insertReferralAttributionIfEligible(admin, commitment.id);
           }
         } catch {
           // Keep original flow below; commitment will be marked failed with details.
@@ -866,7 +883,22 @@ async function settleDeadlines(request: Request) {
           "crowdroast",
           crowdroastDestinationAccount
         );
-        const missingPlatformAmount = Math.max(0, split.platformAmount - existingPlatformAmount);
+
+        // Buyer-referral: apply the buyer's credit balance against Mernin's
+        // share on this commit (criteria 9, 10). Inserts a single negative
+        // credit_ledger row and reduces Mernin's effective platform target
+        // by that amount. Idempotent across cron retries via the partial
+        // unique index on (source_commitment_id) WHERE reason='commit_applied'.
+        const creditApplication = debug
+          ? { applied: 0, adjustedPlatformAmountCents: split.platformAmount, ledgerRowInserted: false }
+          : await applyInviterCreditOnSettle(admin, {
+              commitmentId: commitment.id,
+              buyerId: commitment.buyer_id,
+              platformAmountCents: split.platformAmount,
+            });
+
+        const adjustedPlatformAmount = creditApplication.adjustedPlatformAmountCents;
+        const missingPlatformAmount = Math.max(0, adjustedPlatformAmount - existingPlatformAmount);
         if (debug) {
           debugCommitments.push({
             commitment_id: commitment.id,
@@ -937,6 +969,43 @@ async function settleDeadlines(request: Request) {
             payment_error: null,
           })
           .eq("id", commitment.id);
+
+        // Buyer-referral: lot settled successfully for this commit. If the
+        // invitee's first-charged commitment was this one, flip the pending
+        // attribution to earned and emit the +$10 credit_ledger row for the
+        // inviter. Idempotent — partial unique index handles cron retries.
+        // When the helper signals a fresh ledger insert (earned=true), fire
+        // ReferralCreditEarned to the inviter as a background task so a
+        // delivery hiccup never fails the cron loop.
+        if (!debug) {
+          const settleResult = await settleAttributionIfPending(admin, commitment.id);
+          if (settleResult.earned && settleResult.inviterUserId) {
+            const inviterUserId = settleResult.inviterUserId;
+            backgroundTasks.push(
+              (async () => {
+                const { data: inviterProfile } = await admin
+                  .from("profiles")
+                  .select("email, contact_name")
+                  .eq("id", inviterUserId)
+                  .maybeSingle();
+                const { data: inviteeProfile } = await admin
+                  .from("profiles")
+                  .select("contact_name")
+                  .eq("id", commitment.buyer_id)
+                  .maybeSingle();
+                if (!inviterProfile?.email) return;
+                await sendReferralCreditEarnedEmail({
+                  inviter: {
+                    email: inviterProfile.email,
+                    contact_name: inviterProfile.contact_name,
+                  },
+                  inviteeName: inviteeProfile?.contact_name || "A new roaster",
+                  lotTitle: lot?.title ?? null,
+                });
+              })().catch(() => undefined)
+            );
+          }
+        }
 
         succeededCount += 1;
       } catch (transferError) {

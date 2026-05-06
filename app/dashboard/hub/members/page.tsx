@@ -80,7 +80,9 @@ export default function HubMembersPage() {
       const [membersResult, requestsResult] = await Promise.all([
         supabase
           .from("hub_members")
-          .select("*, profile:profiles!hub_members_user_id_fkey(company_name, contact_name, email)")
+          .select(
+            "*, profile:profiles!hub_members_user_id_fkey(company_name, contact_name, email), inviter:profiles!hub_members_invited_by_user_id_fkey(contact_name)"
+          )
           .eq("hub_id", selectedHubId)
           .order("joined_at", { ascending: false }),
         supabase
@@ -356,7 +358,16 @@ export default function HubMembersPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {members.map((m) => (
+                {members.map((m) => {
+                  const inviterRel = (m as any).inviter as
+                    | { contact_name: string | null }
+                    | { contact_name: string | null }[]
+                    | null
+                    | undefined;
+                  const inviterName = Array.isArray(inviterRel)
+                    ? inviterRel[0]?.contact_name
+                    : inviterRel?.contact_name;
+                  return (
                   <TableRow key={m.id}>
                     <TableCell>
                       <p className="font-medium">
@@ -367,6 +378,18 @@ export default function HubMembersPage() {
                       )}
                       {!m.profile?.email && m.invited_email && (
                         <p className="text-xs text-muted-foreground">{m.invited_email}</p>
+                      )}
+                      {inviterName && (
+                        <p
+                          className="mt-1 inline-block rounded-pill border-2 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em]"
+                          style={{
+                            borderColor: "#1C0F05",
+                            background: "#D8D0B8",
+                            color: "#1C0F05",
+                          }}
+                        >
+                          Invited by {inviterName}
+                        </p>
                       )}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
@@ -391,7 +414,8 @@ export default function HubMembersPage() {
                       </Button>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           </CardContent>

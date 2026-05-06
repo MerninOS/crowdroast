@@ -537,6 +537,205 @@ async function createRefundedMinNotMetCommitment(
   return data.id;
 }
 
+// ---- buyer-referral fixture -----------------------------------------------
+// Sets up a settle-eligible flow where buyer-1 invited buyer-2:
+//
+//   - invite_codes row for buyer-1 (code: 'seedinvite')
+//   - buyer-1 + buyer-2 are active members of the hub
+//   - buyer-2's profile is attributed to buyer-1 (mirrors the trigger)
+//   - a fresh lot + active campaign past-deadline + committed quantity
+//     above minimum, with buyer-2's commitment in 'charge_succeeded'
+//   - a referral_attributions(pending) row linking buyer-1 → buyer-2 via
+//     this commitment
+//
+// Running settle-deadlines against this state should: settle the campaign,
+// flip the attribution to 'earned', and insert a +$10 credit_ledger row
+// for buyer-1. Used for manual QA in Stage 4.
+
+const REFERRAL_INVITE_CODE = "seedinvite";
+
+const REFERRAL_LOT = {
+  title: "Yirgacheffe G1 — Referral Settle Test",
+  origin_country: "Ethiopia",
+  region: "Yirgacheffe",
+  farm: "Konga Cooperative",
+  variety: "Heirloom",
+  process: "Washed",
+  altitude_min: 1900,
+  altitude_max: 2100,
+  crop_year: "2025/26",
+  score: 87.5,
+  description:
+    "Test fixture: buyer-2 was invited by buyer-1, charge succeeded, campaign meets minimum. Run settle-deadlines to earn buyer-1 their $10 credit.",
+  total_quantity_kg: 100,
+  min_commitment_kg: 25,
+  price_per_kg: 22.0,
+  currency: "USD",
+  status: "active",
+  flavor_notes: ["jasmine", "lemon"],
+  certifications: [],
+};
+
+const REFERRAL_QUANTITY_KG = 30;
+const REFERRAL_PRICE_PER_KG = 22.0;
+
+async function ensureHubMember(
+  supabase: SupabaseClient,
+  hubId: string,
+  userId: string,
+  invitedByUserId: string | null,
+): Promise<void> {
+  // hub_members has partial unique indexes only:
+  //   - (user_id) WHERE status='active'      — one active hub per buyer
+  //   - (hub_id, user_id) WHERE user_id IS NOT NULL
+  // Supabase .upsert needs a non-partial constraint to target, so do an
+  // explicit existence check then insert. Idempotent on re-run.
+  const { data: existing } = await supabase
+    .from("hub_members")
+    .select("id, hub_id, status")
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .maybeSingle();
+
+  if (existing) return; // user is already active somewhere — leave it alone
+
+  const { error } = await supabase.from("hub_members").insert({
+    hub_id: hubId,
+    user_id: userId,
+    status: "active",
+    role: "buyer",
+    joined_at: new Date().toISOString(),
+    invited_by_user_id: invitedByUserId,
+  });
+  if (error && error.code !== "23505") throw error;
+}
+
+async function createReferralInviteCode(
+  supabase: SupabaseClient,
+  inviterUserId: string,
+  hubId: string,
+): Promise<void> {
+  const { error } = await supabase.from("invite_codes").insert({
+    code: REFERRAL_INVITE_CODE,
+    inviter_user_id: inviterUserId,
+    hub_id: hubId,
+  });
+  if (error && error.code !== "23505") throw error;
+}
+
+async function attributeBuyerToInviter(
+  supabase: SupabaseClient,
+  inviteeId: string,
+  inviterId: string,
+): Promise<void> {
+  // The lock-once trigger blocks updates if invited_by_user_id is already
+  // set to a different value, so this is safe-to-rerun only when the
+  // existing value is null or already equals inviterId.
+  const { error } = await supabase
+    .from("profiles")
+    .update({
+      invited_by_user_id: inviterId,
+      invite_code_used: REFERRAL_INVITE_CODE,
+    })
+    .eq("id", inviteeId)
+    .is("invited_by_user_id", null);
+  if (error) throw error;
+}
+
+async function createReferralLot(
+  supabase: SupabaseClient,
+  sellerId: string,
+  hubId: string,
+): Promise<string> {
+  const past = new Date();
+  past.setDate(past.getDate() - PAST_DAYS - 2);
+  const { data, error } = await supabase
+    .from("lots")
+    .insert({
+      seller_id: sellerId,
+      hub_id: hubId,
+      ...REFERRAL_LOT,
+      committed_quantity_kg: REFERRAL_QUANTITY_KG,
+      commitment_deadline: past.toISOString(),
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
+async function createReferralCampaign(
+  supabase: SupabaseClient,
+  lotId: string,
+  hubId: string,
+): Promise<string> {
+  const past = new Date();
+  past.setDate(past.getDate() - PAST_DAYS - 2);
+  const { data, error } = await supabase
+    .from("campaigns")
+    .insert({
+      lot_id: lotId,
+      hub_id: hubId,
+      deadline: past.toISOString(),
+      status: "active",
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
+async function createReferralPaidCommitment(
+  supabase: SupabaseClient,
+  lotId: string,
+  buyerId: string,
+  hubId: string,
+  campaignId: string,
+): Promise<string> {
+  const total_price = REFERRAL_QUANTITY_KG * REFERRAL_PRICE_PER_KG;
+  const chargedAt = new Date();
+  chargedAt.setDate(chargedAt.getDate() - PAST_DAYS - 1);
+  const { data, error } = await supabase
+    .from("commitments")
+    .insert({
+      lot_id: lotId,
+      buyer_id: buyerId,
+      hub_id: hubId,
+      campaign_id: campaignId,
+      quantity_kg: REFERRAL_QUANTITY_KG,
+      price_per_kg: REFERRAL_PRICE_PER_KG,
+      total_price,
+      status: "confirmed",
+      payment_status: "charge_succeeded",
+      charge_amount_cents: Math.round(total_price * 100),
+      charge_currency: "USD",
+      charged_at: chargedAt.toISOString(),
+      stripe_payment_intent_id: `pi_seed_referral_${Date.now()}`,
+      stripe_charge_id: `ch_seed_referral_${Date.now()}`,
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
+async function createPendingReferralAttribution(
+  supabase: SupabaseClient,
+  inviterId: string,
+  inviteeId: string,
+  commitmentId: string,
+  campaignId: string,
+): Promise<void> {
+  const { error } = await supabase.from("referral_attributions").insert({
+    inviter_user_id: inviterId,
+    invitee_user_id: inviteeId,
+    commitment_id: commitmentId,
+    campaign_id: campaignId,
+    status: "pending",
+  });
+  if (error && error.code !== "23505") throw error;
+}
+
 // ---- main -------------------------------------------------------------
 
 async function main() {
@@ -639,6 +838,45 @@ async function main() {
     console.log(
       `✓ Refunded commitment for buyer-1 on failed campaign: ${refundedCommitmentId}`,
     );
+
+    // ---- buyer-referral fixture: buyer-1 invited buyer-2 ----
+    if (buyerIds.length >= 2) {
+      await ensureHubMember(supabase, hubId, buyerIds[0], null);
+      await ensureHubMember(supabase, hubId, buyerIds[1], buyerIds[0]);
+      console.log("✓ buyer-1 and buyer-2 active in hub for referral fixture");
+
+      await createReferralInviteCode(supabase, buyerIds[0], hubId);
+      console.log(`✓ Invite code created: ${REFERRAL_INVITE_CODE}`);
+
+      await attributeBuyerToInviter(supabase, buyerIds[1], buyerIds[0]);
+      console.log("✓ buyer-2 attributed to buyer-1");
+
+      const referralLotId = await createReferralLot(supabase, sellerId, hubId);
+      console.log(`✓ Referral settle-success lot: ${referralLotId}`);
+
+      const referralCampaignId = await createReferralCampaign(supabase, referralLotId, hubId);
+      console.log(`✓ Referral campaign (past deadline, meets min): ${referralCampaignId}`);
+
+      const referralCommitmentId = await createReferralPaidCommitment(
+        supabase,
+        referralLotId,
+        buyerIds[1],
+        hubId,
+        referralCampaignId,
+      );
+      console.log(`✓ buyer-2 charge_succeeded commitment: ${referralCommitmentId}`);
+
+      await createPendingReferralAttribution(
+        supabase,
+        buyerIds[0],
+        buyerIds[1],
+        referralCommitmentId,
+        referralCampaignId,
+      );
+      console.log("✓ Pending referral_attribution row inserted (run settle-deadlines to earn it)");
+    } else {
+      console.log("⚠ Skipping buyer-referral fixture (need at least 2 buyers).");
+    }
 
     console.log("\nSeed completed.");
   } catch (err) {

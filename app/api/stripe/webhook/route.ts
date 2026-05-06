@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getPaymentIntent, verifyStripeWebhookSignature } from "@/lib/stripe";
+import { insertReferralAttributionIfEligible } from "@/lib/referrals/insert-attribution";
 import { NextResponse } from "next/server";
 
 interface StripeEvent {
@@ -71,6 +72,21 @@ export async function POST(request: Request) {
           .from("commitments")
           .update(updatePayload)
           .eq("stripe_checkout_session_id", session.id);
+
+        // Buyer-referral: when this update flipped payment_status to
+        // charge_succeeded, attempt to create the (pending) attribution row.
+        // Helper is idempotent — safe to call alongside the payment_intent
+        // .succeeded handler below which may also fire for the same commit.
+        if (updatePayload.payment_status === "charge_succeeded") {
+          const { data: commitmentRow } = await admin
+            .from("commitments")
+            .select("id")
+            .eq("stripe_checkout_session_id", session.id)
+            .maybeSingle();
+          if (commitmentRow?.id) {
+            await insertReferralAttributionIfEligible(admin, commitmentRow.id);
+          }
+        }
       } else if (session.mode === "setup") {
         const admin = createAdminClient();
 
@@ -111,6 +127,9 @@ export async function POST(request: Request) {
             payment_error: null,
           })
           .eq("id", paymentIntent.metadata.commitment_id);
+
+        // Buyer-referral: first charge_succeeded creates the attribution row.
+        await insertReferralAttributionIfEligible(admin, paymentIntent.metadata.commitment_id);
       }
     }
 

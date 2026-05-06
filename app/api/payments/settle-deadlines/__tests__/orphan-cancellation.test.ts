@@ -70,11 +70,23 @@ function enqueue(table: string, response: { data: unknown; error: unknown }) {
 type RpcCall = { fn: string; args: unknown };
 const rpcCalls: RpcCall[] = [];
 
+// Tables this test does not exercise (e.g., referral_attributions added by
+// the buyer-referral feature) fall back to a benign empty-data chain so we
+// don't have to enqueue a response for every cross-cutting helper that
+// happens to call from() during the cron run.
+const PASSIVE_TABLES = new Set(["referral_attributions"]);
+
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: vi.fn(() => ({
     from: vi.fn((table: string) => {
       const next = fromQueue.shift();
-      if (!next) throw new Error(`Unexpected from(${table}) — queue empty`);
+      if (!next) {
+        if (PASSIVE_TABLES.has(table)) {
+          pendingTable = table;
+          return makeChain({ data: [], error: null });
+        }
+        throw new Error(`Unexpected from(${table}) — queue empty`);
+      }
       return next();
     }),
     rpc: vi.fn((fn: string, args: unknown) => {
