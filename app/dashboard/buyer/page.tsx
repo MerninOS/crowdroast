@@ -6,6 +6,7 @@ import { Button } from "@merninos/ui";
 import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
 import { LeaveHubButton } from "@/components/leave-hub-button";
 import { FeaturedRoastHero } from "@/components/featured-roast-hero";
+import { InviteShareCard } from "@/components/referrals/InviteShareCard";
 
 function getHubName(memberships: any[], hubId: string) {
   const membership = memberships.find((m: any) => m.hub_id === hubId);
@@ -261,6 +262,16 @@ export default async function BuyerOverview({
             hubId={featuredCampaign?.hub_id ?? null}
             tiers={featuredCampaign ? tiersMap[featuredCampaign.lot_id] : undefined}
           />
+        </div>
+      )}
+
+      {/* Referral surfaces — render only when buyer has at least one
+          membership (the InviteShareCard returns null on its own when the
+          POST /api/invite-codes endpoint 403s). Future cards
+          (CreditBalanceCard, MyReferralsList) slot here too. */}
+      {(memberships?.length ?? 0) > 0 && (
+        <div className="mb-8">
+          <InviteShareCard />
         </div>
       )}
 
