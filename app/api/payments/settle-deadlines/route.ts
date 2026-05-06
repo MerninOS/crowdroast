@@ -23,6 +23,7 @@ import {
 } from "@/lib/payments/settlement-logic";
 import { insertReferralAttributionIfEligible } from "@/lib/referrals/insert-attribution";
 import { settleAttributionIfPending } from "@/lib/referrals/settle-attribution";
+import { voidAttributionsForCampaign } from "@/lib/referrals/void-attribution";
 import { NextResponse } from "next/server";
 
 function isMissingPlatformSettingsTable(error: { message?: string } | null) {
@@ -523,6 +524,12 @@ async function settleDeadlines(request: Request) {
 
       // AC-7: notify all parties that the campaign failed
       if (!debug) backgroundTasks.push(sendLotFailedNotifications(admin, lot.id, campaign.hub_id));
+
+      // Buyer-referral: lot failed → void any pending attributions tied to
+      // this campaign. Earned attributions are untouched (criterion 8).
+      // No credit_ledger writes — voiding never moves money.
+      if (!debug) await voidAttributionsForCampaign(admin, campaign.id);
+
       continue;
     }
 
