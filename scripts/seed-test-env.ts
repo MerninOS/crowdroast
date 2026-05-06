@@ -585,21 +585,28 @@ async function ensureHubMember(
   userId: string,
   invitedByUserId: string | null,
 ): Promise<void> {
-  const { error } = await supabase
+  // hub_members has partial unique indexes only:
+  //   - (user_id) WHERE status='active'      — one active hub per buyer
+  //   - (hub_id, user_id) WHERE user_id IS NOT NULL
+  // Supabase .upsert needs a non-partial constraint to target, so do an
+  // explicit existence check then insert. Idempotent on re-run.
+  const { data: existing } = await supabase
     .from("hub_members")
-    .upsert(
-      {
-        hub_id: hubId,
-        user_id: userId,
-        status: "active",
-        role: "buyer",
-        joined_at: new Date().toISOString(),
-        invited_by_user_id: invitedByUserId,
-      },
-      { onConflict: "user_id", ignoreDuplicates: false }
-    );
-  // Ignore unique-violation conflicts on the (user_id) WHERE status='active'
-  // partial index — if the buyer is already in this hub, that's fine.
+    .select("id, hub_id, status")
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .maybeSingle();
+
+  if (existing) return; // user is already active somewhere — leave it alone
+
+  const { error } = await supabase.from("hub_members").insert({
+    hub_id: hubId,
+    user_id: userId,
+    status: "active",
+    role: "buyer",
+    joined_at: new Date().toISOString(),
+    invited_by_user_id: invitedByUserId,
+  });
   if (error && error.code !== "23505") throw error;
 }
 
