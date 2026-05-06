@@ -796,7 +796,10 @@ async function settleDeadlines(request: Request) {
           id?: string;
           amount?: number;
           payment_intent?: string | null;
-          metadata?: { commitment_id?: string };
+          metadata?: {
+            commitment_id?: string;
+            kind?: "price_adjustment" | "inviter_credit";
+          };
         }> = [];
         if (commitment.stripe_payment_intent_id) {
           try {
@@ -821,6 +824,7 @@ async function settleDeadlines(request: Request) {
             amountCents: refundAmountCents,
             commitmentId: commitment.id,
             idempotencySuffix: "price-adjustment",
+            kind: "price_adjustment",
           });
         }
 
@@ -958,6 +962,38 @@ async function settleDeadlines(request: Request) {
             commitmentId: commitment.id,
             role: "crowdroast",
           });
+        }
+
+        // Buyer-referral: refund the applied credit amount back to the buyer's
+        // original payment method. The platform transfer above is already net
+        // of `applied`, so CrowdRoast's operating account receives less by
+        // exactly that much; refunding the same amount to the buyer leaves
+        // seller and hub whole, gives the buyer the dollar value of the
+        // credit they earned, and books the cost cleanly to the platform.
+        //
+        // Idempotency: filter existingRefunds by metadata.kind === 'inviter_credit'
+        // so cron retries past Stripe's ~24h idempotency window don't double-
+        // refund. Only issue what's still missing relative to the applied
+        // total. Subtle: existingRefunds was loaded before this commitment's
+        // price-adjustment refund (if any), but that refund is tagged
+        // 'price_adjustment' so the kind filter excludes it correctly.
+        if (creditApplication.applied > 0 && commitment.stripe_payment_intent_id) {
+          const existingInviterCreditRefundAmount = existingRefunds
+            .filter((r) => r.metadata?.kind === "inviter_credit")
+            .reduce((sum, r) => sum + Number(r.amount || 0), 0);
+          const missingInviterCreditRefund = Math.max(
+            0,
+            creditApplication.applied - existingInviterCreditRefundAmount
+          );
+          if (missingInviterCreditRefund > 0) {
+            await createRefund({
+              paymentIntentId: commitment.stripe_payment_intent_id,
+              amountCents: missingInviterCreditRefund,
+              commitmentId: commitment.id,
+              idempotencySuffix: "inviter-credit",
+              kind: "inviter_credit",
+            });
+          }
         }
 
         await admin
