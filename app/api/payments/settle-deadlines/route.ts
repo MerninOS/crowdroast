@@ -380,7 +380,7 @@ async function settleDeadlines(request: Request) {
     const { data: lot, error: lotFetchError } = await admin
       .from("lots")
       .select(
-        "id, seller_id, status, currency, price_per_kg, committed_quantity_kg, min_commitment_kg, commitment_deadline"
+        "id, title, seller_id, status, currency, price_per_kg, committed_quantity_kg, min_commitment_kg, commitment_deadline"
       )
       .eq("id", campaign.lot_id)
       .single();
@@ -633,7 +633,7 @@ async function settleDeadlines(request: Request) {
     const { data: commitments, error: commitmentsError } = await admin
       .from("commitments")
       .select(
-        "id, status, payment_status, hub_id, quantity_kg, total_price, charge_amount_cents, charge_currency, stripe_charge_id, stripe_payment_intent_id"
+        "id, buyer_id, status, payment_status, hub_id, quantity_kg, total_price, charge_amount_cents, charge_currency, stripe_charge_id, stripe_payment_intent_id"
       )
       .eq("campaign_id", campaign.id)
       .not("stripe_payment_intent_id", "is", null)
@@ -977,7 +977,17 @@ async function settleDeadlines(request: Request) {
         // When the helper signals a fresh ledger insert (earned=true), fire
         // ReferralCreditEarned to the inviter as a background task so a
         // delivery hiccup never fails the cron loop.
+        //
+        // Safety net: also try to insert the attribution row here. The
+        // webhook is the primary creator (at first charge_succeeded), but a
+        // missed/delayed/failed webhook would leave the invitee permanently
+        // un-attributed and the inviter would never earn the credit. Calling
+        // the helper here is idempotent — no-op when an attribution already
+        // exists — and guarantees that any commitment reaching settlement in
+        // charge_succeeded with profiles.invited_by_user_id set gets a row
+        // before settleAttributionIfPending runs.
         if (!debug) {
+          await insertReferralAttributionIfEligible(admin, commitment.id);
           const settleResult = await settleAttributionIfPending(admin, commitment.id);
           if (settleResult.earned && settleResult.inviterUserId) {
             const inviterUserId = settleResult.inviterUserId;
