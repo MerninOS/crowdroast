@@ -62,6 +62,7 @@ const navByRole = {
     { href: "/dashboard/admin/claims", label: "Claims", icon: FileWarning },
     { href: "/dashboard/admin/refunds", label: "Refunds", icon: CreditCard },
     { href: "/dashboard/admin/payouts", label: "Payouts", icon: CreditCard },
+    { href: "/dashboard/admin/credits", label: "Credits", icon: CreditCard },
   ],
 };
 
