@@ -46,6 +46,11 @@ export interface CommitmentGroup {
   campaign: Pick<Campaign, "id" | "status" | "deadline" | "settled_at"> | null;
   commitments: Commitment[];
   shipment: Pick<Shipment, "status" | "carrier" | "tracking_number" | "shipped_at" | "delivered_at"> & { hub?: { name: string } | null } | null;
+  // commit_applied credit_ledger amounts in cents (stored as a positive
+  // number for UI). Keyed by commitment_id; absent when no credit applied.
+  // Populated server-side at /dashboard/buyer/commitments and used by the
+  // closed drawer to surface the inviter-credit line.
+  creditAppliedByCommitmentId?: Record<string, number>;
 }
 
 export interface BucketedGroups {

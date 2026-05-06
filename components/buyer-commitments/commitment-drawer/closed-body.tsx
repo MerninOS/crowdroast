@@ -45,6 +45,17 @@ export function ClosedDrawerBody({
     0
   );
 
+  // Sum inviter credit applied across all commitments in this group. Source
+  // is the credit_ledger commit_applied rows the page already fetched and
+  // attached to the group. Settle-deadlines also issues a Stripe refund on
+  // the buyer's payment method for this exact amount, so the copy frames it
+  // as money returned to their card — not a soft "credit redeemed" only.
+  const creditAppliedDollars = succeeded.reduce(
+    (s, c) =>
+      s + (group.creditAppliedByCommitmentId?.[c.id] ?? 0) / 100,
+    0
+  );
+
   if (mode === "refund") {
     return (
       <div className="flex flex-col gap-5" data-testid="closed-drawer-body">
@@ -156,6 +167,24 @@ export function ClosedDrawerBody({
                 includePlatformFee
               />
             </span>
+          </div>
+        </div>
+      )}
+
+      {creditAppliedDollars > 0 && (
+        <div
+          className="rounded-md border-2 border-sun bg-sun/15 px-4 py-3"
+          data-testid="closed-inviter-credit"
+        >
+          <div className="font-body text-[11px] font-extrabold uppercase tracking-[0.14em] text-espresso">
+            Inviter credit redeemed
+          </div>
+          <div className="mt-1 font-headline text-2xl font-bold text-espresso tabular-nums">
+            -{fmtMoney(creditAppliedDollars)}
+          </div>
+          <div className="mt-1 font-body text-sm text-espresso/70">
+            Refunded to your card. Sellers and your hub still receive the
+            full amount — CrowdRoast covers the credit.
           </div>
         </div>
       )}

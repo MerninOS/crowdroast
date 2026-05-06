@@ -166,6 +166,42 @@ describe("ClosedDrawerBody — value mode", () => {
     );
     expect(screen.queryByTestId("closed-tier-summary")).not.toBeInTheDocument();
   });
+
+  it("renders the inviter-credit redeemed line with refund framing when credits were applied", () => {
+    // 1000 cents on c-1, 0 on c-2. Sum = $10 redeemed.
+    const group = makeGroup({
+      creditAppliedByCommitmentId: { "c-1": 1000 },
+    });
+    render(<ClosedDrawerBody group={group} mode="value" />);
+    const box = screen.getByTestId("closed-inviter-credit");
+    expect(box.textContent).toContain("Inviter credit redeemed");
+    expect(box.textContent).toContain("-$10.00");
+    expect(box.textContent).toContain("Refunded to your card");
+    expect(box.textContent).toMatch(/CrowdRoast covers/);
+  });
+
+  it("hides the inviter-credit line when no credits were applied", () => {
+    const group = makeGroup();
+    render(<ClosedDrawerBody group={group} mode="value" />);
+    expect(screen.queryByTestId("closed-inviter-credit")).not.toBeInTheDocument();
+  });
+
+  it("ignores credit applied to cancelled commitments in the same group", () => {
+    // commit_applied rows are written at settle, but a defensive group might
+    // include a sibling cancelled commitment in the same group (e.g. user
+    // cancelled and re-committed). Only count credits on the succeeded set.
+    const group = makeGroup({
+      commitments: [
+        makeCommit({ id: "c-1" }),
+        makeCommit({ id: "c-cancelled", status: "cancelled", payment_status: "cancelled" }),
+      ],
+      creditAppliedByCommitmentId: { "c-1": 1000, "c-cancelled": 500 },
+    });
+    render(<ClosedDrawerBody group={group} mode="value" />);
+    const box = screen.getByTestId("closed-inviter-credit");
+    expect(box.textContent).toContain("-$10.00");
+    expect(box.textContent).not.toContain("$15.00");
+  });
 });
 
 describe("ClosedDrawerBody — refund mode", () => {
