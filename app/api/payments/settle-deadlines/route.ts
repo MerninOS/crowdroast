@@ -22,6 +22,7 @@ import {
   getFinalPricePerKg,
 } from "@/lib/payments/settlement-logic";
 import { insertReferralAttributionIfEligible } from "@/lib/referrals/insert-attribution";
+import { settleAttributionIfPending } from "@/lib/referrals/settle-attribution";
 import { NextResponse } from "next/server";
 
 function isMissingPlatformSettingsTable(error: { message?: string } | null) {
@@ -944,6 +945,14 @@ async function settleDeadlines(request: Request) {
             payment_error: null,
           })
           .eq("id", commitment.id);
+
+        // Buyer-referral: lot settled successfully for this commit. If the
+        // invitee's first-charged commitment was this one, flip the pending
+        // attribution to earned and emit the +$10 credit_ledger row for the
+        // inviter. Idempotent — partial unique index handles cron retries.
+        if (!debug) {
+          await settleAttributionIfPending(admin, commitment.id);
+        }
 
         succeededCount += 1;
       } catch (transferError) {
