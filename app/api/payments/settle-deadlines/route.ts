@@ -24,6 +24,7 @@ import {
 import { insertReferralAttributionIfEligible } from "@/lib/referrals/insert-attribution";
 import { settleAttributionIfPending } from "@/lib/referrals/settle-attribution";
 import { voidAttributionsForCampaign } from "@/lib/referrals/void-attribution";
+import { applyInviterCreditOnSettle } from "@/lib/referrals/apply-credit";
 import { NextResponse } from "next/server";
 
 function isMissingPlatformSettingsTable(error: { message?: string } | null) {
@@ -881,7 +882,22 @@ async function settleDeadlines(request: Request) {
           "crowdroast",
           crowdroastDestinationAccount
         );
-        const missingPlatformAmount = Math.max(0, split.platformAmount - existingPlatformAmount);
+
+        // Buyer-referral: apply the buyer's credit balance against Mernin's
+        // share on this commit (criteria 9, 10). Inserts a single negative
+        // credit_ledger row and reduces Mernin's effective platform target
+        // by that amount. Idempotent across cron retries via the partial
+        // unique index on (source_commitment_id) WHERE reason='commit_applied'.
+        const creditApplication = debug
+          ? { applied: 0, adjustedPlatformAmountCents: split.platformAmount, ledgerRowInserted: false }
+          : await applyInviterCreditOnSettle(admin, {
+              commitmentId: commitment.id,
+              buyerId: commitment.buyer_id,
+              platformAmountCents: split.platformAmount,
+            });
+
+        const adjustedPlatformAmount = creditApplication.adjustedPlatformAmountCents;
+        const missingPlatformAmount = Math.max(0, adjustedPlatformAmount - existingPlatformAmount);
         if (debug) {
           debugCommitments.push({
             commitment_id: commitment.id,
