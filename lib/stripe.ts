@@ -122,6 +122,7 @@ export interface StripeRefund {
   payment_intent?: string | null;
   metadata?: {
     commitment_id?: string;
+    kind?: "price_adjustment" | "inviter_credit";
   };
 }
 
@@ -280,14 +281,26 @@ export async function createRefund(params: {
   commitmentId: string;
   reason?: "duplicate" | "fraudulent" | "requested_by_customer";
   idempotencySuffix?: string;
+  // Stamps metadata.kind so settle-time retries can detect prior refunds of
+  // the same kind via listRefundsForPaymentIntent (the Stripe idempotency
+  // key only covers ~24h; this filter is the durable retry guard).
+  kind?: "price_adjustment" | "inviter_credit";
 }) {
   const suffix = params.idempotencySuffix ? `-${params.idempotencySuffix}` : "";
-  return stripeRequest<{ id: string }>("/refunds", {
+  const body: Record<string, string | number | undefined> = {
     payment_intent: params.paymentIntentId,
     amount: params.amountCents,
     reason: params.reason,
     "metadata[commitment_id]": params.commitmentId,
-  }, `refund-${params.commitmentId}${suffix}`);
+  };
+  if (params.kind) {
+    body["metadata[kind]"] = params.kind;
+  }
+  return stripeRequest<{ id: string }>(
+    "/refunds",
+    body,
+    `refund-${params.commitmentId}${suffix}`
+  );
 }
 
 export async function listRefundsForPaymentIntent(paymentIntentId: string) {

@@ -183,6 +183,26 @@ export default async function BuyerCommitmentsPage({
     }
   }
 
+  // commit_applied ledger rows tell the closed drawer how much inviter
+  // credit was redeemed against each commitment. RLS restricts the read to
+  // the caller's own user_id, so this is safe on the user-bound supabase
+  // client. amount_cents is stored negative; we surface positive cents to
+  // the UI to match the rest of the breakdown.
+  const creditAppliedByCommitmentId: Record<string, number> = {};
+  const { data: creditApplied } = await supabase
+    .from("credit_ledger")
+    .select("amount_cents, source_commitment_id")
+    .eq("reason", "commit_applied")
+    .not("source_commitment_id", "is", null);
+  for (const row of (creditApplied || []) as Array<{
+    amount_cents: number;
+    source_commitment_id: string;
+  }>) {
+    creditAppliedByCommitmentId[row.source_commitment_id] =
+      (creditAppliedByCommitmentId[row.source_commitment_id] || 0) +
+      Math.abs(Number(row.amount_cents || 0));
+  }
+
   // Group by campaign instance, not by lot — a lot can have multiple campaigns
   // (e.g. one failed, one succeeded). Legacy commitments without a campaign_id
   // fall back to a lot-scoped key so they still render.
@@ -202,6 +222,7 @@ export default async function BuyerCommitmentsPage({
         campaign: c.campaign_id ? (campaignById[c.campaign_id] as any) ?? null : null,
         commitments: [c],
         shipment: shipmentByLotId[c.lot_id] ?? null,
+        creditAppliedByCommitmentId,
       });
     }
   }
