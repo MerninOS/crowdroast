@@ -114,6 +114,7 @@ vi.mock("@/lib/stripe", () => ({
     capabilities: { transfers: "active" },
   }),
   getPaymentIntent: vi.fn().mockResolvedValue({ latest_charge: null }),
+  getChargeFeeCents: vi.fn().mockResolvedValue(0),
   listRefundsForPaymentIntent: vi.fn().mockResolvedValue({ data: [] }),
   listTransfersForSourceCharge: vi.fn().mockResolvedValue({ data: [] }),
   createTransfer: vi.fn().mockResolvedValue({ id: "tr_x" }),
@@ -125,6 +126,11 @@ vi.mock("@/lib/payments/settlement-logic", () => ({
   computeChargeAdjustment: vi.fn(() => ({ finalAmountCents: 100000, refundAmountCents: 0 })),
   computeSellerNetAmountCents: vi.fn(() => 90000),
   computeSplit: vi.fn(() => ({ sellerAmount: 90000, hubAmount: 2000, platformAmount: 8000 })),
+  applyStripeFeeToPlatformShare: vi.fn((platformAmountCents: number, stripeFeeCents: number) => ({
+    adjustedPlatformAmountCents: Math.max(0, (platformAmountCents || 0) - (stripeFeeCents || 0)),
+    feeAbsorbed: Math.min(platformAmountCents || 0, stripeFeeCents || 0),
+    feeShortfall: Math.max(0, (stripeFeeCents || 0) - (platformAmountCents || 0)),
+  })),
 }));
 
 import { POST } from "@/app/api/payments/settle-deadlines/route";

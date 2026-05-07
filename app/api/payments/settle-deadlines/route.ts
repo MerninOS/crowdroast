@@ -11,12 +11,14 @@ import { createShipmentForLot } from "@/lib/shipments";
 import {
   createRefund,
   createTransfer,
+  getChargeFeeCents,
   getConnectedAccount,
   getPaymentIntent,
   listRefundsForPaymentIntent,
   listTransfersForSourceCharge,
 } from "@/lib/stripe";
 import {
+  applyStripeFeeToPlatformShare,
   computeChargeAdjustment,
   computeSellerNetAmountCents,
   computeSplit,
@@ -400,7 +402,7 @@ async function settleDeadlines(request: Request) {
     if (!minimumMet) {
       const { data: lotCommitments, error: lotCommitmentsError } = await admin
         .from("commitments")
-        .select("id, payment_status, stripe_payment_intent_id")
+        .select("id, payment_status, stripe_payment_intent_id, stripe_charge_id")
         .eq("campaign_id", campaign.id);
 
       if (lotCommitmentsError) {
@@ -462,11 +464,26 @@ async function settleDeadlines(request: Request) {
               idempotencySuffix: "minimum-not-met",
             });
 
+            // Stripe doesn't refund the processing fee on a refund — it stays
+            // a real cost to the platform balance. Stamp the fee on the
+            // commitment for accounting visibility (best-effort; never block
+            // the cancel update on this).
+            let failedStripeFeeCents: number | null = null;
+            if (commitment.stripe_charge_id) {
+              try {
+                const fee = await getChargeFeeCents(commitment.stripe_charge_id);
+                if (fee !== null) failedStripeFeeCents = fee;
+              } catch {
+                failedStripeFeeCents = null;
+              }
+            }
+
             await admin
               .from("commitments")
               .update({
                 status: "cancelled",
                 payment_status: "cancelled",
+                stripe_fee_cents: failedStripeFeeCents,
                 payment_error: "Refunded: lot minimum not met by deadline",
               })
               .eq("id", commitment.id);
@@ -832,6 +849,29 @@ async function settleDeadlines(request: Request) {
           grossAmountCents: finalAmountCents,
           sellerNetAmountCents,
         });
+
+        // Stripe debits its processing fee from the platform's main balance
+        // when the charge clears — not from source_transaction-tied transfers.
+        // To stop the platform balance from running short by ~3% per commit,
+        // pull the actual fee from BalanceTransaction and absorb it out of
+        // CrowdRoast's platform share. Seller and hub shares stay whole.
+        let stripeFeeCents = 0;
+        try {
+          const fee = await getChargeFeeCents(stripeChargeId);
+          if (fee !== null) stripeFeeCents = fee;
+        } catch {
+          // BalanceTransaction may not be ready yet (rare for cards); leave
+          // fee at 0 for this run. The next cron pass will retry — transfers
+          // are idempotent via existing-amount diffing below, so a later run
+          // that learns the real fee will still book it correctly because
+          // we re-derive missingPlatformAmount each run.
+          stripeFeeCents = 0;
+        }
+        const platformFeeApplication = applyStripeFeeToPlatformShare(
+          split.platformAmount,
+          stripeFeeCents
+        );
+
         let existingTransfers: Array<{
           amount?: number;
           destination?: string | null;
@@ -893,12 +933,17 @@ async function settleDeadlines(request: Request) {
         // credit_ledger row and reduces Mernin's effective platform target
         // by that amount. Idempotent across cron retries via the partial
         // unique index on (source_commitment_id) WHERE reason='commit_applied'.
+        //
+        // Note: platformAmountAfterFee already has the Stripe processing fee
+        // deducted, so inviter credits stack on top of fee absorption — both
+        // costs land on CrowdRoast.
+        const platformAmountAfterFee = platformFeeApplication.adjustedPlatformAmountCents;
         const creditApplication = debug
-          ? { applied: 0, adjustedPlatformAmountCents: split.platformAmount, ledgerRowInserted: false }
+          ? { applied: 0, adjustedPlatformAmountCents: platformAmountAfterFee, ledgerRowInserted: false }
           : await applyInviterCreditOnSettle(admin, {
               commitmentId: commitment.id,
               buyerId: commitment.buyer_id,
-              platformAmountCents: split.platformAmount,
+              platformAmountCents: platformAmountAfterFee,
             });
 
         const adjustedPlatformAmount = creditApplication.adjustedPlatformAmountCents;
@@ -919,6 +964,9 @@ async function settleDeadlines(request: Request) {
               amountCents - existingRefundAmount
             ),
             split,
+            stripe_fee_cents: stripeFeeCents,
+            platform_fee_application: platformFeeApplication,
+            platform_amount_after_fee: platformAmountAfterFee,
             existing_transfer_amounts: {
               seller: existingSellerAmount,
               hub: existingHubAmount,
@@ -1002,6 +1050,7 @@ async function settleDeadlines(request: Request) {
             status: "confirmed",
             charge_amount_cents: finalAmountCents,
             charge_currency: currency,
+            stripe_fee_cents: stripeFeeCents || null,
             payment_error: null,
           })
           .eq("id", commitment.id);
