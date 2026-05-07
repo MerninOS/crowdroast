@@ -98,6 +98,25 @@ export interface StripePaymentIntent {
   latest_charge?: string | null;
 }
 
+export interface StripeBalanceTransaction {
+  id: string;
+  fee?: number;
+  currency?: string;
+  fee_details?: Array<{
+    amount: number;
+    currency: string;
+    type: string;
+    description?: string | null;
+  }>;
+}
+
+export interface StripeCharge {
+  id: string;
+  amount?: number;
+  currency?: string;
+  balance_transaction?: string | StripeBalanceTransaction | null;
+}
+
 export interface StripeSetupIntent {
   id: string;
   payment_method?: string | null;
@@ -215,6 +234,22 @@ export async function getSetupIntent(setupIntentId: string) {
 
 export async function getPaymentIntent(paymentIntentId: string) {
   return stripeGetRequest<StripePaymentIntent>(`/payment_intents/${paymentIntentId}`);
+}
+
+// Fetches the Stripe processing fee for a settled charge by expanding the
+// associated BalanceTransaction. Returns null when the balance transaction
+// hasn't been written yet (rare — Stripe writes it synchronously for
+// card charges, but ACH and some async methods can lag). Callers should
+// treat null as "fee unknown" and skip the platform-share deduction this run.
+export async function getChargeFeeCents(chargeId: string): Promise<number | null> {
+  const charge = await stripeGetRequest<StripeCharge>(`/charges/${chargeId}`, {
+    "expand[]": "balance_transaction",
+  });
+  const balanceTx = charge.balance_transaction;
+  if (!balanceTx || typeof balanceTx === "string") return null;
+  const fee = Number(balanceTx.fee);
+  if (!Number.isFinite(fee) || fee < 0) return null;
+  return Math.round(fee);
 }
 
 export async function createAndConfirmPaymentIntent(params: {
