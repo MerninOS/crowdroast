@@ -8,6 +8,14 @@
     {
       "path": "/api/cron/lot-expiry",
       "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/cron/seller-coffees-digest",
+      "schedule": "0 17 * * *"
+    },
+    {
+      "path": "/api/cron/hub-campaigns-digest",
+      "schedule": "0 16 */3 * *"
     }
   ]
 }

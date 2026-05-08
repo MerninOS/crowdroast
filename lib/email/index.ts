@@ -11,8 +11,14 @@ import { sendEmail, sendEmailBatch, SendEmailResult } from "./transport";
 import { renderSellerInviteHtml } from "./templates/SellerInvite";
 import { renderSampleRequestHtml } from "./templates/SampleRequest";
 import { renderBuyerJoinedHubHtml } from "./templates/BuyerJoinedHub";
-import { renderNewSellerCoffeesHtml } from "./templates/NewSellerCoffees";
-import { renderHubNewCoffeesHtml } from "./templates/HubNewCoffees";
+import {
+  renderSellerCoffeesDigestHtml,
+  type DigestSellerGroup,
+} from "./templates/SellerCoffeesDigest";
+import {
+  renderHubCampaignsDigestHtml,
+  type DigestHubGroup,
+} from "./templates/HubCampaignsDigest";
 import {
   renderLotClosedBuyerHtml,
   renderLotClosedSellerHtml,
@@ -119,57 +125,63 @@ export async function sendBuyerJoinedHubEmail(
 }
 
 // ---------------------------------------------------------------------------
-// AC-4: New coffees from seller (hub owner notification)
+// Seller coffees digest (hub owner — batched daily)
 // ---------------------------------------------------------------------------
 
-export interface NewSellerCoffeesEmailParams {
+export interface SellerCoffeesDigestEmailParams {
   hubOwner: Pick<Profile, "email" | "contact_name">;
-  sellerName: string;
-  newLots: { title: string; originCountry: string; pricePerKg: number; currency: string }[];
+  windowLabel: string;
+  sellers: DigestSellerGroup[];
 }
 
-export async function sendNewSellerCoffeesEmail(
-  params: NewSellerCoffeesEmailParams
+export async function sendSellerCoffeesDigestEmail(
+  params: SellerCoffeesDigestEmailParams
 ): Promise<SendEmailResult> {
   if (!params.hubOwner.email) return { success: false, error: "Hub owner has no email address" };
-  const html = await renderNewSellerCoffeesHtml({
+  const totalLots = params.sellers.reduce((sum, s) => sum + s.newLots.length, 0);
+  if (totalLots === 0) return { success: true };
+  const html = await renderSellerCoffeesDigestHtml({
     hubOwnerName: params.hubOwner.contact_name || "Hub Owner",
-    sellerName: params.sellerName,
-    newLots: params.newLots,
+    windowLabel: params.windowLabel,
+    sellers: params.sellers,
     catalogUrl: `${APP_URL}/dashboard/hub/catalog`,
+    totalLots,
   });
-  return sendEmail({
-    to: params.hubOwner.email,
-    subject: `New coffees available from ${params.sellerName}`,
-    html,
-  });
+  const subject =
+    params.sellers.length === 1
+      ? `${totalLots} new coffee${totalLots !== 1 ? "s" : ""} from ${params.sellers[0].sellerName}`
+      : `${totalLots} new coffees from ${params.sellers.length} of your sellers`;
+  return sendEmail({ to: params.hubOwner.email, subject, html });
 }
 
 // ---------------------------------------------------------------------------
-// AC-5: Hub launched new coffees (buyer notification)
+// Hub campaigns digest (buyer — batched every few days)
 // ---------------------------------------------------------------------------
 
-export interface HubNewCoffeesEmailParams {
+export interface HubCampaignsDigestEmailParams {
   buyer: Pick<Profile, "email" | "contact_name">;
-  hubName: string;
-  newLots: { title: string; originCountry: string; pricePerKg: number; currency: string }[];
+  windowLabel: string;
+  hubs: DigestHubGroup[];
 }
 
-export async function sendHubNewCoffeesEmail(
-  params: HubNewCoffeesEmailParams
+export async function sendHubCampaignsDigestEmail(
+  params: HubCampaignsDigestEmailParams
 ): Promise<SendEmailResult> {
   if (!params.buyer.email) return { success: false, error: "Buyer has no email address" };
-  const html = await renderHubNewCoffeesHtml({
+  const totalCampaigns = params.hubs.reduce((sum, h) => sum + h.campaigns.length, 0);
+  if (totalCampaigns === 0) return { success: true };
+  const html = await renderHubCampaignsDigestHtml({
     buyerName: params.buyer.contact_name || "there",
-    hubName: params.hubName,
-    newLots: params.newLots,
-    catalogUrl: `${APP_URL}/dashboard/buyer/browse`,
+    windowLabel: params.windowLabel,
+    hubs: params.hubs,
+    browseUrl: `${APP_URL}/dashboard/buyer/browse`,
+    totalCampaigns,
   });
-  return sendEmail({
-    to: params.buyer.email,
-    subject: `New coffees added to ${params.hubName}`,
-    html,
-  });
+  const subject =
+    params.hubs.length === 1
+      ? `${totalCampaigns} new campaign${totalCampaigns !== 1 ? "s" : ""} live at ${params.hubs[0].hubName}`
+      : `${totalCampaigns} new campaigns across your hubs`;
+  return sendEmail({ to: params.buyer.email, subject, html });
 }
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,4 @@
 import { createClient } from "@/lib/supabase/server";
-import { sendHubNewCoffeesEmail } from "@/lib/email";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
@@ -23,7 +22,7 @@ export async function POST(request: Request) {
   // Verify caller owns this hub
   const { data: hub } = await supabase
     .from("hubs")
-    .select("id, name")
+    .select("id")
     .eq("id", hubId)
     .eq("owner_id", user.id)
     .single();
@@ -38,7 +37,7 @@ export async function POST(request: Request) {
   // Verify lot exists and is active
   const { data: lot } = await supabase
     .from("lots")
-    .select("id, title, origin_country, price_per_kg, currency")
+    .select("id")
     .eq("id", lotId)
     .in("status", ["active", "fully_committed"])
     .single();
@@ -53,37 +52,6 @@ export async function POST(request: Request) {
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  // AC-5: notify active buyers in this hub about the new lot
-  const { data: activeMembers } = await supabase
-    .from("hub_members")
-    .select("profile:profiles!hub_members_user_id_fkey(email, contact_name)")
-    .eq("hub_id", hubId)
-    .eq("status", "active");
-
-  if (activeMembers?.length) {
-    const newLots = [
-      {
-        title: lot.title,
-        originCountry: lot.origin_country,
-        pricePerKg: lot.price_per_kg,
-        currency: lot.currency || "USD",
-      },
-    ];
-
-    type BuyerProfile = { email: string | null; contact_name: string | null };
-    const emailPromises = activeMembers
-      .filter((m): m is typeof m & { profile: BuyerProfile } => m.profile !== null)
-      .map((m) =>
-        sendHubNewCoffeesEmail({
-          buyer: m.profile,
-          hubName: hub.name,
-          newLots,
-        }).catch(console.error)
-      );
-
-    await Promise.allSettled(emailPromises);
   }
 
   return NextResponse.json({ ok: true }, { status: 201 });
