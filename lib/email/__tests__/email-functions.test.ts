@@ -30,11 +30,11 @@ vi.mock("@/lib/email/templates/SampleRequest", () => ({
 vi.mock("@/lib/email/templates/BuyerJoinedHub", () => ({
   renderBuyerJoinedHubHtml: vi.fn().mockResolvedValue("<html>joined</html>"),
 }));
-vi.mock("@/lib/email/templates/NewSellerCoffees", () => ({
-  renderNewSellerCoffeesHtml: vi.fn().mockResolvedValue("<html>new-seller</html>"),
+vi.mock("@/lib/email/templates/SellerCoffeesDigest", () => ({
+  renderSellerCoffeesDigestHtml: vi.fn().mockResolvedValue("<html>seller-digest</html>"),
 }));
-vi.mock("@/lib/email/templates/HubNewCoffees", () => ({
-  renderHubNewCoffeesHtml: vi.fn().mockResolvedValue("<html>hub-new</html>"),
+vi.mock("@/lib/email/templates/HubCampaignsDigest", () => ({
+  renderHubCampaignsDigestHtml: vi.fn().mockResolvedValue("<html>campaigns-digest</html>"),
 }));
 vi.mock("@/lib/email/templates/LotClosedSuccess", () => ({
   renderLotClosedBuyerHtml: vi.fn().mockResolvedValue("<html>closed-buyer</html>"),
@@ -66,8 +66,8 @@ import {
   sendSellerInviteEmail,
   sendSampleRequestEmail,
   sendBuyerJoinedHubEmail,
-  sendNewSellerCoffeesEmail,
-  sendHubNewCoffeesEmail,
+  sendSellerCoffeesDigestEmail,
+  sendHubCampaignsDigestEmail,
   sendLotClosedBuyerEmail,
   sendLotClosedSellerEmail,
   sendLotClosedHubOwnerEmail,
@@ -175,15 +175,23 @@ describe("sendBuyerJoinedHubEmail", () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC-4: New coffees from seller (Pattern 3 — conditional recipients)
+// AC-4: Seller coffees digest (hub owner)
 // ---------------------------------------------------------------------------
 
-describe("sendNewSellerCoffeesEmail", () => {
-  it("sends to the hub owner with the seller name in subject", async () => {
-    const result = await sendNewSellerCoffeesEmail({
+describe("sendSellerCoffeesDigestEmail", () => {
+  it("uses a single-seller subject when only one seller has new lots", async () => {
+    const result = await sendSellerCoffeesDigestEmail({
       hubOwner: { email: "owner@hub.com", contact_name: "Carlos" },
-      sellerName: "Yirgacheffe Farm",
-      newLots: [{ title: "Ethiopia Washed", originCountry: "Ethiopia", pricePerKg: 12.5, currency: "USD" }],
+      windowLabel: "in the last 24 hours",
+      sellers: [
+        {
+          sellerName: "Yirgacheffe Farm",
+          newLots: [
+            { title: "Ethiopia Washed", originCountry: "Ethiopia", pricePerKg: 12.5, currency: "USD" },
+            { title: "Ethiopia Natural", originCountry: "Ethiopia", pricePerKg: 13.0, currency: "USD" },
+          ],
+        },
+      ],
     });
 
     expect(result).toEqual({ success: true });
@@ -195,11 +203,51 @@ describe("sendNewSellerCoffeesEmail", () => {
     );
   });
 
-  it("does not send if hub owner has no email (Pattern 3 — no qualifying relationship)", async () => {
-    const result = await sendNewSellerCoffeesEmail({
+  it("uses an aggregated subject when multiple sellers are included", async () => {
+    await sendSellerCoffeesDigestEmail({
+      hubOwner: { email: "owner@hub.com", contact_name: "Carlos" },
+      windowLabel: "in the last 24 hours",
+      sellers: [
+        {
+          sellerName: "Yirgacheffe Farm",
+          newLots: [{ title: "A", originCountry: "Ethiopia", pricePerKg: 10, currency: "USD" }],
+        },
+        {
+          sellerName: "Other Farm",
+          newLots: [{ title: "B", originCountry: "Colombia", pricePerKg: 11, currency: "USD" }],
+        },
+      ],
+    });
+
+    expect(mockSendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "owner@hub.com",
+        subject: expect.stringContaining("2 of your sellers"),
+      })
+    );
+  });
+
+  it("skips sending when there are no lots in the window", async () => {
+    const result = await sendSellerCoffeesDigestEmail({
+      hubOwner: { email: "owner@hub.com", contact_name: "Carlos" },
+      windowLabel: "in the last 24 hours",
+      sellers: [],
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  it("does not send if the hub owner has no email", async () => {
+    const result = await sendSellerCoffeesDigestEmail({
       hubOwner: { email: null, contact_name: "Carlos" },
-      sellerName: "Yirgacheffe Farm",
-      newLots: [{ title: "Ethiopia Washed", originCountry: "Ethiopia", pricePerKg: 12.5, currency: "USD" }],
+      windowLabel: "in the last 24 hours",
+      sellers: [
+        {
+          sellerName: "Yirgacheffe Farm",
+          newLots: [{ title: "A", originCountry: "Ethiopia", pricePerKg: 10, currency: "USD" }],
+        },
+      ],
     });
 
     expect(result.success).toBe(false);
@@ -208,15 +256,28 @@ describe("sendNewSellerCoffeesEmail", () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC-5: Hub launched new coffees
+// AC-5: Hub campaigns digest (buyer)
 // ---------------------------------------------------------------------------
 
-describe("sendHubNewCoffeesEmail", () => {
-  it("sends to the buyer with the hub name in subject", async () => {
-    const result = await sendHubNewCoffeesEmail({
+describe("sendHubCampaignsDigestEmail", () => {
+  it("uses a single-hub subject when only one hub has new campaigns", async () => {
+    const result = await sendHubCampaignsDigestEmail({
       buyer: { email: "buyer@roastery.com", contact_name: "Alice" },
-      hubName: "Portland Hub",
-      newLots: [{ title: "Colombia Pink Bourbon", originCountry: "Colombia", pricePerKg: 14, currency: "USD" }],
+      windowLabel: "over the last few days",
+      hubs: [
+        {
+          hubName: "Portland Hub",
+          campaigns: [
+            {
+              lotTitle: "Colombia Pink Bourbon",
+              originCountry: "Colombia",
+              pricePerKg: 14,
+              currency: "USD",
+              deadlineLabel: "Mar 14, 2026",
+            },
+          ],
+        },
+      ],
     });
 
     expect(result).toEqual({ success: true });
@@ -228,11 +289,57 @@ describe("sendHubNewCoffeesEmail", () => {
     );
   });
 
+  it("uses an aggregated subject across multiple hubs", async () => {
+    await sendHubCampaignsDigestEmail({
+      buyer: { email: "buyer@roastery.com", contact_name: "Alice" },
+      windowLabel: "over the last few days",
+      hubs: [
+        {
+          hubName: "Portland Hub",
+          campaigns: [
+            { lotTitle: "A", originCountry: "Colombia", pricePerKg: 14, currency: "USD", deadlineLabel: "Mar 14" },
+          ],
+        },
+        {
+          hubName: "Austin Hub",
+          campaigns: [
+            { lotTitle: "B", originCountry: "Ethiopia", pricePerKg: 13, currency: "USD", deadlineLabel: "Mar 16" },
+          ],
+        },
+      ],
+    });
+
+    expect(mockSendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "buyer@roastery.com",
+        subject: expect.stringContaining("across your hubs"),
+      })
+    );
+  });
+
+  it("skips sending when there are no campaigns in the window", async () => {
+    const result = await sendHubCampaignsDigestEmail({
+      buyer: { email: "buyer@roastery.com", contact_name: "Alice" },
+      windowLabel: "over the last few days",
+      hubs: [],
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
   it("returns { success: false } without sending if buyer has no email", async () => {
-    const result = await sendHubNewCoffeesEmail({
+    const result = await sendHubCampaignsDigestEmail({
       buyer: { email: null, contact_name: "Alice" },
-      hubName: "Portland Hub",
-      newLots: [],
+      windowLabel: "over the last few days",
+      hubs: [
+        {
+          hubName: "Portland Hub",
+          campaigns: [
+            { lotTitle: "A", originCountry: "Colombia", pricePerKg: 14, currency: "USD", deadlineLabel: "Mar 14" },
+          ],
+        },
+      ],
     });
 
     expect(result.success).toBe(false);
