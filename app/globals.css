@@ -2,6 +2,22 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Respect prefers-reduced-motion for users who have requested it.
+   The merninos primitives use translate / shadow transitions on hover
+   and active; this blanket override neutralizes them so motion-sensitive
+   users still see hover/focus state but without movement. Functionality
+   (clicks, keyboard nav, focus) is preserved — only motion is removed. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* CrowdRoast "Bulletin" palette — matcha-forward, peeled from CoffeeOS tomato/cream */
 :root {
   --cr-bg:        #EFE7CF;
