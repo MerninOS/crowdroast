@@ -47,7 +47,7 @@ export function FarmerCard({ lot, hubName }: FarmerCardProps) {
   return (
     <section
       style={{
-        padding: '56px 28px',
+        padding: '56px 0',
         background: 'var(--color-cream)',
       }}
     >

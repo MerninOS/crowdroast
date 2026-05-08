@@ -74,9 +74,11 @@
   --border-default: var(--color-fog);
   --border-bold:    var(--color-espresso);
 
-  /* Fonts */
-  --font-display:  "Adore Cats", "Cal Sans", system-ui, sans-serif;
-  --font-headline: "Adore Cats", "Cal Sans", system-ui, sans-serif;
+  /* Fonts — Cal Sans throughout for the redesign. The Adore Cats display
+     font remains loaded via @font-face for any consumer that wants to
+     reference it explicitly, but the default tokens use Cal Sans. */
+  --font-display:  "Cal Sans", "Inter", system-ui, sans-serif;
+  --font-headline: "Cal Sans", "Inter", system-ui, sans-serif;
   --font-body:     "Cal Sans", "Inter", system-ui, sans-serif;
   --font-mono:     "JetBrains Mono", monospace;
 

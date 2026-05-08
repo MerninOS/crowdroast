@@ -17,8 +17,8 @@ import { InviteBanner } from '@/components/campaign/InviteBanner'
 import { installInviteFetchMock, renderCampaignPage } from './test-helpers'
 import { REFERRAL_CREDIT_AMOUNT_CENTS } from '@/lib/referrals/settle-attribution'
 
-vi.mock('@/components/commitment-form', () => ({
-  CommitmentForm: ({ onSuccess }: { onSuccess?: () => void }) => (
+vi.mock('@/components/campaign/CampaignCommitForm', () => ({
+  CampaignCommitForm: ({ onSuccess }: { onSuccess?: () => void }) => (
     <button data-testid="commitment-form" onClick={() => onSuccess?.()}>
       Commit
     </button>

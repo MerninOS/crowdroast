@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { CommitmentForm } from '@/components/commitment-form'
+import { CampaignCommitForm } from './CampaignCommitForm'
 import { InviteDataProvider } from '@/hooks/use-invite-data'
 import { Marquee } from '@merninos/ui'
 import { LotGallery } from './LotGallery'
@@ -15,7 +15,6 @@ import { PostCommitNudge } from './PostCommitNudge'
 import { InviteModal } from './InviteModal'
 import { SocialProof } from './SocialProof'
 import { FarmerCard } from './FarmerCard'
-import { HubStrip } from './HubStrip'
 import type { Lot, PricingTier, UserRole } from '@/lib/types'
 import type { CampaignSocialProof } from '@/lib/lots/social-proof'
 
@@ -74,7 +73,7 @@ function GuestView({
       style={{
         background: 'var(--surface-app)',
         minHeight: '100vh',
-        padding: '32px 28px',
+        padding: '32px 0',
       }}
     >
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
@@ -184,15 +183,23 @@ function AuthenticatedView({
   const canCommit =
     !isOwner && viewerRole === 'buyer' && lot.status === 'active' && remainingKg > 0
 
-  const { tiers, stretchLb, committedLb, lbToNext, nextTier, nextIsStretch, activePrice } =
-    React.useMemo(() => buildTierContext(lot, pricingTiers), [lot, pricingTiers])
+  const {
+    tiers,
+    stretchLb,
+    committedLb,
+    lbToNext,
+    nextTier,
+    nextIsStretch,
+    activePrice,
+    activeTier,
+  } = React.useMemo(() => buildTierContext(lot, pricingTiers), [lot, pricingTiers])
 
   const biddersIn = socialProof?.recentCommitCount ?? 0
 
   return (
     <div style={{ background: 'var(--surface-app)', minHeight: '100vh' }}>
       {/* HERO — image left, info right */}
-      <section style={{ padding: '32px 28px 28px' }}>
+      <section style={{ padding: '32px 0 28px' }}>
         <div style={{ maxWidth: 1280, margin: '0 auto' }}>
           <BackLink hubId={hubId} backHref={backHref} backLabel={backLabel} />
           <div
@@ -315,11 +322,13 @@ function AuthenticatedView({
 
               {/* Commit form sits in hero right col */}
               {canCommit && (
-                <CommitmentForm
+                <CampaignCommitForm
                   lotId={lot.id}
-                  activePrice={activePrice}
+                  activePricePerKg={activePrice}
                   maxKg={remainingKg}
                   hubId={hubId || undefined}
+                  activeTierName={activeTier.name}
+                  biddersIn={biddersIn}
                   onSuccess={() => setHasCommitted(true)}
                 />
               )}
@@ -331,7 +340,7 @@ function AuthenticatedView({
       </section>
 
       {/* TIER LADDER */}
-      <section style={{ padding: '8px 28px 40px' }}>
+      <section style={{ padding: '8px 0 40px' }}>
         <div style={{ maxWidth: 1280, margin: '0 auto' }}>
           <TierLadder
             tiers={tiers}
@@ -362,7 +371,7 @@ function AuthenticatedView({
           background: 'var(--color-tomato)',
           borderTop: '5px solid var(--color-espresso)',
           borderBottom: '5px solid var(--color-espresso)',
-          padding: '56px 28px',
+          padding: '56px 0',
         }}
       >
         <div style={{ maxWidth: 1100, margin: '0 auto' }}>
@@ -384,9 +393,6 @@ function AuthenticatedView({
           lotIdShort={lot.id.slice(0, 8).toUpperCase()}
         />
       )}
-
-      {/* HUB STRIP */}
-      <HubStrip hubName={hubName} />
 
       {/* Floating invite FAB */}
       <InviteFab onOpen={openModal} />
@@ -494,6 +500,7 @@ type TierContext = {
   nextTier: CampaignTier
   nextIsStretch: boolean
   activePrice: number
+  activeTier: CampaignTier
 }
 
 function buildTierContext(lot: Lot, pricingTiers: PricingTier[]): TierContext {
@@ -567,6 +574,7 @@ function buildTierContext(lot: Lot, pricingTiers: PricingTier[]): TierContext {
     nextTier,
     nextIsStretch,
     activePrice,
+    activeTier: reached,
   }
 }
 

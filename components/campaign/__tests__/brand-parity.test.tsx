@@ -21,8 +21,8 @@ import {
   setViewportIsDesktop,
 } from './test-helpers'
 
-vi.mock('@/components/commitment-form', () => ({
-  CommitmentForm: ({ onSuccess }: { onSuccess?: () => void }) => (
+vi.mock('@/components/campaign/CampaignCommitForm', () => ({
+  CampaignCommitForm: ({ onSuccess }: { onSuccess?: () => void }) => (
     <button data-testid="commitment-form" onClick={() => onSuccess?.()}>
       Commit
     </button>
