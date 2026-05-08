@@ -71,6 +71,12 @@ function GuestView({
   return (
     <div
       style={{
+        // Scope override: the global --font-display is bound to Fredoka
+        // by next/font on <body>. Re-bind it to Cal Sans (--font-headline)
+        // for the campaign subtree only — every component below that uses
+        // var(--font-display) now resolves to Cal Sans without changing
+        // the global setup.
+        ['--font-display' as string]: 'var(--font-headline)',
         // Full-bleed: break out of the dashboard shell's max-w-7xl + p-8
         // wrapper so the page spans the whole viewport regardless of
         // what container Next.js parents drop us into.
@@ -80,7 +86,7 @@ function GuestView({
         background: 'var(--surface-app)',
         minHeight: '100vh',
         padding: '32px 24px',
-      }}
+      } as React.CSSProperties}
     >
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
         <BackLink hubId={hubId} backHref={backHref} backLabel={backLabel} />
@@ -205,6 +211,10 @@ function AuthenticatedView({
   return (
     <div
       style={{
+        // Scope override: rebind --font-display from Fredoka (next/font's
+        // global default) to Cal Sans (--font-headline) for the campaign
+        // subtree only. See GuestView for the full rationale.
+        ['--font-display' as string]: 'var(--font-headline)',
         // Full-bleed: break out of the dashboard shell's max-w-7xl + p-8
         // wrapper so the page spans the whole viewport.
         width: '100vw',
@@ -212,7 +222,7 @@ function AuthenticatedView({
         marginRight: 'calc(50% - 50vw)',
         background: 'var(--surface-app)',
         minHeight: '100vh',
-      }}
+      } as React.CSSProperties}
     >
       {/* HERO — image left, info right */}
       <section style={{ padding: '32px 24px 28px' }}>
