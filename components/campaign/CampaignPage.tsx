@@ -71,9 +71,15 @@ function GuestView({
   return (
     <div
       style={{
+        // Full-bleed: break out of the dashboard shell's max-w-7xl + p-8
+        // wrapper so the page spans the whole viewport regardless of
+        // what container Next.js parents drop us into.
+        width: '100vw',
+        marginLeft: 'calc(50% - 50vw)',
+        marginRight: 'calc(50% - 50vw)',
         background: 'var(--surface-app)',
         minHeight: '100vh',
-        padding: '32px 0',
+        padding: '32px 24px',
       }}
     >
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
@@ -197,9 +203,19 @@ function AuthenticatedView({
   const biddersIn = socialProof?.recentCommitCount ?? 0
 
   return (
-    <div style={{ background: 'var(--surface-app)', minHeight: '100vh' }}>
+    <div
+      style={{
+        // Full-bleed: break out of the dashboard shell's max-w-7xl + p-8
+        // wrapper so the page spans the whole viewport.
+        width: '100vw',
+        marginLeft: 'calc(50% - 50vw)',
+        marginRight: 'calc(50% - 50vw)',
+        background: 'var(--surface-app)',
+        minHeight: '100vh',
+      }}
+    >
       {/* HERO — image left, info right */}
-      <section style={{ padding: '32px 0 28px' }}>
+      <section style={{ padding: '32px 24px 28px' }}>
         <div style={{ maxWidth: 1280, margin: '0 auto' }}>
           <BackLink hubId={hubId} backHref={backHref} backLabel={backLabel} />
           <div
@@ -340,7 +356,7 @@ function AuthenticatedView({
       </section>
 
       {/* TIER LADDER */}
-      <section style={{ padding: '8px 0 40px' }}>
+      <section style={{ padding: '8px 24px 40px' }}>
         <div style={{ maxWidth: 1280, margin: '0 auto' }}>
           <TierLadder
             tiers={tiers}
@@ -371,7 +387,7 @@ function AuthenticatedView({
           background: 'var(--color-tomato)',
           borderTop: '5px solid var(--color-espresso)',
           borderBottom: '5px solid var(--color-espresso)',
-          padding: '56px 0',
+          padding: '56px 24px',
         }}
       >
         <div style={{ maxWidth: 1100, margin: '0 auto' }}>

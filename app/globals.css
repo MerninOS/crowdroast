@@ -1,7 +1,7 @@
-/* Cal Sans (body / UI) + Inter (body fallback) + JetBrains Mono (mono).
-   Adore Cats (display) is loaded locally via @font-face below. Loading
-   the body fonts via Google Fonts mirrors the prototype's tokens.css. */
-@import url("https://fonts.googleapis.com/css2?family=Cal+Sans&family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap");
+/* Note: Cal Sans + JetBrains Mono are loaded via next/font in app/layout.tsx.
+   They expose --font-headline and --font-mono on <body> with hashed family
+   names — no @import is needed (and adding one would only create double-
+   loading). */
 
 @tailwind base;
 @tailwind components;
@@ -74,13 +74,15 @@
   --border-default: var(--color-fog);
   --border-bold:    var(--color-espresso);
 
-  /* Fonts — Cal Sans throughout for the redesign. The Adore Cats display
-     font remains loaded via @font-face for any consumer that wants to
-     reference it explicitly, but the default tokens use Cal Sans. */
-  --font-display:  "Cal Sans", "Inter", system-ui, sans-serif;
-  --font-headline: "Cal Sans", "Inter", system-ui, sans-serif;
-  --font-body:     "Cal Sans", "Inter", system-ui, sans-serif;
-  --font-mono:     "JetBrains Mono", monospace;
+  /* Fonts — Cal Sans throughout for the redesign.
+     next/font in app/layout.tsx loads Cal Sans under a hashed family name
+     and exposes it via --font-headline. Delegating --font-display and
+     --font-body to the same var so every font role on the campaign page
+     resolves to Cal Sans. (Defining "Cal Sans" as a literal string here
+     would not work — the browser doesn't know that family by that name;
+     it only knows the hashed name next/font generated.) */
+  --font-display:  var(--font-headline);
+  --font-body:     var(--font-headline);
 
   /* Flat shadows (no blur, ever) */
   --shadow-flat-sm:     3px 3px 0 var(--color-espresso);
