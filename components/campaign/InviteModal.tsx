@@ -129,6 +129,11 @@ export function InviteModal({ open, onOpenChange }: InviteModalProps) {
                   {copied ? 'Copied!' : 'Copy link'}
                 </Button>
               </div>
+              {/* Off-screen live region announces clipboard success without
+                  forcing the button's name to be re-read. */}
+              <div role="status" aria-live="polite" className="sr-only">
+                {copied ? 'Link copied to clipboard.' : ''}
+              </div>
             </div>
 
             <div className="flex flex-col gap-3">
@@ -146,17 +151,29 @@ export function InviteModal({ open, onOpenChange }: InviteModalProps) {
               </span>
               <div className="flex flex-wrap gap-3">
                 <Button asChild variant="outline">
-                  <a href={slackHref} target="_blank" rel="noreferrer">
+                  <a
+                    href={slackHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="Share invite via Slack"
+                  >
                     Slack
                   </a>
                 </Button>
                 <Button asChild variant="outline">
-                  <a href={xHref} target="_blank" rel="noreferrer">
+                  <a
+                    href={xHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="Share invite on X (formerly Twitter)"
+                  >
                     X
                   </a>
                 </Button>
                 <Button asChild variant="outline">
-                  <a href={smsHref}>iMessage</a>
+                  <a href={smsHref} aria-label="Share invite via iMessage">
+                    iMessage
+                  </a>
                 </Button>
               </div>
             </div>
