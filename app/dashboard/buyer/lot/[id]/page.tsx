@@ -114,7 +114,6 @@ export default async function BuyerLotDetailPage({
         viewerRole={profile?.role || "buyer"}
         hubId={hubId || null}
         hubName={hub?.name || null}
-        campaignDeadline={(activeCampaign as any)?.deadline || null}
         pricingTiers={(pricingTiers as unknown as PricingTier[]) || []}
         socialProof={socialProof}
       />

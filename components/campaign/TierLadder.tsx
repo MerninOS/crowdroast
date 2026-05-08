@@ -1,157 +1,324 @@
 'use client'
 
 import * as React from 'react'
-import { TierBar, Stepper, Starburst, type StepperStep, type TierBarTick } from '@merninos/ui'
 
-export type TierLadderStep = StepperStep
+export type CampaignTier = {
+  id: string
+  name: string
+  /** Threshold as a percentage of the stretch goal (0 / 25 / 65 / 100). */
+  threshold: number
+  /** Per-lb price at this tier. */
+  price: number
+}
 
 interface TierLadderProps {
-  /** Total pounds committed to date. */
-  committedPounds: number
-  /** Pounds at which the next tier unlocks. 0 means the top tier is reached. */
-  nextTierThreshold: number
-  /** Label of the tier the campaign is currently in. */
-  currentTierLabel: string
-  /** Label of the tier just above current. Null when the top tier is reached. */
-  nextTierLabel?: string | null
-  /** Stepper flag list — order matches campaign progression. */
-  steps: TierLadderStep[]
-  /** Which step the campaign is currently on. */
-  currentStepKey: string
-  /** Optional tick marks to overlay on the progress bar (positions in pounds). */
-  ticks?: TierBarTick[]
-  /** ISO timestamp when committing closes — drives the D:H:M:S countdown. */
-  commitmentDeadline?: string | null
-  /** Slot for a nested StickyInvitePoke. */
+  tiers: CampaignTier[]
+  /** Pounds committed so far. */
+  committed: number
+  /** Stretch goal in pounds — the 100% mark on the bar. */
+  stretchLb: number
+  /** Visual energy: 'rowdy' wiggles the next-tier flag. */
+  hype?: 'calm' | 'rowdy'
+  /** Optional slot rendered below the ladder for a sticky invite poke. */
   children?: React.ReactNode
 }
 
-// Excitement engine: stepper flags + progress bar + Starburst callout +
-// live countdown. Section is given min-height: 80vh on lg+ so the nested
-// StickyCta has scroll runway to actually stick to.
-//
-// Progress bar fill = committedPounds / nextTierThreshold per spec
-// criterion #1. When the top tier is reached (threshold = 0), we render
-// a celebratory state instead of a divide-by-zero bar.
+// Direct port of design/project/campaign/TierLadder.jsx — cream card with
+// flag-chip progress, pulsing eyebrow, big display-font "X lb to Y."
+// headline, animated tomato fill bar, and per-tier flag chips positioned
+// proportionally. The next-tier flag wiggles when hype = 'rowdy'.
 export function TierLadder({
-  committedPounds,
-  nextTierThreshold,
-  currentTierLabel,
-  nextTierLabel,
-  steps,
-  currentStepKey,
-  ticks,
-  commitmentDeadline,
+  tiers,
+  committed,
+  stretchLb,
+  hype = 'rowdy',
   children,
 }: TierLadderProps) {
-  const atTopTier = nextTierThreshold <= 0 || !nextTierLabel
-  const remaining = atTopTier ? 0 : Math.max(0, nextTierThreshold - committedPounds)
-  const countdown = useCountdown(commitmentDeadline)
+  const lbAtTier = (t: CampaignTier) => Math.round((t.threshold / 100) * stretchLb)
+  const stretchPct = Math.min(100, Math.max(0, (committed / Math.max(1, stretchLb)) * 100))
+
+  const currentTier =
+    [...tiers].reverse().find((t) => committed >= lbAtTier(t)) ?? tiers[0]
+  const nextTier =
+    tiers.find((t) => lbAtTier(t) > committed) ?? tiers[tiers.length - 1]
+  const lbToNext = Math.max(0, lbAtTier(nextTier) - committed)
+  const nextIsStretch = nextTier.id === tiers[tiers.length - 1].id
 
   return (
-    <section
+    <div
       data-section="tier"
-      className="flex flex-col gap-8 rounded-[24px] border-[5px] border-espresso bg-cream p-6 sm:p-10 lg:min-h-[80vh] lg:p-12 shadow-[8px_8px_0_var(--mernin-espresso,#1C0F05)]"
+      style={{
+        background: 'var(--color-cream)',
+        border: '4px solid var(--color-espresso)',
+        borderRadius: 20,
+        padding: '28px 32px 32px',
+        boxShadow: '6px 6px 0 var(--color-espresso)',
+      }}
     >
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-baseline sm:justify-between">
-        <div className="flex flex-col gap-1">
-          <span className="font-body text-xs font-bold uppercase tracking-[0.12em] text-espresso/60">
-            Currently in
-          </span>
-          <h2 className="font-headline text-4xl sm:text-5xl text-espresso leading-tight">
-            {currentTierLabel}
-          </h2>
-        </div>
-
-        <div className="flex flex-col items-start gap-1 sm:items-end">
-          <span className="font-body text-xs font-bold uppercase tracking-[0.12em] text-espresso/60">
-            Campaign closes in
-          </span>
-          <CountdownReadout countdown={countdown} />
-        </div>
-      </header>
-
-      <Stepper steps={steps} currentKey={currentStepKey} />
-
-      {atTopTier ? (
-        <div className="flex items-center gap-6">
-          <Starburst label="Stretch!" color="tomato" size={120} />
-          <div>
-            <h3 className="font-headline text-3xl text-espresso leading-tight">
-              Top tier unlocked.
-            </h3>
-            <p className="font-body text-sm text-espresso/70">
-              Every commit from here builds the stretch goal.
-            </p>
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-4">
-          <TierBar
-            value={committedPounds}
-            max={nextTierThreshold}
-            ticks={ticks}
-            variant="tomato"
-          />
-          <div className="flex items-center gap-6">
-            <Starburst
-              label={`${remaining.toLocaleString()} lb`}
-              color="sun"
-              size={110}
+      {/* Header */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-end',
+          justifyContent: 'space-between',
+          gap: 24,
+          marginBottom: 24,
+          flexWrap: 'wrap',
+        }}
+      >
+        <div style={{ flex: '1 1 360px' }}>
+          <div
+            className="eyebrow"
+            style={{
+              color: 'var(--color-tomato)',
+              marginBottom: 8,
+              fontSize: 11,
+              letterSpacing: '.18em',
+              textTransform: 'uppercase',
+              fontWeight: 800,
+            }}
+          >
+            <span
+              style={{
+                display: 'inline-block',
+                width: 8,
+                height: 8,
+                borderRadius: 999,
+                background: 'var(--color-tomato)',
+                marginRight: 8,
+                animation: 'cp-pulse 1.4s ease-in-out infinite',
+                verticalAlign: 'middle',
+              }}
             />
-            <p className="font-headline text-2xl sm:text-3xl text-espresso leading-tight">
-              to unlock <strong className="font-display">{nextTierLabel}</strong>
-            </p>
+            You&apos;re at {currentTier.name} · {Math.round(stretchPct)}%
           </div>
+          <h2
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 'clamp(36px, 4.6vw, 60px)',
+              lineHeight: 0.9,
+              textTransform: 'uppercase',
+              color: 'var(--color-espresso)',
+              margin: 0,
+            }}
+          >
+            {lbToNext > 0 ? (
+              <>
+                {lbToNext.toLocaleString()} lb
+                <br />
+                to <span style={{ color: 'var(--color-tomato)' }}>{nextTier.name}.</span>
+              </>
+            ) : (
+              <>
+                {nextTier.name}{' '}
+                <span style={{ color: 'var(--color-tomato)' }}>unlocked.</span>
+              </>
+            )}
+          </h2>
+          <p
+            style={{
+              fontSize: 14,
+              color: 'var(--fg2)',
+              marginTop: 10,
+              marginBottom: 0,
+              maxWidth: 480,
+              lineHeight: 1.55,
+            }}
+          >
+            {nextIsStretch ? (
+              <>
+                Hit it together and everyone pays{' '}
+                <b style={{ color: 'var(--color-espresso)' }}>
+                  ${nextTier.price.toFixed(2)}/lb
+                </b>{' '}
+                — the lowest price on this lot.
+              </>
+            ) : (
+              <>
+                Next tier drops the price for{' '}
+                <b style={{ color: 'var(--color-espresso)' }}>everyone in</b> to{' '}
+                <b style={{ color: 'var(--color-espresso)' }}>
+                  ${nextTier.price.toFixed(2)}/lb
+                </b>
+                .
+              </>
+            )}
+          </p>
         </div>
-      )}
 
-      {children && <div className="mt-2">{children}</div>}
-    </section>
+        <div style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: 14 }}>
+          <PercentStarburst percent={Math.round(stretchPct)} />
+        </div>
+      </div>
+
+      {/* Progress bar with tier flag chips */}
+      <div style={{ position: 'relative', padding: '0 0 92px' }}>
+        <div
+          style={{
+            position: 'relative',
+            height: 18,
+            background: 'var(--color-fog)',
+            border: '3px solid var(--color-espresso)',
+            borderRadius: 999,
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            data-testid="tier-progress-fill"
+            style={{
+              height: '100%',
+              width: `${stretchPct}%`,
+              background: 'var(--color-tomato)',
+              transition: 'width .6s var(--ease-snap)',
+            }}
+          />
+        </div>
+
+        {tiers.map((t) => {
+          const lbAt = lbAtTier(t)
+          const left = Math.min(100, (lbAt / Math.max(1, stretchLb)) * 100)
+          const unlocked = committed >= lbAt
+          const isNext = t.id === nextTier.id && !unlocked
+          const transformX = left < 8 ? '0%' : left > 92 ? '-100%' : '-50%'
+          return (
+            <div
+              key={t.id}
+              style={{
+                position: 'absolute',
+                top: 'calc(100% - 84px)',
+                left: `${left}%`,
+                transform: `translateX(${transformX})`,
+                width: 120,
+              }}
+            >
+              <div
+                style={{
+                  background: unlocked
+                    ? 'var(--color-matcha)'
+                    : isNext
+                      ? 'var(--color-sun)'
+                      : 'var(--color-chalk)',
+                  color: unlocked ? 'var(--color-cream)' : 'var(--color-espresso)',
+                  border: '3px solid var(--color-espresso)',
+                  borderRadius: 10,
+                  padding: '7px 8px 8px',
+                  textAlign: 'center',
+                  boxShadow: isNext
+                    ? '3px 3px 0 var(--color-tomato)'
+                    : '2px 2px 0 var(--color-espresso)',
+                  animation:
+                    isNext && hype === 'rowdy'
+                      ? 'cp-wiggle 2.4s ease-in-out infinite'
+                      : 'none',
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 800,
+                    letterSpacing: '.1em',
+                    textTransform: 'uppercase',
+                    opacity: 0.75,
+                  }}
+                >
+                  {unlocked ? '✓ Unlocked' : isNext ? 'Next' : 'Locked'}
+                </div>
+                <div
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    fontSize: 22,
+                    lineHeight: 1,
+                    marginTop: 3,
+                  }}
+                >
+                  ${t.price.toFixed(2)}
+                </div>
+                <div
+                  style={{
+                    fontSize: 9.5,
+                    fontWeight: 700,
+                    marginTop: 2,
+                    opacity: 0.85,
+                    textTransform: 'uppercase',
+                    letterSpacing: '.06em',
+                  }}
+                >
+                  {t.name}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {children}
+
+      <style>{`
+        @keyframes cp-pulse{0%,100%{opacity:1}50%{opacity:.3}}
+        @keyframes cp-wiggle{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-3px) rotate(1.5deg)}}
+        @keyframes cp-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+      `}</style>
+    </div>
   )
 }
 
-// ─── Countdown ────────────────────────────────────────────────────────────────
-
-type Countdown =
-  | { kind: 'live'; days: number; hours: number; minutes: number; seconds: number }
-  | { kind: 'closed' }
-  | { kind: 'idle' }
-
-function useCountdown(deadline: string | null | undefined): Countdown {
-  const [now, setNow] = React.useState<number>(() => Date.now())
-
-  React.useEffect(() => {
-    if (!deadline) return
-    const id = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(id)
-  }, [deadline])
-
-  if (!deadline) return { kind: 'idle' }
-  const target = Date.parse(deadline)
-  if (Number.isNaN(target)) return { kind: 'idle' }
-  const diff = target - now
-  if (diff <= 0) return { kind: 'closed' }
-  const seconds = Math.floor((diff / 1000) % 60)
-  const minutes = Math.floor((diff / 1000 / 60) % 60)
-  const hours = Math.floor((diff / 1000 / 60 / 60) % 24)
-  const days = Math.floor(diff / 1000 / 60 / 60 / 24)
-  return { kind: 'live', days, hours, minutes, seconds }
-}
-
-function CountdownReadout({ countdown }: { countdown: Countdown }) {
-  if (countdown.kind === 'idle') return null
-  if (countdown.kind === 'closed') {
-    return (
-      <span className="font-display text-2xl sm:text-3xl text-tomato">
-        Campaign closed
-      </span>
-    )
-  }
-  const pad = (n: number) => String(n).padStart(2, '0')
+// ─── Inline starburst (with percent label) ────────────────────────────────────
+// The merninos Starburst exists but only takes a string label, not custom
+// styling. Inlining the SVG path here matches the prototype exactly.
+function PercentStarburst({ percent }: { percent: number }) {
+  const points = burstPoints(24, 58, 44)
   return (
-    <span className="font-display text-3xl sm:text-4xl text-espresso tabular-nums">
-      {countdown.days}d {pad(countdown.hours)}:{pad(countdown.minutes)}:{pad(countdown.seconds)}
-    </span>
+    <div
+      style={{
+        position: 'relative',
+        display: 'inline-flex',
+        width: 96,
+        height: 96,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <svg
+        viewBox="0 0 120 120"
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+        aria-hidden
+      >
+        <polygon
+          points={points}
+          fill="var(--color-sun)"
+          stroke="var(--color-espresso)"
+          strokeWidth="3"
+          strokeLinejoin="round"
+        />
+      </svg>
+      <span
+        style={{
+          position: 'relative',
+          zIndex: 2,
+          color: 'var(--color-espresso)',
+          fontFamily: 'var(--font-body)',
+          fontWeight: 800,
+          fontSize: 20,
+          letterSpacing: '.04em',
+          textTransform: 'uppercase',
+          lineHeight: 1.05,
+          textAlign: 'center',
+          padding: '0 14%',
+        }}
+      >
+        {percent}%
+      </span>
+    </div>
   )
+}
+
+function burstPoints(p: number, outerR: number, innerR: number, cx = 60, cy = 60) {
+  const total = p * 2
+  const out: string[] = []
+  for (let i = 0; i < total; i++) {
+    const r = i % 2 === 0 ? outerR : innerR
+    const a = (Math.PI * 2 * i) / total - Math.PI / 2
+    out.push(`${(cx + r * Math.cos(a)).toFixed(2)},${(cy + r * Math.sin(a)).toFixed(2)}`)
+  }
+  return out.join(' ')
 }

@@ -18,7 +18,7 @@ describe('InviteFab (criterion 4)', () => {
     setViewportIsDesktop(false)
   })
 
-  it('renders on desktop with position:fixed (via class) when invite is ready', async () => {
+  it('renders on desktop with inline position: fixed when invite is ready', async () => {
     setViewportIsDesktop(true)
     installInviteFetchMock({ kind: 'ready' })
     render(
@@ -29,7 +29,9 @@ describe('InviteFab (criterion 4)', () => {
     const button = await waitFor(() =>
       screen.getByRole('button', { name: /invite/i })
     )
-    expect(button.className).toMatch(/\bfixed\b/)
+    // The FAB uses inline styles per the prototype — assert the
+    // computed inline position is "fixed", not a class.
+    expect(button.style.position).toBe('fixed')
   })
 
   it('is ABSENT FROM THE DOM on mobile viewports (not just display:none)', async () => {
@@ -40,10 +42,7 @@ describe('InviteFab (criterion 4)', () => {
         <InviteFab onOpen={() => {}} />
       </InviteDataProvider>
     )
-    // Wait for the invite fetch to resolve so any race can't mask absence.
     await waitFor(() => {
-      // The provider has finished fetching, so if the FAB were going to
-      // mount at all, it would be here.
       expect(container.firstChild).toBeNull()
     })
     expect(screen.queryByRole('button', { name: /invite/i })).toBeNull()

@@ -18,6 +18,78 @@
   }
 }
 
+/* ================================================================
+   Mernin' design system tokens (mirrors mernin-ui/core/tokens.css)
+   These let inline styles like style={{ background: "var(--color-tomato)" }}
+   resolve at runtime. Components on the buyer campaign page use these
+   directly because the design hands off as inline-CSS-var JSX.
+   ================================================================ */
+:root {
+  /* Core brand colors */
+  --color-tomato:   #E8442A;
+  --color-cream:    #F5F0D8;
+  --color-espresso: #1C0F05;
+  --color-sun:      #F5C842;
+  --color-sky:      #5BC8D5;
+  --color-chalk:    #FDFAF0;
+  --color-roast:    #3B1F0A;
+  --color-honey:    #E8913A;
+  --color-matcha:   #5A7A3A;
+  --color-fog:      #D8D0B8;
+
+  /* Semantic family defaults — products override the accent vars below */
+  --bg-primary:   var(--color-cream);
+  --bg-elevated:  var(--color-chalk);
+  --bg-loud:      var(--color-tomato);
+  --bg-inverse:   var(--color-espresso);
+  --fg1:          var(--color-espresso);
+  --fg2:          #7A6A50;
+  --fg-inverse:   var(--color-cream);
+
+  /* Product-overridable accents — CrowdRoast tunes deeper tomato + honey */
+  --color-tomato-deep: #D43A22;
+  --color-cream-warm:  #F2EBC8;
+  --accent-1:           var(--color-tomato-deep);
+  --accent-1-fg:        var(--color-cream-warm);
+  --accent-1-hover:     #B82E1A;
+  --accent-2:           var(--color-honey);
+  --accent-2-fg:        var(--color-espresso);
+  --accent-positive:    var(--color-matcha);
+  --accent-positive-fg: var(--color-cream-warm);
+  --accent-info:        var(--color-sky);
+  --accent-info-fg:     var(--color-espresso);
+
+  /* Surfaces */
+  --surface-app:    var(--color-cream-warm);
+  --surface-card:   #F8F2DC;
+  --surface-rail:   var(--color-cream-warm);
+  --surface-loud:   var(--color-tomato-deep);
+  --surface-inverse: var(--color-espresso);
+
+  --border-default: var(--color-fog);
+  --border-bold:    var(--color-espresso);
+
+  /* Fonts */
+  --font-display:  "Adore Cats", "Cal Sans", system-ui, sans-serif;
+  --font-headline: "Adore Cats", "Cal Sans", system-ui, sans-serif;
+  --font-body:     "Cal Sans", "Inter", system-ui, sans-serif;
+  --font-mono:     "JetBrains Mono", monospace;
+
+  /* Flat shadows (no blur, ever) */
+  --shadow-flat-sm:     3px 3px 0 var(--color-espresso);
+  --shadow-flat-md:     5px 5px 0 var(--color-espresso);
+  --shadow-flat-lg:     8px 8px 0 var(--color-espresso);
+  --shadow-flat-tomato: 5px 5px 0 var(--color-tomato);
+  --shadow-flat-sun:    5px 5px 0 var(--color-sun);
+
+  /* Motion */
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-snap:   cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 120ms;
+  --duration-base: 220ms;
+  --duration-slow: 380ms;
+}
+
 /* CrowdRoast "Bulletin" palette — matcha-forward, peeled from CoffeeOS tomato/cream */
 :root {
   --cr-bg:        #EFE7CF;

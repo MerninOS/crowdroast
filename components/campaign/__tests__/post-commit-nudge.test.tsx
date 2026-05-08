@@ -26,7 +26,7 @@ describe('PostCommitNudge (criterion 5)', () => {
       </InviteDataProvider>
     )
     expect(container.firstChild).toBeNull()
-    expect(screen.queryByText(/now bring a friend/i)).toBeNull()
+    expect(screen.queryByText(/now bring your/i)).toBeNull()
   })
 
   it('renders after a commit (visible=true)', async () => {
@@ -36,8 +36,9 @@ describe('PostCommitNudge (criterion 5)', () => {
       </InviteDataProvider>
     )
     await waitFor(() =>
-      expect(screen.getByText(/now bring a friend/i)).toBeInTheDocument()
+      expect(screen.getByText(/you're in/i)).toBeInTheDocument()
     )
+    expect(screen.getByText(/now bring your.*crew/i)).toBeInTheDocument()
   })
 
   it('stays absent when invite data is errored even with visible=true', async () => {

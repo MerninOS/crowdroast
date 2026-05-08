@@ -43,28 +43,23 @@ describe('CampaignPage — exactly-once invite API call (criterion 6)', () => {
   })
 
   it('hits POST /api/invite-codes exactly ONCE across multiple CTA interactions', async () => {
-    const fetchMock = installInviteFetchMock({ kind: 'ready' })
+    const fetchMock = installInviteFetchMock({ kind: 'ready', hubCity: 'Austin' })
     await renderCampaignPage()
 
-    // Wait for the provider's mount-time fetch and the desktop matchMedia
-    // effect to settle (the FAB depends on useIsDesktop flipping true).
-    const fabBtn = await waitFor(() =>
-      screen.getByRole('button', { name: /^invite$/i })
-    )
-
-    const stickyOrBanner = screen.getAllByRole('button', {
-      name: /invite a roaster/i,
+    // Wait for both the provider fetch and the desktop matchMedia effect
+    // to settle. Multiple invite CTAs render: the InvitePoke under the
+    // tier card, the InviteBanner CTA, the InviteFab, and a "copy link"
+    // mini-link inside the banner. Click them all.
+    const allInviteCtas = await waitFor(() => {
+      const ctas = screen.getAllByRole('button', { name: /invite/i })
+      if (ctas.length < 3) throw new Error('FAB / banner not yet rendered')
+      return ctas
     })
-    // Sticky CTA + banner CTA both render — at least two.
-    expect(stickyOrBanner.length).toBeGreaterThanOrEqual(2)
-
-    // Three+ CTA clicks across distinct surfaces.
-    stickyOrBanner.forEach((btn) => fireEvent.click(btn))
-    fireEvent.click(fabBtn)
+    expect(allInviteCtas.length).toBeGreaterThanOrEqual(3)
+    allInviteCtas.forEach((btn) => fireEvent.click(btn))
 
     // Despite the clicks, fetch was called exactly once: the provider's
-    // mount-time POST /api/invite-codes. (Post-commit-nudge is covered
-    // separately in post-commit-nudge.test.tsx.)
+    // mount-time POST /api/invite-codes.
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(fetchMock).toHaveBeenCalledWith('/api/invite-codes', {
       method: 'POST',
@@ -72,17 +67,16 @@ describe('CampaignPage — exactly-once invite API call (criterion 6)', () => {
   })
 
   it('opens the invite modal on click', async () => {
-    installInviteFetchMock({ kind: 'ready' })
+    installInviteFetchMock({ kind: 'ready', hubCity: 'Austin' })
     await renderCampaignPage()
     const ctas = await waitFor(() =>
-      screen.getAllByRole('button', { name: /invite a roaster/i })
+      screen.getAllByRole('button', { name: /invite/i })
     )
     fireEvent.click(ctas[0])
-    // The modal title is unique to it and should now be visible.
+    // "Your referral link" is unique to the modal body — use it to
+    // confirm the modal opened.
     await waitFor(() =>
-      expect(
-        screen.getByRole('heading', { name: /^invite a roaster$/i })
-      ).toBeInTheDocument()
+      expect(screen.getByText(/your referral link/i)).toBeInTheDocument()
     )
   })
 })

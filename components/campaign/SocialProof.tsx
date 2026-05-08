@@ -1,72 +1,97 @@
 'use client'
 
 import * as React from 'react'
-import { Card, Badge } from '@merninos/ui'
-
-export type LeaderboardEntry = {
-  displayName: string
-  pounds: number
-}
+import { Leaderboard, type LeaderboardEntry } from './Leaderboard'
+import { ActivityFeed, type ActivityItem } from './ActivityFeed'
 
 interface SocialProofProps {
+  /** Total recent commit count, surfaced in the section copy. */
   recentCommitCount: number
   leaderboard: LeaderboardEntry[]
+  activity: ActivityItem[]
+  /** Lot id slug for the section copy ("...this lot."). */
+  lotIdShort: string
 }
 
-// Pure presentational. Receives pre-fetched stats from the server route —
-// no fetching, no realtime. V1 ships with a 24h commit count and a top-5
-// leaderboard rendered server-side; the live activity marquee is deferred.
-export function SocialProof({ recentCommitCount, leaderboard }: SocialProofProps) {
+// Direct port of the leaderboard / activity section in
+// design/project/campaign/App.jsx — eyebrow, big "Who's carrying this lot."
+// headline, two-column grid with Leaderboard on the left and ActivityFeed
+// on the right. The prototype's Roster avatar wall is omitted in V1
+// because we don't carry buyer-color data through the route.
+export function SocialProof({
+  recentCommitCount,
+  leaderboard,
+  activity,
+  lotIdShort,
+}: SocialProofProps) {
   return (
     <section
       data-section="social"
-      className="grid gap-6 lg:grid-cols-[auto_1fr] lg:gap-8"
+      style={{
+        padding: '56px 28px',
+        background: 'var(--color-cream)',
+      }}
     >
-      <Card className="flex flex-col items-start gap-3 p-6 sm:p-8 bg-tomato text-cream border-[4px]">
-        <span className="font-body text-xs font-bold uppercase tracking-[0.12em]">
-          Last 24 hours
-        </span>
-        <span className="font-display text-6xl sm:text-7xl leading-none">
-          {recentCommitCount}
-        </span>
-        <span className="font-body text-base font-bold uppercase tracking-[0.08em]">
-          {recentCommitCount === 1 ? 'roaster joined' : 'roasters joined'}
-        </span>
-      </Card>
-
-      <Card className="flex flex-col gap-4 p-6 sm:p-8">
-        <div className="flex items-center justify-between">
-          <h3 className="font-headline text-2xl text-espresso">Top of the campaign</h3>
-          <Badge>Live</Badge>
-        </div>
-        {leaderboard.length === 0 ? (
-          <p className="font-body text-sm text-espresso/70">
-            No commits yet. Be the first one in.
+      <div style={{ maxWidth: 1280, margin: '0 auto' }}>
+        <div style={{ marginBottom: 32, maxWidth: 680 }}>
+          <div
+            className="eyebrow"
+            style={{
+              color: 'var(--color-tomato)',
+              fontSize: 11,
+              letterSpacing: '.18em',
+              textTransform: 'uppercase',
+              fontWeight: 800,
+            }}
+          >
+            Heaviest hitters
+          </div>
+          <h2
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 'clamp(36px, 4vw, 56px)',
+              lineHeight: 0.92,
+              textTransform: 'uppercase',
+              margin: '6px 0 8px',
+              color: 'var(--color-espresso)',
+            }}
+          >
+            Who&apos;s carrying
+            <br />
+            this lot.
+          </h2>
+          <p
+            style={{
+              fontSize: 14,
+              color: 'var(--fg2)',
+              lineHeight: 1.55,
+              margin: 0,
+            }}
+          >
+            The roasters with the largest commits on Lot #{lotIdShort}. Their
+            volume drives the next tier — yours could push it to stretch.
           </p>
-        ) : (
-          <ol className="flex flex-col gap-3">
-            {leaderboard.map((entry, idx) => (
-              <li
-                key={`${entry.displayName}-${idx}`}
-                className="flex items-center gap-4 border-b-[2px] border-espresso/20 pb-3 last:border-b-0 last:pb-0"
-              >
-                <span
-                  aria-hidden
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-[3px] border-espresso bg-sun font-display text-lg text-espresso"
-                >
-                  {idx + 1}
-                </span>
-                <span className="font-body font-bold text-espresso flex-1 truncate">
-                  {entry.displayName}
-                </span>
-                <span className="font-body font-bold text-sm text-espresso/80 tabular-nums">
-                  {entry.pounds.toLocaleString()} lb
-                </span>
-              </li>
-            ))}
-          </ol>
-        )}
-      </Card>
+        </div>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr)',
+            gap: 28,
+            alignItems: 'flex-start',
+          }}
+          className="cp-social-grid"
+        >
+          <Leaderboard entries={leaderboard} />
+          <ActivityFeed items={activity} totalCount={recentCommitCount} />
+        </div>
+      </div>
+
+      <style>{`
+        @media (max-width: 900px) {
+          .cp-social-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
     </section>
   )
 }

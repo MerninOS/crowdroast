@@ -3,11 +3,14 @@
 /**
  * Criterion 9 — Brand-system parity.
  *
- * The redesigned page uses the merninos design tokens consistently —
- * font-display for headlines, espresso borders >= 3px, flat-shadow tokens
- * (no soft drop shadows with blur), cream backgrounds. We assert presence
- * of the Tailwind utility classes that map to these tokens, since JSDOM
- * does not actually compute Tailwind CSS.
+ * The redesigned page hands off as inline-style JSX with CSS variables
+ * (style={{ background: "var(--color-tomato)" }}). Tests assert the
+ * inline-style tokens are present, plus a sanity check that no soft
+ * blurred shadows have crept into the markup.
+ *
+ * JSDOM does NOT compute Tailwind utility CSS — that's why we use the
+ * inline-style approach directly: it renders identically in JSDOM and
+ * the browser, and the values are what we assert against.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -46,39 +49,62 @@ describe('CampaignPage — brand-system parity (criterion 9)', () => {
   it('main page heading uses the display font token', async () => {
     const { container } = await renderCampaignPage()
     await waitFor(() => container.querySelector('h1'))
-    const heading = container.querySelector('h1')!
-    expect(heading.className).toMatch(/\bfont-display\b/)
+    const heading = container.querySelector('h1') as HTMLElement | null
+    expect(heading).not.toBeNull()
+    // Inline style — JSDOM preserves it verbatim. The Adore Cats display
+    // font gets read from --font-display via the CSS-var reference.
+    expect(heading!.style.fontFamily).toBe('var(--font-display)')
   })
 
-  it('tier section uses espresso border >= 3px', async () => {
+  it('tier section uses an espresso border >= 3px', async () => {
     const { container } = await renderCampaignPage()
     const tier = await waitFor(() =>
       container.querySelector('[data-section="tier"]')
     )
-    // The TierLadder section uses border-[5px] border-espresso.
-    expect(tier!.className).toMatch(/border-espresso/)
-    expect(tier!.className).toMatch(/border-\[(?:[3-9]|\d{2,})px\]/)
+    const tierEl = tier as HTMLElement
+    // The TierLadder card uses border: 4px solid var(--color-espresso).
+    expect(tierEl.style.border).toMatch(/[3-9]px solid var\(--color-espresso\)/)
   })
 
-  it('cards use flat shadow tokens (no soft blurred shadows)', async () => {
+  it('cards use flat shadow tokens (no soft blur)', async () => {
     const { container } = await renderCampaignPage()
     await waitFor(() => container.querySelector('[data-section="tier"]'))
-    // Pull the rendered HTML and assert the standard merninos shadow
-    // token names are present somewhere AND there is no soft-shadow
-    // class / inline style with a blur radius (a non-zero second value
-    // in box-shadow would mean blur).
-    const html = container.innerHTML
-    expect(html).toMatch(/shadow-flat-(sm|md|lg)|shadow-\[\d+px_\d+px_0/)
-    // Soft shadows in Tailwind look like `shadow-md` or `shadow-lg`
-    // (which map to blurred shadows). They should NOT be present on
-    // campaign components — sanity check via direct token name match.
-    expect(html).not.toMatch(/\bshadow-(md|lg|xl|2xl)(\s|"|$)/)
+
+    // Pull every element with an inline box-shadow and confirm the
+    // shadow string never has a non-zero third value (blur radius).
+    // Format: "Xpx Ypx 0[px] color" — flat. Soft shadows would look
+    // like "0 4px 20px rgba(...)" with a non-zero third value.
+    const all = container.querySelectorAll('*')
+    let shadowsFound = 0
+    for (const el of Array.from(all)) {
+      const shadow = (el as HTMLElement).style.boxShadow
+      if (!shadow) continue
+      shadowsFound += 1
+      // Each shadow should have its third value (blur) equal to 0 or 0px.
+      // Match pattern "Xpx Ypx 0" or "Xpx Ypx 0px".
+      expect(shadow).toMatch(/-?\d+px\s+-?\d+px\s+0(px)?\b/)
+      // Sanity: the third value must NOT be a non-zero pixel blur.
+      expect(shadow).not.toMatch(/-?\d+px\s+-?\d+px\s+[1-9]\d*px/)
+    }
+    expect(shadowsFound).toBeGreaterThan(0)
   })
 
-  it('uses cream background somewhere in the rendered tree', async () => {
+  it('uses the cream surface token somewhere in the rendered tree', async () => {
+    const { container } = await renderCampaignPage()
+    await waitFor(() => container.querySelector('h1'))
+    // Either --color-cream or --surface-app (which resolves to a cream-
+    // family color) should appear somewhere in the inline styles.
+    const html = container.innerHTML
+    expect(
+      html.includes('var(--color-cream)') ||
+        html.includes('var(--surface-app)')
+    ).toBe(true)
+  })
+
+  it('uses espresso for borders and text somewhere in the tree', async () => {
     const { container } = await renderCampaignPage()
     await waitFor(() => container.querySelector('h1'))
     const html = container.innerHTML
-    expect(html).toMatch(/\bbg-cream\b/)
+    expect(html).toContain('var(--color-espresso)')
   })
 })

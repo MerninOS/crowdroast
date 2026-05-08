@@ -3,10 +3,11 @@
 /**
  * Criterion 3 — Invite banner placement and copy.
  *
- * Given a buyer scrolling the campaign page, the banner section will render
- * between the tier section and the social-proof section, with copy that
- * substitutes the buyer's hubCity and references the $10 credit (sourced
- * from REFERRAL_CREDIT_AMOUNT_CENTS).
+ * The redesigned InviteBanner is a full-width espresso card with tomato
+ * shadow, placed in its own section between the farmer card and the
+ * social proof per the prototype. It substitutes the buyer's hubCity
+ * into the headline and references the credit amount sourced from
+ * REFERRAL_CREDIT_AMOUNT_CENTS.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -42,17 +43,24 @@ describe('InviteBanner (criterion 3)', () => {
     vi.clearAllMocks()
   })
 
-  it('renders with hub city in title and $10 credit body', async () => {
+  it('renders with hub city in title and credit amount in body', async () => {
     installInviteFetchMock({ kind: 'ready', hubCity: 'Austin' })
     render(
       <InviteDataProvider>
-        <InviteBanner onOpen={() => {}} />
+        <InviteBanner
+          lbToNext={120}
+          nextTierName="Full Tier"
+          nextIsStretch={false}
+          onOpen={() => {}}
+        />
       </InviteDataProvider>
     )
     await waitFor(() =>
-      expect(screen.getByText(/Bring your Austin roast crew/i)).toBeInTheDocument()
+      expect(screen.getByText(/Bring your/i)).toBeInTheDocument()
     )
-    // Body text mentions the credit, sourced from the constant.
+    // City appears multiple times (headline + body) — assert >= 1.
+    expect(screen.getAllByText('Austin').length).toBeGreaterThan(0)
+    // Credit derived from the constant — never literal.
     expect(
       screen.getByText(new RegExp(`\\$${dollar}\\b`, 'i'))
     ).toBeInTheDocument()
@@ -62,17 +70,24 @@ describe('InviteBanner (criterion 3)', () => {
     installInviteFetchMock({ kind: 'no-hub' })
     const { container } = render(
       <InviteDataProvider>
-        <InviteBanner onOpen={() => {}} />
+        <InviteBanner
+          lbToNext={120}
+          nextTierName="Full Tier"
+          nextIsStretch={false}
+          onOpen={() => {}}
+        />
       </InviteDataProvider>
     )
     await waitFor(() => expect(container.firstChild).toBeNull())
   })
 
-  it('places banner BETWEEN tier and social-proof sections in CampaignPage DOM order', async () => {
+  it('renders inside the campaign page in the correct section order', async () => {
     installInviteFetchMock({ kind: 'ready', hubCity: 'Austin' })
     const { container } = await renderCampaignPage()
     await waitFor(() =>
-      expect(container.querySelector('[data-section="invite-banner"]')).not.toBeNull()
+      expect(
+        container.querySelector('[data-section="invite-banner"]')
+      ).not.toBeNull()
     )
     const sections = Array.from(
       container.querySelectorAll('[data-section]')

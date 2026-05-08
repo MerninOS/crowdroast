@@ -1,24 +1,23 @@
 // @vitest-environment jsdom
 
 /**
- * Criterion 2 — Sticky invite in tier section.
+ * Criterion 2 — Sticky invite poke.
  *
- * Given a buyer viewing the campaign page, the sticky CTA will be visible
- * inside the tier section while it's in the viewport, and absent from the
- * DOM when the buyer has no hub.
+ * The redesigned InvitePoke is the sun-yellow nudge nested under the
+ * tier ladder. The "stickiness" is provided by its parent — TierLadder
+ * gives the invite poke scroll runway via min-height. We assert here
+ * that the button renders when invite data is ready and is absent
+ * (DOM-empty) when the buyer has no hub.
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
-import { StickyInvitePoke } from '@/components/campaign/StickyInvitePoke'
+import { InvitePoke } from '@/components/campaign/InvitePoke'
 import { InviteDataProvider } from '@/hooks/use-invite-data'
 import { installInviteFetchMock } from './test-helpers'
 
-function noop() {}
-
-describe('StickyInvitePoke (criterion 2)', () => {
+describe('InvitePoke (criterion 2)', () => {
   beforeEach(() => {
-    // Reset matchMedia stub from setup file each run
     if (typeof window !== 'undefined') {
       window.matchMedia = ((query: string) =>
         ({
@@ -34,43 +33,34 @@ describe('StickyInvitePoke (criterion 2)', () => {
     }
   })
 
-  it('renders the sticky CTA with sticky class when invite data is ready', async () => {
-    installInviteFetchMock({ kind: 'ready' })
+  it('renders the poke when invite data is ready', async () => {
+    installInviteFetchMock({ kind: 'ready', hubCity: 'Austin' })
     render(
       <InviteDataProvider>
-        <StickyInvitePoke onOpen={noop} />
+        <InvitePoke lbToNext={150} onOpen={() => {}} />
       </InviteDataProvider>
     )
-
-    const button = await waitFor(() =>
-      screen.getByRole('button', { name: /invite a roaster/i })
+    await waitFor(() =>
+      expect(screen.getByText(/150 lb to next tier/i)).toBeInTheDocument()
     )
-    // The merninos StickyCta applies `sticky` (Tailwind utility for
-    // position: sticky) directly. We assert the class as the testable
-    // proxy for computed position — JSDOM doesn't apply utility CSS.
-    expect(button.className).toMatch(/\bsticky\b/)
+    expect(screen.getByText(/local austin roasters/i)).toBeInTheDocument()
   })
 
-  it('does NOT render when the buyer has no active hub (403)', async () => {
+  it('does NOT render when buyer has no hub (403)', async () => {
     installInviteFetchMock({ kind: 'no-hub' })
     const { container } = render(
       <InviteDataProvider>
-        <StickyInvitePoke onOpen={noop} />
+        <InvitePoke lbToNext={150} onOpen={() => {}} />
       </InviteDataProvider>
     )
-
-    // Wait for fetch to resolve and the provider to settle.
-    await waitFor(() => {
-      expect(container.firstChild).toBeNull()
-    })
-    expect(screen.queryByRole('button', { name: /invite a roaster/i })).toBeNull()
+    await waitFor(() => expect(container.firstChild).toBeNull())
   })
 
-  it('does NOT render while invite data is still loading', () => {
+  it('does NOT render while loading', () => {
     installInviteFetchMock({ kind: 'loading' })
     const { container } = render(
       <InviteDataProvider>
-        <StickyInvitePoke onOpen={noop} />
+        <InvitePoke lbToNext={150} onOpen={() => {}} />
       </InviteDataProvider>
     )
     expect(container.firstChild).toBeNull()

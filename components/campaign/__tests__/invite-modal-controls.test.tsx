@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 
 /**
- * Criterion 7 — Modal $10 credit + share controls.
+ * Criterion 7 — Modal credit + share controls.
  *
- * The invite modal renders Slack/X/iMessage buttons + a copy-link control,
- * with the credit amount derived from REFERRAL_CREDIT_AMOUNT_CENTS — never
- * a hard-coded literal. Clipboard rejection does NOT flip the button to
- * a false "Copied!" state.
+ * The redesigned InviteModal renders a copy-link control + three share
+ * buttons (Slack / X / iMessage) + a pinned credit footer. The credit
+ * amount is derived from REFERRAL_CREDIT_AMOUNT_CENTS — never literal.
+ * Clipboard rejection silently no-ops (does not flip to a false
+ * "Copied!" state).
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -18,6 +19,14 @@ import { REFERRAL_CREDIT_AMOUNT_CENTS } from '@/lib/referrals/settle-attribution
 
 const dollar = REFERRAL_CREDIT_AMOUNT_CENTS / 100
 
+const baseProps = {
+  open: true,
+  onClose: () => {},
+  lotId: 'lot-abc12345',
+  lotCountry: 'Ethiopia',
+  lotName: 'Yirgacheffe Natural',
+}
+
 describe('InviteModal (criterion 7)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -27,25 +36,23 @@ describe('InviteModal (criterion 7)', () => {
     installInviteFetchMock({ kind: 'ready' })
     render(
       <InviteDataProvider>
-        <InviteModal open={true} onOpenChange={() => {}} />
+        <InviteModal {...baseProps} />
       </InviteDataProvider>
     )
     await waitFor(() =>
       expect(
-        screen.getByText(new RegExp(`\\$${dollar}\\b.+credits`, 'i'))
+        screen.getByText(new RegExp(`\\$${dollar}\\s*credit`, 'i'))
       ).toBeInTheDocument()
     )
   })
 
-  it('exposes Slack, X, iMessage, and Copy controls', async () => {
+  it('exposes Share to Slack/X/iMessage links and a Copy button', async () => {
     installInviteFetchMock({ kind: 'ready' })
     render(
       <InviteDataProvider>
-        <InviteModal open={true} onOpenChange={() => {}} />
+        <InviteModal {...baseProps} />
       </InviteDataProvider>
     )
-    // The share links carry descriptive aria-labels so screen readers
-    // announce "Share invite via Slack" rather than just "Slack".
     await waitFor(() => screen.getByRole('link', { name: /slack/i }))
     expect(
       screen.getByRole('link', { name: /share invite via slack/i })
@@ -56,14 +63,11 @@ describe('InviteModal (criterion 7)', () => {
     expect(
       screen.getByRole('link', { name: /share invite via imessage/i })
     ).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: /^copy link$/i })
-    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^copy$/i })).toBeInTheDocument()
   })
 
-  it('does NOT flip to "Copied!" when the clipboard write throws', async () => {
+  it('does NOT flip to "Copied" when the clipboard write throws', async () => {
     installInviteFetchMock({ kind: 'ready' })
-    // Replace navigator.clipboard.writeText with a throwing impl
     const originalClipboard = (global.navigator as any).clipboard
     Object.assign(navigator, {
       clipboard: {
@@ -73,17 +77,16 @@ describe('InviteModal (criterion 7)', () => {
 
     render(
       <InviteDataProvider>
-        <InviteModal open={true} onOpenChange={() => {}} />
+        <InviteModal {...baseProps} />
       </InviteDataProvider>
     )
     const copyBtn = await waitFor(() =>
-      screen.getByRole('button', { name: /^copy link$/i })
+      screen.getByRole('button', { name: /^copy$/i })
     )
     fireEvent.click(copyBtn)
-    // Wait one microtask for the rejection to settle, then assert no flip.
     await new Promise((r) => setTimeout(r, 10))
     expect(
-      screen.queryByRole('button', { name: /^copied!$/i })
+      screen.queryByRole('button', { name: /^copied$/i })
     ).not.toBeInTheDocument()
 
     Object.assign(navigator, { clipboard: originalClipboard })
@@ -93,7 +96,7 @@ describe('InviteModal (criterion 7)', () => {
     installInviteFetchMock({ kind: 'error' })
     render(
       <InviteDataProvider>
-        <InviteModal open={true} onOpenChange={() => {}} />
+        <InviteModal {...baseProps} />
       </InviteDataProvider>
     )
     await waitFor(() =>

@@ -3,85 +3,94 @@
 /**
  * Criterion 1 — Tier progress visibility.
  *
- * Given an active campaign with total committed pounds below the next tier
- * threshold, the page will display (a) the current tier, (b) pounds remaining
- * to the next tier, and (c) a progress indicator whose fill width equals
- * committedPounds / nextTierThreshold.
+ * The redesigned TierLadder takes the same shape as the prototype: a
+ * tiers array (with thresholds as percentages of the stretch goal) and
+ * the committed pounds. We assert (a) current tier surfaced, (b) lb to
+ * next tier shown, (c) progress fill width = committed / stretchLb.
  *
- * Tests TierLadder directly with three fixtures (0 / 50 / 100%) — guards
- * against hard-coded 50% bars passing the test.
+ * Three fixtures (0/50/100% of the *stretch goal*) guard against a
+ * hard-coded fill. Top-tier (100%) flips into the celebratory state.
  */
 
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { TierLadder } from '@/components/campaign/TierLadder'
+import { TierLadder, type CampaignTier } from '@/components/campaign/TierLadder'
+
+const tiers: CampaignTier[] = [
+  { id: 'listed', name: 'Listed', threshold: 0, price: 8.0 },
+  { id: 'trigger', name: 'Trigger', threshold: 25, price: 8.0 },
+  { id: 'full', name: 'Full Tier', threshold: 65, price: 6.4 },
+  { id: 'stretch', name: 'Stretch', threshold: 100, price: 5.95 },
+]
 
 describe('TierLadder — progress visibility (criterion 1)', () => {
-  const baseSteps = [
-    { key: 'listed', label: 'Listed' },
-    { key: 'trigger', label: 'Trigger' },
-    { key: 'tier-0', label: '500 lb' },
-    { key: 'stretch', label: 'Stretch' },
-  ]
-
   it.each([
-    { committed: 0, threshold: 600, expectedPct: 0, remaining: 600 },
-    { committed: 300, threshold: 600, expectedPct: 50, remaining: 300 },
-    { committed: 600, threshold: 600, expectedPct: 100, remaining: 0 },
+    { committed: 0,    stretch: 600, expectedPct: 0,   nextLb: 150 },
+    { committed: 300,  stretch: 600, expectedPct: 50,  nextLb: 90 },
+    { committed: 600,  stretch: 600, expectedPct: 100, nextLb: 0 },
   ])(
-    'renders $expectedPct% fill and "$remaining lb" remaining for committed=$committed/threshold=$threshold',
-    ({ committed, threshold, expectedPct, remaining }) => {
+    'renders fill = committed/stretch ($expectedPct%) and lb-to-next ($nextLb)',
+    ({ committed, stretch, expectedPct }) => {
       const { container } = render(
         <TierLadder
-          committedPounds={committed}
-          nextTierThreshold={threshold}
-          currentTierLabel="Trigger"
-          nextTierLabel="500 lb"
-          steps={baseSteps}
-          currentStepKey="trigger"
+          tiers={tiers}
+          committed={committed}
+          stretchLb={stretch}
+          hype="calm"
         />
       )
 
-      // (b) pounds remaining is rendered in the Starburst label
-      expect(screen.getByText(`${remaining.toLocaleString()} lb`)).toBeInTheDocument()
-
-      // (c) fill width = committed / threshold (exact percentage)
-      const fill = container.querySelector('[style*="width:"]') as HTMLElement | null
+      const fill = container.querySelector(
+        '[data-testid="tier-progress-fill"]'
+      ) as HTMLElement | null
       expect(fill).not.toBeNull()
       expect(fill!.style.width).toBe(`${expectedPct}%`)
     }
   )
 
-  it('renders the top-tier celebration state when nextTierThreshold is 0', () => {
+  it('renders "X lb to {nextTier}." headline when below stretch', () => {
     render(
       <TierLadder
-        committedPounds={1500}
-        nextTierThreshold={0}
-        currentTierLabel="Stretch"
-        nextTierLabel={null}
-        steps={baseSteps}
-        currentStepKey="stretch"
+        tiers={tiers}
+        committed={300}
+        stretchLb={600}
+        hype="calm"
       />
     )
-    // Top-tier fallback — no NaN, no negative remaining.
-    expect(screen.getByText(/top tier unlocked/i)).toBeInTheDocument()
-    expect(screen.queryByText(/-/)).not.toBeInTheDocument()
+    // 300 lb committed / 600 lb stretch — current rung is Trigger (25%);
+    // next rung is Full Tier at 65% = 390 lb. Remaining = 90 lb.
+    // Look up via the heading's accessible name (concatenates child text
+    // across the <br/> in the markup) rather than a strict text match.
+    expect(
+      screen.getByRole('heading', { name: /90 lb.*to full tier/i })
+    ).toBeInTheDocument()
   })
 
-  it('shows the current tier label', () => {
+  it('renders "Stretch unlocked." celebratory state at 100%', () => {
     render(
       <TierLadder
-        committedPounds={300}
-        nextTierThreshold={600}
-        currentTierLabel="Trigger"
-        nextTierLabel="500 lb"
-        steps={baseSteps}
-        currentStepKey="trigger"
+        tiers={tiers}
+        committed={600}
+        stretchLb={600}
+        hype="calm"
       />
     )
-    // (a) current tier surfaced in the header
     expect(
-      screen.getByRole('heading', { name: 'Trigger' })
+      screen.getByRole('heading', { name: /stretch unlocked\.$/i })
     ).toBeInTheDocument()
+    // Sanity: no negative number sneaks in via NaN/edge math.
+    expect(screen.queryByText(/-\d/)).not.toBeInTheDocument()
+  })
+
+  it('shows the current tier in the eyebrow', () => {
+    render(
+      <TierLadder
+        tiers={tiers}
+        committed={300}
+        stretchLb={600}
+        hype="calm"
+      />
+    )
+    expect(screen.getByText(/you're at trigger/i)).toBeInTheDocument()
   })
 })
