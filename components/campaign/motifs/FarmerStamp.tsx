@@ -45,7 +45,7 @@ export function FarmerStamp({
         />
         <circle cx="70" cy="70" r="58" fill="#F8EFD0" stroke="#1C0F05" strokeWidth="3.5" />
         <text
-          fontFamily="'Cal Sans', sans-serif"
+          fontFamily="var(--font-headline)"
           fontSize="10.5"
           fontWeight="800"
           fill="#1C0F05"
@@ -67,7 +67,7 @@ export function FarmerStamp({
           x="70"
           y="56"
           textAnchor="middle"
-          fontFamily="'Adore Cats', 'Cal Sans', sans-serif"
+          fontFamily="var(--font-headline)"
           fontSize="14"
           fontWeight="900"
           fill="#1C0F05"
