@@ -27,6 +27,7 @@ export function SocialProof({
   return (
     <section
       data-section="social"
+      className="cp-section"
       style={{
         padding: '56px 24px',
         background: 'var(--color-cream)',

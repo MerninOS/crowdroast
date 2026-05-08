@@ -356,7 +356,7 @@ export function InviteModal({
                     color: 'var(--color-espresso)',
                   }}
                 >
-                  <b>${credit} credit</b> for you AND every{' '}
+                  <b>${credit} credit</b> for every{' '}
                   {city ? `${city} ` : ''}roaster who commits via your link —
                   auto-applied when the campaign closes.
                 </div>

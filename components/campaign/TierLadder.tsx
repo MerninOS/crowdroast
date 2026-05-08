@@ -27,6 +27,11 @@ interface TierLadderProps {
 // flag-chip progress, pulsing eyebrow, big display-font "X lb to Y."
 // headline, animated tomato fill bar, and per-tier flag chips positioned
 // proportionally. The next-tier flag wiggles when hype = 'rowdy'.
+//
+// Mobile responsiveness: the absolute-positioned chips along the bar
+// would overlap each other below ~700px, so at that breakpoint the
+// chips switch to a stacked 2-col grid below the bar (.cp-tier-flags-row
+// hides; .cp-tier-flags-stack shows). The bar itself stays full-width.
 export function TierLadder({
   tiers,
   committed,
@@ -47,6 +52,7 @@ export function TierLadder({
   return (
     <div
       data-section="tier"
+      className="cp-tier-card"
       style={{
         background: 'var(--color-cream)',
         border: '4px solid var(--color-espresso)',
@@ -152,7 +158,7 @@ export function TierLadder({
       </div>
 
       {/* Progress bar with tier flag chips */}
-      <div style={{ position: 'relative', padding: '0 0 92px' }}>
+      <div className="cp-tier-bar-wrap">
         <div
           style={{
             position: 'relative',
@@ -174,90 +180,142 @@ export function TierLadder({
           />
         </div>
 
-        {tiers.map((t) => {
-          const lbAt = lbAtTier(t)
-          const left = Math.min(100, (lbAt / Math.max(1, stretchLb)) * 100)
-          const unlocked = committed >= lbAt
-          const isNext = t.id === nextTier.id && !unlocked
-          const transformX = left < 8 ? '0%' : left > 92 ? '-100%' : '-50%'
-          return (
-            <div
-              key={t.id}
-              style={{
-                position: 'absolute',
-                top: 'calc(100% - 84px)',
-                left: `${left}%`,
-                transform: `translateX(${transformX})`,
-                width: 120,
-              }}
-            >
+        {/* Desktop: absolute-positioned chips along the bar */}
+        <div className="cp-tier-flags-row">
+          {tiers.map((t) => {
+            const lbAt = lbAtTier(t)
+            const left = Math.min(100, (lbAt / Math.max(1, stretchLb)) * 100)
+            const unlocked = committed >= lbAt
+            const isNext = t.id === nextTier.id && !unlocked
+            const transformX = left < 8 ? '0%' : left > 92 ? '-100%' : '-50%'
+            return (
               <div
+                key={t.id}
                 style={{
-                  background: unlocked
-                    ? 'var(--color-matcha)'
-                    : isNext
-                      ? 'var(--color-sun)'
-                      : 'var(--color-chalk)',
-                  color: unlocked ? 'var(--color-cream)' : 'var(--color-espresso)',
-                  border: '3px solid var(--color-espresso)',
-                  borderRadius: 10,
-                  padding: '7px 8px 8px',
-                  textAlign: 'center',
-                  boxShadow: isNext
-                    ? '3px 3px 0 var(--color-tomato)'
-                    : '2px 2px 0 var(--color-espresso)',
-                  animation:
-                    isNext && hype === 'rowdy'
-                      ? 'cp-wiggle 2.4s ease-in-out infinite'
-                      : 'none',
+                  position: 'absolute',
+                  top: 'calc(100% - 84px)',
+                  left: `${left}%`,
+                  transform: `translateX(${transformX})`,
+                  width: 120,
                 }}
               >
-                <div
-                  style={{
-                    fontSize: 9,
-                    fontWeight: 800,
-                    letterSpacing: '.1em',
-                    textTransform: 'uppercase',
-                    opacity: 0.75,
-                  }}
-                >
-                  {unlocked ? '✓ Unlocked' : isNext ? 'Next' : 'Locked'}
-                </div>
-                <div
-                  style={{
-                    fontFamily: 'var(--font-display)',
-                    fontSize: 22,
-                    lineHeight: 1,
-                    marginTop: 3,
-                  }}
-                >
-                  ${t.price.toFixed(2)}
-                </div>
-                <div
-                  style={{
-                    fontSize: 9.5,
-                    fontWeight: 700,
-                    marginTop: 2,
-                    opacity: 0.85,
-                    textTransform: 'uppercase',
-                    letterSpacing: '.06em',
-                  }}
-                >
-                  {t.name}
-                </div>
+                <FlagChip t={t} unlocked={unlocked} isNext={isNext} hype={hype} />
               </div>
-            </div>
-          )
-        })}
+            )
+          })}
+        </div>
+
+        {/* Mobile: stacked 2-col grid under the bar */}
+        <ul className="cp-tier-flags-stack">
+          {tiers.map((t) => {
+            const lbAt = lbAtTier(t)
+            const unlocked = committed >= lbAt
+            const isNext = t.id === nextTier.id && !unlocked
+            return (
+              <li key={t.id} style={{ listStyle: 'none' }}>
+                <FlagChip t={t} unlocked={unlocked} isNext={isNext} hype={hype} />
+              </li>
+            )
+          })}
+        </ul>
       </div>
 
       {children}
 
       <style>{`
+        .cp-tier-bar-wrap { position: relative; padding: 0 0 92px; }
+        .cp-tier-flags-row { display: block; position: absolute; inset: 0; pointer-events: none; }
+        .cp-tier-flags-row > div { pointer-events: auto; }
+        .cp-tier-flags-stack { display: none; }
+
+        @media (max-width: 700px) {
+          .cp-tier-card { padding: 22px 18px 24px !important; }
+          .cp-tier-bar-wrap { padding: 0 0 12px; }
+          .cp-tier-flags-row { display: none; }
+          .cp-tier-flags-stack {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin: 16px 0 0;
+            padding: 0;
+          }
+        }
+
         @keyframes cp-pulse{0%,100%{opacity:1}50%{opacity:.3}}
         @keyframes cp-wiggle{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-3px) rotate(1.5deg)}}
         @keyframes cp-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
       `}</style>
+    </div>
+  )
+}
+
+// ─── Flag chip ────────────────────────────────────────────────────────────────
+function FlagChip({
+  t,
+  unlocked,
+  isNext,
+  hype,
+}: {
+  t: CampaignTier
+  unlocked: boolean
+  isNext: boolean
+  hype: 'calm' | 'rowdy'
+}) {
+  return (
+    <div
+      style={{
+        background: unlocked
+          ? 'var(--color-matcha)'
+          : isNext
+            ? 'var(--color-sun)'
+            : 'var(--color-chalk)',
+        color: unlocked ? 'var(--color-cream)' : 'var(--color-espresso)',
+        border: '3px solid var(--color-espresso)',
+        borderRadius: 10,
+        padding: '7px 8px 8px',
+        textAlign: 'center',
+        boxShadow: isNext
+          ? '3px 3px 0 var(--color-tomato)'
+          : '2px 2px 0 var(--color-espresso)',
+        animation:
+          isNext && hype === 'rowdy'
+            ? 'cp-wiggle 2.4s ease-in-out infinite'
+            : 'none',
+      }}
+    >
+      <div
+        style={{
+          fontSize: 9,
+          fontWeight: 800,
+          letterSpacing: '.1em',
+          textTransform: 'uppercase',
+          opacity: 0.75,
+        }}
+      >
+        {unlocked ? '✓ Unlocked' : isNext ? 'Next' : 'Locked'}
+      </div>
+      <div
+        style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: 22,
+          lineHeight: 1,
+          marginTop: 3,
+        }}
+      >
+        ${t.price.toFixed(2)}
+      </div>
+      <div
+        style={{
+          fontSize: 9.5,
+          fontWeight: 700,
+          marginTop: 2,
+          opacity: 0.85,
+          textTransform: 'uppercase',
+          letterSpacing: '.06em',
+        }}
+      >
+        {t.name}
+      </div>
     </div>
   )
 }

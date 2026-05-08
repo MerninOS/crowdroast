@@ -225,7 +225,7 @@ function AuthenticatedView({
       } as React.CSSProperties}
     >
       {/* HERO — image left, info right */}
-      <section style={{ padding: '32px 24px 28px' }}>
+      <section className="cp-section" style={{ padding: '32px 24px 28px' }}>
         <div style={{ maxWidth: 1280, margin: '0 auto' }}>
           <BackLink hubId={hubId} backHref={backHref} backLabel={backLabel} />
           <div
@@ -366,7 +366,7 @@ function AuthenticatedView({
       </section>
 
       {/* TIER LADDER */}
-      <section style={{ padding: '8px 24px 40px' }}>
+      <section className="cp-section" style={{ padding: '8px 24px 40px' }}>
         <div style={{ maxWidth: 1280, margin: '0 auto' }}>
           <TierLadder
             tiers={tiers}
@@ -393,6 +393,7 @@ function AuthenticatedView({
 
       {/* INVITE BANNER */}
       <section
+        className="cp-section cp-section-bleed"
         style={{
           background: 'var(--color-tomato)',
           borderTop: '5px solid var(--color-espresso)',
@@ -505,6 +506,10 @@ function Pill({
 const HERO_GRID_RESPONSIVE_CSS = `
   @media (max-width: 900px) {
     .cp-hero-grid { grid-template-columns: 1fr !important; }
+  }
+  @media (max-width: 640px) {
+    .cp-section { padding-left: 14px !important; padding-right: 14px !important; }
+    .cp-section.cp-section-bleed { padding-top: 36px !important; padding-bottom: 36px !important; }
   }
 `
 
