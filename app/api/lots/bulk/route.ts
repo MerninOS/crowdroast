@@ -60,13 +60,25 @@ export async function POST(request: Request) {
   // could mass-insert lots assigned to themselves.
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role")
+    .select("role, stripe_connect_account_id")
     .eq("id", user.id)
     .single();
 
   if (profile?.role !== "seller") {
     return NextResponse.json(
       { error: "Only sellers can create lots" },
+      { status: 403 }
+    );
+  }
+
+  // Sellers must connect Stripe before creating lots, otherwise we have no
+  // payout destination once buyers commit and the lot settles.
+  if (!profile?.stripe_connect_account_id) {
+    return NextResponse.json(
+      {
+        error:
+          "Connect your Stripe account before creating lots. Visit Seller Payouts to finish setup.",
+      },
       { status: 403 }
     );
   }

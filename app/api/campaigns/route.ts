@@ -38,10 +38,28 @@ export async function POST(request: Request) {
     );
   }
 
+  // Hub owner must have a Stripe Connect account before launching a campaign,
+  // otherwise settlement can't pay out the 2% hub fee.
+  const { data: hubOwnerProfile } = await supabase
+    .from("profiles")
+    .select("stripe_connect_account_id")
+    .eq("id", user.id)
+    .single();
+
+  if (!hubOwnerProfile?.stripe_connect_account_id) {
+    return NextResponse.json(
+      {
+        error:
+          "Connect your Stripe account before launching a campaign. Visit Hub Payouts to finish setup.",
+      },
+      { status: 403 }
+    );
+  }
+
   // Verify lot exists and is active or fully_committed
   const { data: lot } = await supabase
     .from("lots")
-    .select("id, title, status, expiry_date")
+    .select("id, title, status, expiry_date, seller_id")
     .eq("id", lotId)
     .in("status", ["active", "fully_committed"])
     .single();
@@ -50,6 +68,24 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: "Lot not found or not available" },
       { status: 404 }
+    );
+  }
+
+  // Lot's seller must also have Stripe Connect set up so we can pay them out
+  // when the campaign settles. (Old lots may pre-date the seller-side gate.)
+  const { data: sellerProfile } = await supabase
+    .from("profiles")
+    .select("stripe_connect_account_id")
+    .eq("id", lot.seller_id)
+    .single();
+
+  if (!sellerProfile?.stripe_connect_account_id) {
+    return NextResponse.json(
+      {
+        error:
+          "This lot's seller hasn't connected Stripe yet, so a campaign can't be launched on it.",
+      },
+      { status: 409 }
     );
   }
 

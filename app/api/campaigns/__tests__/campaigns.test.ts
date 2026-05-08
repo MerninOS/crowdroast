@@ -98,17 +98,29 @@ describe("POST /api/campaigns — auth", () => {
 // Deadline validation
 // ---------------------------------------------------------------------------
 
+// Default lot used by tests that get past the Stripe gates.
+const defaultLot = {
+  id: "lot-uuid-1",
+  title: "Ethiopian Yirg",
+  status: "active",
+  expiry_date: null,
+  seller_id: "seller-uuid-1",
+};
+
+// Default profile mock — hub owner and seller both Stripe-connected.
+const connectedProfile = { stripe_connect_account_id: "acct_test_123" };
+
 describe("POST /api/campaigns — deadline validation", () => {
   it("returns 400 if deadline is more than 30 days from now", async () => {
     mockSupabaseFrom.mockImplementation((table: string) => {
       if (table === "hubs") {
         return makeChain({ data: { id: "hub-uuid-1" }, error: null });
       }
+      if (table === "profiles") {
+        return makeChain({ data: connectedProfile, error: null });
+      }
       if (table === "lots") {
-        return makeChain({
-          data: { id: "lot-uuid-1", title: "Ethiopian Yirg", status: "active", expiry_date: null },
-          error: null,
-        });
+        return makeChain({ data: defaultLot, error: null });
       }
       return makeChain({ data: null, error: null });
     });
@@ -129,9 +141,12 @@ describe("POST /api/campaigns — deadline validation", () => {
       if (table === "hubs") {
         return makeChain({ data: { id: "hub-uuid-1" }, error: null });
       }
+      if (table === "profiles") {
+        return makeChain({ data: connectedProfile, error: null });
+      }
       if (table === "lots") {
         return makeChain({
-          data: { id: "lot-uuid-1", title: "Ethiopian Yirg", status: "active", expiry_date: lotExpiry },
+          data: { ...defaultLot, expiry_date: lotExpiry },
           error: null,
         });
       }
@@ -151,11 +166,11 @@ describe("POST /api/campaigns — deadline validation", () => {
       if (table === "hubs") {
         return makeChain({ data: { id: "hub-uuid-1" }, error: null });
       }
+      if (table === "profiles") {
+        return makeChain({ data: connectedProfile, error: null });
+      }
       if (table === "lots") {
-        return makeChain({
-          data: { id: "lot-uuid-1", title: "Ethiopian Yirg", status: "active", expiry_date: null },
-          error: null,
-        });
+        return makeChain({ data: defaultLot, error: null });
       }
       return makeChain({ data: null, error: null });
     });
@@ -171,6 +186,57 @@ describe("POST /api/campaigns — deadline validation", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Stripe Connect gating
+// ---------------------------------------------------------------------------
+
+describe("POST /api/campaigns — Stripe Connect gating", () => {
+  it("returns 403 when hub owner has no Stripe Connect account", async () => {
+    mockSupabaseFrom.mockImplementation((table: string) => {
+      if (table === "hubs") {
+        return makeChain({ data: { id: "hub-uuid-1" }, error: null });
+      }
+      if (table === "profiles") {
+        return makeChain({ data: { stripe_connect_account_id: null }, error: null });
+      }
+      return makeChain({ data: null, error: null });
+    });
+
+    const res = await POST(makeRequest(validBody()));
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toMatch(/connect your stripe/i);
+  });
+
+  it("returns 409 when lot's seller has no Stripe Connect account", async () => {
+    // Hub owner profile must come back connected; seller profile must come
+    // back disconnected. Both are queried via from("profiles") but at
+    // different points in the route — toggle the mocked response per call.
+    let profileCall = 0;
+    mockSupabaseFrom.mockImplementation((table: string) => {
+      if (table === "hubs") {
+        return makeChain({ data: { id: "hub-uuid-1" }, error: null });
+      }
+      if (table === "profiles") {
+        profileCall += 1;
+        // First call = hub owner (connected). Second call = seller (not).
+        return profileCall === 1
+          ? makeChain({ data: connectedProfile, error: null })
+          : makeChain({ data: { stripe_connect_account_id: null }, error: null });
+      }
+      if (table === "lots") {
+        return makeChain({ data: defaultLot, error: null });
+      }
+      return makeChain({ data: null, error: null });
+    });
+
+    const res = await POST(makeRequest(validBody()));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toMatch(/seller hasn't connected stripe/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Unique constraint (exclusivity)
 // ---------------------------------------------------------------------------
 
@@ -180,11 +246,11 @@ describe("POST /api/campaigns — exclusivity", () => {
       if (table === "hubs") {
         return makeChain({ data: { id: "hub-uuid-1" }, error: null });
       }
+      if (table === "profiles") {
+        return makeChain({ data: connectedProfile, error: null });
+      }
       if (table === "lots") {
-        return makeChain({
-          data: { id: "lot-uuid-1", title: "Ethiopian Yirg", status: "active", expiry_date: null },
-          error: null,
-        });
+        return makeChain({ data: defaultLot, error: null });
       }
       if (table === "campaigns") {
         // insert chain that returns a unique constraint error
@@ -226,11 +292,11 @@ describe("POST /api/campaigns — happy path", () => {
       if (table === "hubs") {
         return makeChain({ data: { id: "hub-uuid-1" }, error: null });
       }
+      if (table === "profiles") {
+        return makeChain({ data: connectedProfile, error: null });
+      }
       if (table === "lots") {
-        return makeChain({
-          data: { id: "lot-uuid-1", title: "Ethiopian Yirg", status: "active", expiry_date: null },
-          error: null,
-        });
+        return makeChain({ data: defaultLot, error: null });
       }
       if (table === "campaigns") {
         const chain = makeChain({ data: null, error: null });
