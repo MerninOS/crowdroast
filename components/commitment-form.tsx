@@ -28,11 +28,17 @@ export function CommitmentForm({
   activePrice,
   maxKg,
   hubId,
+  onSuccess,
 }: {
   lotId: string;
   activePrice: number;
   maxKg: number;
   hubId?: string;
+  /** Fired after a successful in-page commit (toast path). NOT fired on
+   *  the Stripe-checkout redirect path — the user leaves this page so
+   *  there's no nudge surface to mount. The campaign-redesign orchestrator
+   *  uses this to flip <PostCommitNudge> visible. */
+  onSuccess?: () => void;
 }) {
   const [quantity, setQuantity] = useState("1");
   const [notes, setNotes] = useState("");
@@ -86,6 +92,7 @@ export function CommitmentForm({
       }
       toast.success("Commitment created.");
       setConfirmOpen(false);
+      onSuccess?.();
       router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Something went wrong");
