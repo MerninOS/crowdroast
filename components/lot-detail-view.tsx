@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { Lot, PricingTier, Commitment, UserRole } from "@/lib/types";
+import type { CampaignSocialProof } from "@/lib/lots/social-proof";
 import { CommitmentForm } from "@/components/commitment-form";
 import { SampleRequestButton } from "@/components/sample-request-button";
 import { useUnitPreference } from "@/components/unit-provider";
@@ -49,6 +50,10 @@ interface LotDetailProps {
   } | null;
   pricingTiers?: PricingTier[];
   commitments?: Commitment[];
+  /** Server-rendered social-proof snapshot. Wired through to the campaign
+   *  redesign's <SocialProof> component when the orchestrator lands in a
+   *  later stage; not yet rendered by this component directly. */
+  socialProof?: CampaignSocialProof;
   backHref?: string;
   backLabel?: string;
 }

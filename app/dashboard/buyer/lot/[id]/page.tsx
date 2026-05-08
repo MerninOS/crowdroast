@@ -2,6 +2,10 @@ import { createClient } from "@/lib/supabase/server";
 import { notFound, redirect } from "next/navigation";
 import { LotDetailView } from "@/components/lot-detail-view";
 import type { Lot, PricingTier, Commitment } from "@/lib/types";
+import {
+  getCampaignSocialProof,
+  type SocialProofCommitment,
+} from "@/lib/lots/social-proof";
 
 export default async function BuyerLotDetailPage({
   params,
@@ -91,6 +95,10 @@ export default async function BuyerLotDetailPage({
         .order("created_at", { ascending: true })
     : { data: [] };
 
+  const socialProof = getCampaignSocialProof(
+    (commitments ?? []) as unknown as SocialProofCommitment[]
+  );
+
   return (
     <div className="max-w-5xl">
       <LotDetailView
@@ -101,6 +109,7 @@ export default async function BuyerLotDetailPage({
         campaignDeadline={(activeCampaign as any)?.deadline || null}
         pricingTiers={(pricingTiers as unknown as PricingTier[]) || []}
         commitments={(commitments as unknown as Commitment[]) || []}
+        socialProof={socialProof}
       />
     </div>
   );
