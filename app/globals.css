@@ -1,3 +1,8 @@
+/* Cal Sans (body / UI) + Inter (body fallback) + JetBrains Mono (mono).
+   Adore Cats (display) is loaded locally via @font-face below. Loading
+   the body fonts via Google Fonts mirrors the prototype's tokens.css. */
+@import url("https://fonts.googleapis.com/css2?family=Cal+Sans&family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

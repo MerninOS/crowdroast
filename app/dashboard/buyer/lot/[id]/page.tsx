@@ -107,16 +107,14 @@ export default async function BuyerLotDetailPage({
     : { data: null };
 
   return (
-    <div className="max-w-5xl">
-      <CampaignPage
-        lot={lot as unknown as Lot}
-        userId={user.id}
-        viewerRole={profile?.role || "buyer"}
-        hubId={hubId || null}
-        hubName={hub?.name || null}
-        pricingTiers={(pricingTiers as unknown as PricingTier[]) || []}
-        socialProof={socialProof}
-      />
-    </div>
+    <CampaignPage
+      lot={lot as unknown as Lot}
+      userId={user.id}
+      viewerRole={profile?.role || "buyer"}
+      hubId={hubId || null}
+      hubName={hub?.name || null}
+      pricingTiers={(pricingTiers as unknown as PricingTier[]) || []}
+      socialProof={socialProof}
+    />
   );
 }
