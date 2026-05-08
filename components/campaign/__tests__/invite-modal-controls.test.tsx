@@ -44,10 +44,18 @@ describe('InviteModal (criterion 7)', () => {
         <InviteModal open={true} onOpenChange={() => {}} />
       </InviteDataProvider>
     )
+    // The share links carry descriptive aria-labels so screen readers
+    // announce "Share invite via Slack" rather than just "Slack".
     await waitFor(() => screen.getByRole('link', { name: /slack/i }))
-    expect(screen.getByRole('link', { name: /^slack$/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /^x$/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /^imessage$/i })).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /share invite via slack/i })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /share invite on x/i })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /share invite via imessage/i })
+    ).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: /^copy link$/i })
     ).toBeInTheDocument()
