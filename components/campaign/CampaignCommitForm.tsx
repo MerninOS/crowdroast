@@ -27,8 +27,6 @@ interface CampaignCommitFormProps {
   activePricePerKg: number
   /** Remaining kg available on the lot. */
   maxKg: number
-  /** Minimum commit in kg — sourced from lot.min_commitment_kg. */
-  minKg: number
   hubId?: string
   /** Display name for the active tier ('Listed', 'Trigger', 'Full Tier', etc.). */
   activeTierName: string
@@ -57,7 +55,6 @@ export function CampaignCommitForm({
   lotId,
   activePricePerKg,
   maxKg,
-  minKg,
   hubId,
   activeTierName,
   biddersIn,
@@ -66,13 +63,10 @@ export function CampaignCommitForm({
   const router = useRouter()
   const { unit } = useUnitPreference()
 
-  // Initial display qty: round the minimum-commit kg up to a clean
-  // display-unit value, then floor in case maxKg < minKg display rounding.
-  const minDisplay = Math.ceil(toDisplayWeight(minKg, unit))
   const maxDisplay = Math.floor(toDisplayWeight(maxKg, unit))
   const presets = getPresets(unit)
   const step = getStep(unit)
-  const defaultDisplay = presets.find((n) => n >= minDisplay && n <= maxDisplay) ?? minDisplay
+  const defaultDisplay = presets.find((n) => n <= maxDisplay) ?? 1
 
   const [qty, setQty] = React.useState<number>(defaultDisplay)
   const [notes, setNotes] = React.useState('')
@@ -97,8 +91,8 @@ export function CampaignCommitForm({
   const displayPricePerUnit = toDisplayPricePerUnit(buyerPricePerKg, unit)
 
   const validate = (): boolean => {
-    if (qty < minDisplay) {
-      toast.error(`Minimum commit is ${minDisplay} ${unit}`)
+    if (qty <= 0) {
+      toast.error(`Quantity must be greater than 0`)
       return false
     }
     if (qty > maxDisplay) {
@@ -204,7 +198,7 @@ export function CampaignCommitForm({
       >
         <button
           type="button"
-          onClick={() => setQty(Math.max(minDisplay, qty - step))}
+          onClick={() => setQty(Math.max(1, qty - step))}
           aria-label="Decrease quantity"
           style={{
             width: 42,
@@ -224,7 +218,7 @@ export function CampaignCommitForm({
           type="number"
           inputMode="numeric"
           value={qty}
-          min={minDisplay}
+          min={1}
           max={maxDisplay}
           step={1}
           aria-label={`Quantity in ${unit === 'kg' ? 'kilograms' : 'pounds'}`}
@@ -346,7 +340,7 @@ export function CampaignCommitForm({
               whiteSpace: 'nowrap',
             }}
           >
-            ${displayPricePerUnit.toFixed(2)}/{unit} · {minDisplay} {unit} min
+            ${displayPricePerUnit.toFixed(2)}/{unit}
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
