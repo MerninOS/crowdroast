@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 
 export default function SignUpPage() {
   return (
@@ -30,6 +31,8 @@ function SignUpForm() {
   const [email, setEmail] = useState(searchParams.get("email") ?? "");
   const [password, setPassword] = useState("");
   const [repeatPassword, setRepeatPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showRepeatPassword, setShowRepeatPassword] = useState(false);
   const [companyName, setCompanyName] = useState("");
   const [contactName, setContactName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -134,25 +137,59 @@ function SignUpForm() {
                   </div>
                   <div className="grid gap-2" suppressHydrationWarning>
                     <Label htmlFor="password">Password</Label>
-                    <Input
-                      id="password"
-                      type="password"
-                      required
-                      autoComplete="new-password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                    />
+                    <div className="relative">
+                      <Input
+                        id="password"
+                        type={showPassword ? "text" : "password"}
+                        required
+                        autoComplete="new-password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((v) => !v)}
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                        aria-pressed={showPassword}
+                        className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground hover:text-foreground"
+                        tabIndex={-1}
+                      >
+                        {showPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
                   </div>
                   <div className="grid gap-2" suppressHydrationWarning>
                     <Label htmlFor="repeat-password">Confirm Password</Label>
-                    <Input
-                      id="repeat-password"
-                      type="password"
-                      required
-                      autoComplete="new-password"
-                      value={repeatPassword}
-                      onChange={(e) => setRepeatPassword(e.target.value)}
-                    />
+                    <div className="relative">
+                      <Input
+                        id="repeat-password"
+                        type={showRepeatPassword ? "text" : "password"}
+                        required
+                        autoComplete="new-password"
+                        value={repeatPassword}
+                        onChange={(e) => setRepeatPassword(e.target.value)}
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowRepeatPassword((v) => !v)}
+                        aria-label={showRepeatPassword ? "Hide password" : "Show password"}
+                        aria-pressed={showRepeatPassword}
+                        className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground hover:text-foreground"
+                        tabIndex={-1}
+                      >
+                        {showRepeatPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
                   </div>
                   {error && (
                     <p className="text-sm text-destructive">{error}</p>
