@@ -1,7 +1,11 @@
 import { createClient } from "@/lib/supabase/server";
 import { notFound, redirect } from "next/navigation";
-import { LotDetailView } from "@/components/lot-detail-view";
-import type { Lot, PricingTier, Commitment } from "@/lib/types";
+import { CampaignPage } from "@/components/campaign/CampaignPage";
+import type { Lot, PricingTier } from "@/lib/types";
+import {
+  getCampaignSocialProof,
+  type SocialProofCommitment,
+} from "@/lib/lots/social-proof";
 
 export default async function BuyerLotDetailPage({
   params,
@@ -91,17 +95,26 @@ export default async function BuyerLotDetailPage({
         .order("created_at", { ascending: true })
     : { data: [] };
 
+  const socialProof = getCampaignSocialProof(
+    (commitments ?? []) as unknown as SocialProofCommitment[]
+  );
+
+  // Fetch hub name for hero / farmer card display copy. The invite CTAs
+  // get their own hubName from POST /api/invite-codes via useInviteData,
+  // but visual surfaces shouldn't be coupled to that auth-gated fetch.
+  const { data: hub } = hubId
+    ? await supabase.from("hubs").select("name").eq("id", hubId).single()
+    : { data: null };
+
   return (
-    <div className="max-w-5xl">
-      <LotDetailView
-        lot={lot as unknown as Lot}
-        userId={user.id}
-        viewerRole={profile?.role || "buyer"}
-        hubId={hubId || null}
-        campaignDeadline={(activeCampaign as any)?.deadline || null}
-        pricingTiers={(pricingTiers as unknown as PricingTier[]) || []}
-        commitments={(commitments as unknown as Commitment[]) || []}
-      />
-    </div>
+    <CampaignPage
+      lot={lot as unknown as Lot}
+      userId={user.id}
+      viewerRole={profile?.role || "buyer"}
+      hubId={hubId || null}
+      hubName={hub?.name || null}
+      pricingTiers={(pricingTiers as unknown as PricingTier[]) || []}
+      socialProof={socialProof}
+    />
   );
 }
