@@ -55,7 +55,7 @@ export function InviteModal({
   const city = data?.hubCity ?? null
   const hubName = data?.hubName ?? 'your hub'
   const inviteUrl = data?.url ?? ''
-  const message = `Hey — I'm in on Lot #${lotId.slice(0, 8).toUpperCase()} (${lotCountry} ${lotName}) on CrowdRoast. It's pooling through ${hubName}${city ? ` in ${city}` : ''}. A few more local roasters and the price drops for everyone. Want in?`
+  const message = `Hey I'm going in on some (${lotCountry} ${lotName}) green coffee on CrowdRoast. It's pooling through ${hubName}${city ? ` in ${city}` : ''}. A few more local roasters and the price drops for everyone. Want in?`
 
   const handleCopy = async () => {
     if (!inviteUrl) return
