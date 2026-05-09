@@ -48,8 +48,10 @@ export function TierLadder({
     Math.max(0, (committedKg / Math.max(0.0001, stretchKg)) * 100)
   )
 
-  const currentTier =
-    [...tiers].reverse().find((t) => committedKg >= kgAtTier(t)) ?? tiers[0]
+  const reachedTier = [...tiers]
+    .reverse()
+    .find((t) => committedKg >= kgAtTier(t))
+  const currentTier = reachedTier ?? tiers[0]
   const nextTier =
     tiers.find((t) => kgAtTier(t) > committedKg) ?? tiers[tiers.length - 1]
   const kgToNext = Math.max(0, kgAtTier(nextTier) - committedKg)
@@ -105,7 +107,10 @@ export function TierLadder({
                 verticalAlign: 'middle',
               }}
             />
-            You&apos;re at {currentTier.name} · {Math.round(stretchPct)}%
+            {reachedTier
+              ? `You're at ${currentTier.name}`
+              : 'Just listed'}{' '}
+            · {Math.round(stretchPct)}%
           </div>
           <h2
             style={{

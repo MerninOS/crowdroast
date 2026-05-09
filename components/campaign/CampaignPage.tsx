@@ -577,9 +577,18 @@ function buildTierContext(lot: Lot, pricingTiers: PricingTier[]): TierContext {
     priceKg: stretchPrice,
   }
 
-  // Dedupe by ascending threshold so we don't surface a "Trigger" rung that
-  // collides with a pricing tier at the same percentage.
-  const allRungs = [listedTier, triggerTier, ...pricingTierSteps, stretchTier]
+  // Listed and Trigger both carry the base price (lot.price_per_kg). When the
+  // trigger sits above 0%, showing both rungs duplicates the same price on the
+  // ladder — and the Listed chip reads as "✓ Unlocked" before the campaign
+  // has actually triggered. Drop Listed in that case so the trigger price
+  // shows as the next milestone, not as already unlocked.
+  const allRungs =
+    triggerTier.threshold > 0
+      ? [triggerTier, ...pricingTierSteps, stretchTier]
+      : [listedTier, ...pricingTierSteps, stretchTier]
+
+  // Dedupe by ascending threshold so we don't surface a rung that collides
+  // with a pricing tier at the same percentage.
   const tiers: CampaignTier[] = []
   for (const rung of allRungs) {
     const last = tiers[tiers.length - 1]
