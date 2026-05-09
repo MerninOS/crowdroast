@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { useUnitPreference } from '@/components/unit-provider'
 import { formatUnitWeight, toDisplayPricePerUnit } from '@/lib/units'
+import { addPlatformFee } from '@/lib/pricing'
 
 export type CampaignTier = {
   id: string
@@ -58,7 +59,10 @@ export function TierLadder({
   const nextIsStretch = nextTier.id === tiers[tiers.length - 1].id
 
   const formatQty = (kg: number) => formatUnitWeight(kg, unit, 0)
-  const nextTierDisplayPrice = toDisplayPricePerUnit(nextTier.priceKg, unit)
+  const nextTierDisplayPrice = toDisplayPricePerUnit(
+    addPlatformFee(nextTier.priceKg),
+    unit
+  )
 
   return (
     <div
@@ -277,7 +281,7 @@ function FlagChip({
   hype: 'calm' | 'rowdy'
   unit: 'kg' | 'lb'
 }) {
-  const displayPrice = toDisplayPricePerUnit(t.priceKg, unit)
+  const displayPrice = toDisplayPricePerUnit(addPlatformFee(t.priceKg), unit)
   return (
     <div
       style={{
