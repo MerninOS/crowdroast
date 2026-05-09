@@ -51,13 +51,13 @@ export const mockPricingTiers: PricingTier[] = [
 export const mockSocialProof: CampaignSocialProof = {
   recentCommitCount: 12,
   leaderboard: [
-    { displayName: 'Hank Roastery', city: 'Austin, TX', pounds: 240 },
-    { displayName: 'Ember Coffee Co.', city: 'Portland, OR', pounds: 180 },
-    { displayName: 'Forty Seven Beans', city: null, pounds: 120 },
+    { displayName: 'Hank Roastery', city: 'Austin, TX', kg: 109 },
+    { displayName: 'Ember Coffee Co.', city: 'Portland, OR', kg: 82 },
+    { displayName: 'Forty Seven Beans', city: null, kg: 54 },
   ],
   activity: [
-    { id: 'a-1', displayName: 'Hank Roastery', city: 'Austin, TX', pounds: 60, ago: '2m' },
-    { id: 'a-2', displayName: 'Ember Coffee Co.', city: 'Portland, OR', pounds: 80, ago: '14m' },
+    { id: 'a-1', displayName: 'Hank Roastery', city: 'Austin, TX', kg: 27, ago: '2m' },
+    { id: 'a-2', displayName: 'Ember Coffee Co.', city: 'Portland, OR', kg: 36, ago: '14m' },
   ],
 }
 

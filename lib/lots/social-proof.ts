@@ -2,11 +2,13 @@
 //
 // Pure synchronous function: takes the commitments already fetched by the
 // route loader and computes a server-rendered snapshot — recent commit
-// count (last 24h), top-5 leaderboard by total pounds per buyer, and a
-// trimmed recent-activity feed. V1 ships server-rendered only; no live
-// ticker, polling, or realtime subscription.
+// count (last 24h), top-5 leaderboard by total quantity per buyer, and a
+// trimmed recent-activity feed.
+//
+// All weights are kg (the canonical schema unit). Display components on
+// the page handle conversion to the user's preferred unit (kg / lb) via
+// useUnitPreference + lib/units.
 
-const KG_PER_LB = 0.45359237
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 
 export type SocialProofCommitment = {
@@ -25,14 +27,14 @@ export type SocialProofCommitment = {
 export type LeaderboardEntry = {
   displayName: string
   city: string | null
-  pounds: number
+  kg: number
 }
 
 export type ActivityItem = {
   id: string
   displayName: string
   city: string | null
-  pounds: number
+  kg: number
   ago: string
 }
 
@@ -58,23 +60,22 @@ export function getCampaignSocialProof(
   // Aggregate by buyer for the leaderboard.
   const byBuyer = new Map<
     string,
-    { displayName: string; city: string | null; pounds: number }
+    { displayName: string; city: string | null; kg: number }
   >()
   for (const c of commitments) {
-    const pounds = c.quantity_kg / KG_PER_LB
     const displayName = pickDisplayName(c.buyer)
     const city = c.buyer?.city ?? null
     const existing = byBuyer.get(c.buyer_id)
     if (existing) {
-      existing.pounds += pounds
+      existing.kg += c.quantity_kg
     } else {
-      byBuyer.set(c.buyer_id, { displayName, city, pounds })
+      byBuyer.set(c.buyer_id, { displayName, city, kg: c.quantity_kg })
     }
   }
   const leaderboard = Array.from(byBuyer.values())
-    .sort((a, b) => b.pounds - a.pounds)
+    .sort((a, b) => b.kg - a.kg)
     .slice(0, 5)
-    .map((entry) => ({ ...entry, pounds: Math.round(entry.pounds) }))
+    .map((entry) => ({ ...entry }))
 
   // Most recent commits for the activity feed (newest first, capped at 6).
   const activity = [...commitments]
@@ -84,7 +85,7 @@ export function getCampaignSocialProof(
       id: `${c.buyer_id}-${c.created_at}-${i}`,
       displayName: pickDisplayName(c.buyer),
       city: c.buyer?.city ?? null,
-      pounds: Math.round(c.quantity_kg / KG_PER_LB),
+      kg: c.quantity_kg,
       ago: formatAgo(now - Date.parse(c.created_at)),
     }))
 

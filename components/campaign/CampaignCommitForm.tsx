@@ -12,7 +12,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button as ShadButton } from '@/components/ui/button'
-import { fromDisplayWeight, toDisplayPricePerUnit } from '@/lib/units'
+import { useUnitPreference } from '@/components/unit-provider'
+import {
+  fromDisplayWeight,
+  toDisplayWeight,
+  toDisplayPricePerUnit,
+  type WeightUnit,
+} from '@/lib/units'
 import { addPlatformFee } from '@/lib/pricing'
 
 interface CampaignCommitFormProps {
@@ -21,6 +27,8 @@ interface CampaignCommitFormProps {
   activePricePerKg: number
   /** Remaining kg available on the lot. */
   maxKg: number
+  /** Minimum commit in kg — sourced from lot.min_commitment_kg. */
+  minKg: number
   hubId?: string
   /** Display name for the active tier ('Listed', 'Trigger', 'Full Tier', etc.). */
   activeTierName: string
@@ -29,11 +37,15 @@ interface CampaignCommitFormProps {
   onSuccess?: () => void
 }
 
-const KG_PER_LB = 0.45359237
-const MIN_LB = 22
-const STEP_LB = 22
-const PRESETS_LB = [44, 88, 132, 220]
-const DEFAULT_LB = 88
+// Unit-aware preset chips. The prototype hard-codes 44/88/132/220 lb;
+// we provide an analogous kg ladder so the chips read clean in either
+// unit (no mid-range decimals).
+function getPresets(unit: WeightUnit): number[] {
+  return unit === 'lb' ? [44, 88, 132, 220] : [20, 40, 60, 100]
+}
+function getStep(unit: WeightUnit): number {
+  return unit === 'lb' ? 22 : 10
+}
 
 // Direct port of design/project/campaign/CommitForm.jsx — espresso card
 // with sun-colored eyebrow, +/- quantity, preset chips, dashed-border
@@ -45,33 +57,52 @@ export function CampaignCommitForm({
   lotId,
   activePricePerKg,
   maxKg,
+  minKg,
   hubId,
   activeTierName,
   biddersIn,
   onSuccess,
 }: CampaignCommitFormProps) {
   const router = useRouter()
-  const [lbs, setLbs] = React.useState<number>(DEFAULT_LB)
+  const { unit } = useUnitPreference()
+
+  // Initial display qty: round the minimum-commit kg up to a clean
+  // display-unit value, then floor in case maxKg < minKg display rounding.
+  const minDisplay = Math.ceil(toDisplayWeight(minKg, unit))
+  const maxDisplay = Math.floor(toDisplayWeight(maxKg, unit))
+  const presets = getPresets(unit)
+  const step = getStep(unit)
+  const defaultDisplay = presets.find((n) => n >= minDisplay && n <= maxDisplay) ?? minDisplay
+
+  const [qty, setQty] = React.useState<number>(defaultDisplay)
   const [notes, setNotes] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(false)
   const [confirmOpen, setConfirmOpen] = React.useState(false)
   const [committed, setCommitted] = React.useState(false)
 
-  const maxLb = Math.floor(maxKg / KG_PER_LB)
-  const qtyKg = fromDisplayWeight(lbs, 'lb')
+  // When the unit toggle flips mid-session, convert qty so the buyer
+  // doesn't see "88 lb" suddenly become "88 kg".
+  const prevUnitRef = React.useRef(unit)
+  React.useEffect(() => {
+    if (prevUnitRef.current !== unit) {
+      const asKg = fromDisplayWeight(qty, prevUnitRef.current)
+      setQty(Math.round(toDisplayWeight(asKg, unit)))
+      prevUnitRef.current = unit
+    }
+  }, [unit, qty])
+
+  const qtyKg = fromDisplayWeight(qty, unit)
   const buyerPricePerKg = addPlatformFee(activePricePerKg)
   const total = qtyKg * buyerPricePerKg
-  const displayPricePerLb = toDisplayPricePerUnit(buyerPricePerKg, 'lb')
+  const displayPricePerUnit = toDisplayPricePerUnit(buyerPricePerKg, unit)
 
   const validate = (): boolean => {
-    if (lbs < MIN_LB) {
-      toast.error(`Minimum commit is ${MIN_LB} lb`)
+    if (qty < minDisplay) {
+      toast.error(`Minimum commit is ${minDisplay} ${unit}`)
       return false
     }
-    if (lbs > maxLb) {
-      toast.error(
-        `Only ${maxLb.toLocaleString()} lb left on this lot`
-      )
+    if (qty > maxDisplay) {
+      toast.error(`Only ${maxDisplay.toLocaleString()} ${unit} left on this lot`)
       return false
     }
     return true
@@ -173,7 +204,7 @@ export function CampaignCommitForm({
       >
         <button
           type="button"
-          onClick={() => setLbs(Math.max(MIN_LB, lbs - STEP_LB))}
+          onClick={() => setQty(Math.max(minDisplay, qty - step))}
           aria-label="Decrease quantity"
           style={{
             width: 42,
@@ -192,14 +223,14 @@ export function CampaignCommitForm({
         <input
           type="number"
           inputMode="numeric"
-          value={lbs}
-          min={MIN_LB}
-          max={maxLb}
+          value={qty}
+          min={minDisplay}
+          max={maxDisplay}
           step={1}
-          aria-label="Quantity in pounds"
+          aria-label={`Quantity in ${unit === 'kg' ? 'kilograms' : 'pounds'}`}
           onChange={(e) => {
             const next = Number.parseInt(e.target.value, 10)
-            setLbs(Number.isFinite(next) ? next : 0)
+            setQty(Number.isFinite(next) ? next : 0)
           }}
           style={{
             flex: 1,
@@ -225,11 +256,11 @@ export function CampaignCommitForm({
             width: 20,
           }}
         >
-          lb
+          {unit}
         </span>
         <button
           type="button"
-          onClick={() => setLbs(lbs + STEP_LB)}
+          onClick={() => setQty(Math.min(maxDisplay, qty + step))}
           aria-label="Increase quantity"
           style={{
             width: 42,
@@ -256,15 +287,15 @@ export function CampaignCommitForm({
           flexWrap: 'wrap',
         }}
       >
-        {PRESETS_LB.map((n) => (
+        {presets.map((n) => (
           <button
             key={n}
             type="button"
-            onClick={() => setLbs(n)}
+            onClick={() => setQty(n)}
             style={{
               flex: '1 1 0',
               padding: '8px 4px',
-              background: lbs === n ? 'var(--color-tomato)' : 'transparent',
+              background: qty === n ? 'var(--color-tomato)' : 'transparent',
               border: '2px solid var(--color-cream)',
               borderRadius: 8,
               color: 'var(--color-cream)',
@@ -276,7 +307,7 @@ export function CampaignCommitForm({
               cursor: 'pointer',
             }}
           >
-            {n} lb
+            {n} {unit}
           </button>
         ))}
       </div>
@@ -315,7 +346,7 @@ export function CampaignCommitForm({
               whiteSpace: 'nowrap',
             }}
           >
-            ${displayPricePerLb.toFixed(2)}/lb · {MIN_LB} lb min
+            ${displayPricePerUnit.toFixed(2)}/{unit} · {minDisplay} {unit} min
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
@@ -358,7 +389,7 @@ export function CampaignCommitForm({
             textTransform: 'uppercase',
           }}
         >
-          ✓ You&apos;re in. {lbs} lb committed.
+          ✓ You&apos;re in. {qty} {unit} committed.
         </div>
       ) : (
         <button
@@ -385,7 +416,7 @@ export function CampaignCommitForm({
             boxShadow: '4px 4px 0 var(--color-cream)',
           }}
         >
-          {isLoading ? 'Submitting…' : `Commit · ${lbs} lb →`}
+          {isLoading ? 'Submitting…' : `Commit · ${qty} ${unit} →`}
         </button>
       )}
 
@@ -413,12 +444,12 @@ export function CampaignCommitForm({
           </DialogHeader>
           <div className="space-y-2 text-sm">
             <p>
-              Quantity: <span className="font-medium">{lbs} lb</span>
+              Quantity: <span className="font-medium">{qty} {unit}</span>
             </p>
             <p>
               Price at commitment:{' '}
               <span className="font-medium">
-                ${displayPricePerLb.toFixed(2)}/lb
+                ${displayPricePerUnit.toFixed(2)}/{unit}
               </span>
             </p>
             <p>

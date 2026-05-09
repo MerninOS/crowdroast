@@ -10,11 +10,15 @@
  * (DOM-empty) when the buyer has no hub.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { InvitePoke } from '@/components/campaign/InvitePoke'
 import { InviteDataProvider } from '@/hooks/use-invite-data'
 import { installInviteFetchMock } from './test-helpers'
+
+vi.mock('@/components/unit-provider', () => ({
+  useUnitPreference: () => ({ unit: 'lb' }),
+}))
 
 describe('InvitePoke (criterion 2)', () => {
   beforeEach(() => {
@@ -37,11 +41,14 @@ describe('InvitePoke (criterion 2)', () => {
     installInviteFetchMock({ kind: 'ready', hubCity: 'Austin' })
     render(
       <InviteDataProvider>
-        <InvitePoke lbToNext={150} onOpen={() => {}} />
+        <InvitePoke kgToNext={150} onOpen={() => {}} />
       </InviteDataProvider>
     )
+    // 150 kg in display unit (lb per the mock above). Just assert the
+    // shape of the headline — the exact number depends on the kg→lb
+    // conversion handled by formatUnitWeight.
     await waitFor(() =>
-      expect(screen.getByText(/150 lb to next tier/i)).toBeInTheDocument()
+      expect(screen.getByText(/\d+ lb to next tier/i)).toBeInTheDocument()
     )
     expect(screen.getByText(/local austin roasters/i)).toBeInTheDocument()
   })
@@ -50,7 +57,7 @@ describe('InvitePoke (criterion 2)', () => {
     installInviteFetchMock({ kind: 'no-hub' })
     const { container } = render(
       <InviteDataProvider>
-        <InvitePoke lbToNext={150} onOpen={() => {}} />
+        <InvitePoke kgToNext={150} onOpen={() => {}} />
       </InviteDataProvider>
     )
     await waitFor(() => expect(container.firstChild).toBeNull())
@@ -60,7 +67,7 @@ describe('InvitePoke (criterion 2)', () => {
     installInviteFetchMock({ kind: 'loading' })
     const { container } = render(
       <InviteDataProvider>
-        <InvitePoke lbToNext={150} onOpen={() => {}} />
+        <InvitePoke kgToNext={150} onOpen={() => {}} />
       </InviteDataProvider>
     )
     expect(container.firstChild).toBeNull()

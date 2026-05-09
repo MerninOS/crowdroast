@@ -2,10 +2,13 @@
 
 import * as React from 'react'
 import { useInviteData } from '@/hooks/use-invite-data'
+import { useUnitPreference } from '@/components/unit-provider'
+import { formatUnitWeight } from '@/lib/units'
 import { REFERRAL_CREDIT_AMOUNT_CENTS } from '@/lib/referrals/settle-attribution'
 
 interface InviteBannerProps {
-  lbToNext: number
+  /** Quantity remaining to the next tier, in kg. */
+  kgToNext: number
   /** Name of the next tier — used in the headline/body. */
   nextTierName: string
   /** Whether the next tier is the stretch goal — flips body copy. */
@@ -18,17 +21,19 @@ interface InviteBannerProps {
 // design/project/campaign/Invite.jsx (InviteBanner) with $25 → REFERRAL_CREDIT
 // and hardcoded city/hub → useInviteData substitutions.
 export function InviteBanner({
-  lbToNext,
+  kgToNext,
   nextTierName,
   nextIsStretch,
   onOpen,
 }: InviteBannerProps) {
   const { status, data } = useInviteData()
+  const { unit } = useUnitPreference()
   if (status !== 'ready' || !data) return null
 
   const credit = REFERRAL_CREDIT_AMOUNT_CENTS / 100
   const city = data.hubCity ?? null
   const hubName = data.hubName
+  const displayQty = formatUnitWeight(kgToNext, unit, 0)
 
   return (
     <div
@@ -130,7 +135,7 @@ export function InviteBanner({
               margin: 0,
             }}
           >
-            {lbToNext > 0 ? (
+            {kgToNext > 0 ? (
               <>
                 Bring your{' '}
                 {city && (
@@ -140,7 +145,7 @@ export function InviteBanner({
                 )}
                 roast crew.
                 <br />
-                {lbToNext.toLocaleString()} lb to drop the price.
+                {displayQty} {unit} to drop the price.
               </>
             ) : nextIsStretch ? (
               <>

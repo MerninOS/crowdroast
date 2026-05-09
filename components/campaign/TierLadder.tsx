@@ -1,22 +1,24 @@
 'use client'
 
 import * as React from 'react'
+import { useUnitPreference } from '@/components/unit-provider'
+import { formatUnitWeight, toDisplayPricePerUnit } from '@/lib/units'
 
 export type CampaignTier = {
   id: string
   name: string
   /** Threshold as a percentage of the stretch goal (0 / 25 / 65 / 100). */
   threshold: number
-  /** Per-lb price at this tier. */
-  price: number
+  /** Per-kg price at this tier. Display layer converts via the unit toggle. */
+  priceKg: number
 }
 
 interface TierLadderProps {
   tiers: CampaignTier[]
-  /** Pounds committed so far. */
-  committed: number
-  /** Stretch goal in pounds — the 100% mark on the bar. */
-  stretchLb: number
+  /** Quantity committed so far, in kg. */
+  committedKg: number
+  /** Stretch goal in kg — the 100% mark on the bar. */
+  stretchKg: number
   /** Visual energy: 'rowdy' wiggles the next-tier flag. */
   hype?: 'calm' | 'rowdy'
   /** Optional slot rendered below the ladder for a sticky invite poke. */
@@ -34,20 +36,27 @@ interface TierLadderProps {
 // hides; .cp-tier-flags-stack shows). The bar itself stays full-width.
 export function TierLadder({
   tiers,
-  committed,
-  stretchLb,
+  committedKg,
+  stretchKg,
   hype = 'rowdy',
   children,
 }: TierLadderProps) {
-  const lbAtTier = (t: CampaignTier) => Math.round((t.threshold / 100) * stretchLb)
-  const stretchPct = Math.min(100, Math.max(0, (committed / Math.max(1, stretchLb)) * 100))
+  const { unit } = useUnitPreference()
+  const kgAtTier = (t: CampaignTier) => (t.threshold / 100) * stretchKg
+  const stretchPct = Math.min(
+    100,
+    Math.max(0, (committedKg / Math.max(0.0001, stretchKg)) * 100)
+  )
 
   const currentTier =
-    [...tiers].reverse().find((t) => committed >= lbAtTier(t)) ?? tiers[0]
+    [...tiers].reverse().find((t) => committedKg >= kgAtTier(t)) ?? tiers[0]
   const nextTier =
-    tiers.find((t) => lbAtTier(t) > committed) ?? tiers[tiers.length - 1]
-  const lbToNext = Math.max(0, lbAtTier(nextTier) - committed)
+    tiers.find((t) => kgAtTier(t) > committedKg) ?? tiers[tiers.length - 1]
+  const kgToNext = Math.max(0, kgAtTier(nextTier) - committedKg)
   const nextIsStretch = nextTier.id === tiers[tiers.length - 1].id
+
+  const formatQty = (kg: number) => formatUnitWeight(kg, unit, 0)
+  const nextTierDisplayPrice = toDisplayPricePerUnit(nextTier.priceKg, unit)
 
   return (
     <div
@@ -108,9 +117,9 @@ export function TierLadder({
               margin: 0,
             }}
           >
-            {lbToNext > 0 ? (
+            {kgToNext > 0 ? (
               <>
-                {lbToNext.toLocaleString()} lb
+                {formatQty(kgToNext)} {unit}
                 <br />
                 to <span style={{ color: 'var(--color-tomato)' }}>{nextTier.name}.</span>
               </>
@@ -135,7 +144,7 @@ export function TierLadder({
               <>
                 Hit it together and everyone pays{' '}
                 <b style={{ color: 'var(--color-espresso)' }}>
-                  ${nextTier.price.toFixed(2)}/lb
+                  ${nextTierDisplayPrice.toFixed(2)}/{unit}
                 </b>{' '}
                 — the lowest price on this lot.
               </>
@@ -144,7 +153,7 @@ export function TierLadder({
                 Next tier drops the price for{' '}
                 <b style={{ color: 'var(--color-espresso)' }}>everyone in</b> to{' '}
                 <b style={{ color: 'var(--color-espresso)' }}>
-                  ${nextTier.price.toFixed(2)}/lb
+                  ${nextTierDisplayPrice.toFixed(2)}/{unit}
                 </b>
                 .
               </>
@@ -183,9 +192,9 @@ export function TierLadder({
         {/* Desktop: absolute-positioned chips along the bar */}
         <div className="cp-tier-flags-row">
           {tiers.map((t) => {
-            const lbAt = lbAtTier(t)
-            const left = Math.min(100, (lbAt / Math.max(1, stretchLb)) * 100)
-            const unlocked = committed >= lbAt
+            const kgAt = kgAtTier(t)
+            const left = Math.min(100, (kgAt / Math.max(0.0001, stretchKg)) * 100)
+            const unlocked = committedKg >= kgAt
             const isNext = t.id === nextTier.id && !unlocked
             const transformX = left < 8 ? '0%' : left > 92 ? '-100%' : '-50%'
             return (
@@ -199,7 +208,7 @@ export function TierLadder({
                   width: 120,
                 }}
               >
-                <FlagChip t={t} unlocked={unlocked} isNext={isNext} hype={hype} />
+                <FlagChip t={t} unlocked={unlocked} isNext={isNext} hype={hype} unit={unit} />
               </div>
             )
           })}
@@ -208,12 +217,12 @@ export function TierLadder({
         {/* Mobile: stacked 2-col grid under the bar */}
         <ul className="cp-tier-flags-stack">
           {tiers.map((t) => {
-            const lbAt = lbAtTier(t)
-            const unlocked = committed >= lbAt
+            const kgAt = kgAtTier(t)
+            const unlocked = committedKg >= kgAt
             const isNext = t.id === nextTier.id && !unlocked
             return (
               <li key={t.id} style={{ listStyle: 'none' }}>
-                <FlagChip t={t} unlocked={unlocked} isNext={isNext} hype={hype} />
+                <FlagChip t={t} unlocked={unlocked} isNext={isNext} hype={hype} unit={unit} />
               </li>
             )
           })}
@@ -255,12 +264,15 @@ function FlagChip({
   unlocked,
   isNext,
   hype,
+  unit,
 }: {
   t: CampaignTier
   unlocked: boolean
   isNext: boolean
   hype: 'calm' | 'rowdy'
+  unit: 'kg' | 'lb'
 }) {
+  const displayPrice = toDisplayPricePerUnit(t.priceKg, unit)
   return (
     <div
       style={{
@@ -302,7 +314,7 @@ function FlagChip({
           marginTop: 3,
         }}
       >
-        ${t.price.toFixed(2)}
+        ${displayPrice.toFixed(2)}
       </div>
       <div
         style={{

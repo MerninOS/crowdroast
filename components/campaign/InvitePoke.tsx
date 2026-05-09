@@ -2,10 +2,13 @@
 
 import * as React from 'react'
 import { useInviteData } from '@/hooks/use-invite-data'
+import { useUnitPreference } from '@/components/unit-provider'
+import { formatUnitWeight } from '@/lib/units'
 import { REFERRAL_CREDIT_AMOUNT_CENTS } from '@/lib/referrals/settle-attribution'
 
 interface InvitePokeProps {
-  lbToNext: number
+  /** Quantity remaining to the next tier, in kg. */
+  kgToNext: number
   onOpen: () => void
 }
 
@@ -13,12 +16,14 @@ interface InvitePokeProps {
 // design/project/campaign/Invite.jsx (InvitePoke). Returns null when the
 // buyer has no hub or while invite data is loading — same render gate
 // as every other CTA on the page.
-export function InvitePoke({ lbToNext, onOpen }: InvitePokeProps) {
+export function InvitePoke({ kgToNext, onOpen }: InvitePokeProps) {
   const { status, data } = useInviteData()
+  const { unit } = useUnitPreference()
   if (status !== 'ready' || !data) return null
 
   const credit = REFERRAL_CREDIT_AMOUNT_CENTS / 100
   const cityCopy = data.hubCity ? `local ${data.hubCity} roasters` : 'local roasters'
+  const displayQty = formatUnitWeight(kgToNext, unit, 0)
 
   return (
     <button
@@ -69,7 +74,7 @@ export function InvitePoke({ lbToNext, onOpen }: InvitePokeProps) {
             color: 'var(--color-espresso)',
           }}
         >
-          {lbToNext > 0 ? `${lbToNext.toLocaleString()} lb to next tier` : 'Push the stretch goal'}
+          {kgToNext > 0 ? `${displayQty} ${unit} to next tier` : 'Push the stretch goal'}
         </div>
         <div
           style={{
@@ -80,7 +85,7 @@ export function InvitePoke({ lbToNext, onOpen }: InvitePokeProps) {
             marginTop: 3,
           }}
         >
-          Invite {cityCopy} · ${credit} credit each
+          Invite {cityCopy} · Get a ${credit} credit
         </div>
       </div>
       <ArrowIcon />

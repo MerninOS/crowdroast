@@ -4,6 +4,8 @@ import * as React from 'react'
 import Link from 'next/link'
 import { CampaignCommitForm } from './CampaignCommitForm'
 import { InviteDataProvider } from '@/hooks/use-invite-data'
+import { useUnitPreference } from '@/components/unit-provider'
+import { formatUnitWeight } from '@/lib/units'
 import { Marquee } from '@merninos/ui'
 import { LotGallery } from './LotGallery'
 import { Countdown } from './Countdown'
@@ -17,9 +19,6 @@ import { SocialProof } from './SocialProof'
 import { FarmerCard } from './FarmerCard'
 import type { Lot, PricingTier, UserRole } from '@/lib/types'
 import type { CampaignSocialProof } from '@/lib/lots/social-proof'
-
-const KG_PER_LB = 0.45359237
-const toLb = (kg: number) => Math.round(kg / KG_PER_LB)
 
 interface CampaignPageProps {
   lot: Lot
@@ -195,11 +194,12 @@ function AuthenticatedView({
   const canCommit =
     !isOwner && viewerRole === 'buyer' && lot.status === 'active' && remainingKg > 0
 
+  const { unit } = useUnitPreference()
   const {
     tiers,
-    stretchLb,
-    committedLb,
-    lbToNext,
+    stretchKg,
+    committedKg,
+    kgToNext,
     nextTier,
     nextIsStretch,
     activePrice,
@@ -242,7 +242,7 @@ function AuthenticatedView({
             <LotGallery
               lot={lot}
               tierStatusLabel={
-                committedLb > 0 && lbToNext === 0
+                committedKg > 0 && kgToNext === 0
                   ? `${nextTier.name} unlocked`
                   : null
               }
@@ -258,7 +258,7 @@ function AuthenticatedView({
                   flexWrap: 'wrap',
                 }}
               >
-                <Pill variant="accent">Live · {momentum(committedLb, stretchLb)}</Pill>
+                <Pill variant="accent">Live · {momentum(committedKg, stretchKg)}</Pill>
                 {hubName && <Pill variant="cream">{hubName}</Pill>}
               </div>
 
@@ -352,6 +352,7 @@ function AuthenticatedView({
                   lotId={lot.id}
                   activePricePerKg={activePrice}
                   maxKg={remainingKg}
+                  minKg={lot.min_commitment_kg}
                   hubId={hubId || undefined}
                   activeTierName={activeTier.name}
                   biddersIn={biddersIn}
@@ -370,12 +371,12 @@ function AuthenticatedView({
         <div style={{ maxWidth: 1280, margin: '0 auto' }}>
           <TierLadder
             tiers={tiers}
-            committed={committedLb}
-            stretchLb={stretchLb}
+            committedKg={committedKg}
+            stretchKg={stretchKg}
             hype="rowdy"
           >
             <div style={{ marginTop: 18, maxWidth: 520 }}>
-              <InvitePoke lbToNext={lbToNext} onOpen={openModal} />
+              <InvitePoke kgToNext={kgToNext} onOpen={openModal} />
             </div>
           </TierLadder>
         </div>
@@ -383,13 +384,13 @@ function AuthenticatedView({
 
       {/* MARQUEE strip */}
       <Marquee
-        items={buildMarqueeItems(socialProof, lbToNext, nextTier.name)}
+        items={buildMarqueeItems(socialProof, kgToNext, nextTier.name, unit)}
         inverted
         duration={36}
       />
 
       {/* FARMER */}
-      <FarmerCard lot={lot} hubName={hubName} />
+      {/* <FarmerCard lot={lot} hubName={hubName} /> */}
 
       {/* INVITE BANNER */}
       <section
@@ -403,7 +404,7 @@ function AuthenticatedView({
       >
         <div style={{ maxWidth: 1100, margin: '0 auto' }}>
           <InviteBanner
-            lbToNext={lbToNext}
+            kgToNext={kgToNext}
             nextTierName={nextTier.name}
             nextIsStretch={nextIsStretch}
             onOpen={openModal}
@@ -515,8 +516,8 @@ const HERO_GRID_RESPONSIVE_CSS = `
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-function momentum(committedLb: number, stretchLb: number): string {
-  const pct = stretchLb > 0 ? (committedLb / stretchLb) * 100 : 0
+function momentum(committedKg: number, stretchKg: number): string {
+  const pct = stretchKg > 0 ? (committedKg / stretchKg) * 100 : 0
   if (pct >= 90) return 'Almost there'
   if (pct >= 50) return 'Mid momentum'
   if (pct >= 25) return 'Building'
@@ -525,47 +526,47 @@ function momentum(committedLb: number, stretchLb: number): string {
 
 type TierContext = {
   tiers: CampaignTier[]
-  stretchLb: number
-  committedLb: number
-  lbToNext: number
+  stretchKg: number
+  committedKg: number
+  kgToNext: number
   nextTier: CampaignTier
   nextIsStretch: boolean
+  /** Price per kg at the active tier (used by the commit form). */
   activePrice: number
   activeTier: CampaignTier
 }
 
 function buildTierContext(lot: Lot, pricingTiers: PricingTier[]): TierContext {
-  const stretchLb = toLb(lot.total_quantity_kg)
-  const committedLb = toLb(lot.committed_quantity_kg)
-  const triggerLb = toLb(lot.min_commitment_kg)
+  const stretchKg = lot.total_quantity_kg
+  const committedKg = lot.committed_quantity_kg
+  const triggerKg = lot.min_commitment_kg
   const sorted = [...pricingTiers].sort(
     (a, b) => a.min_quantity_kg - b.min_quantity_kg
   )
 
   // Build the 4-tier prototype shape: Listed / Trigger / each pricing tier / Stretch.
-  // Threshold is a percentage (0-100) of the stretch goal.
+  // Threshold is a percentage (0-100) of the stretch goal — unit-agnostic.
   const listedTier: CampaignTier = {
     id: 'listed',
     name: 'Listed',
     threshold: 0,
-    price: lot.price_per_kg,
+    priceKg: lot.price_per_kg,
   }
-  const triggerThreshold = stretchLb > 0 ? Math.round((triggerLb / stretchLb) * 100) : 0
+  const triggerThreshold = stretchKg > 0 ? Math.round((triggerKg / stretchKg) * 100) : 0
   const triggerTier: CampaignTier = {
     id: 'trigger',
     name: 'Trigger',
     threshold: Math.max(0, triggerThreshold),
-    price: lot.price_per_kg,
+    priceKg: lot.price_per_kg,
   }
   const pricingTierSteps: CampaignTier[] = sorted.map((t, i) => {
-    const lbAt = toLb(t.min_quantity_kg)
     const threshold =
-      stretchLb > 0 ? Math.round((lbAt / stretchLb) * 100) : 0
+      stretchKg > 0 ? Math.round((t.min_quantity_kg / stretchKg) * 100) : 0
     return {
       id: `tier-${i}`,
       name: i === sorted.length - 1 ? 'Full Tier' : 'Early Tier',
       threshold,
-      price: t.price_per_kg,
+      priceKg: t.price_per_kg,
     }
   })
   const stretchPrice =
@@ -574,7 +575,7 @@ function buildTierContext(lot: Lot, pricingTiers: PricingTier[]): TierContext {
     id: 'stretch',
     name: 'Stretch',
     threshold: 100,
-    price: stretchPrice,
+    priceKg: stretchPrice,
   }
 
   // Dedupe by ascending threshold so we don't surface a "Trigger" rung that
@@ -588,20 +589,20 @@ function buildTierContext(lot: Lot, pricingTiers: PricingTier[]): TierContext {
     }
   }
 
-  const lbAtTier = (t: CampaignTier) => Math.round((t.threshold / 100) * stretchLb)
-  const nextTier = tiers.find((t) => lbAtTier(t) > committedLb) ?? tiers[tiers.length - 1]
-  const lbToNext = Math.max(0, lbAtTier(nextTier) - committedLb)
+  const kgAtTier = (t: CampaignTier) => (t.threshold / 100) * stretchKg
+  const nextTier = tiers.find((t) => kgAtTier(t) > committedKg) ?? tiers[tiers.length - 1]
+  const kgToNext = Math.max(0, kgAtTier(nextTier) - committedKg)
   const nextIsStretch = nextTier.id === stretchTier.id
 
   // Active price = price of the highest tier whose threshold has been reached.
-  const reached = [...tiers].reverse().find((t) => committedLb >= lbAtTier(t)) ?? tiers[0]
-  const activePrice = reached.price
+  const reached = [...tiers].reverse().find((t) => committedKg >= kgAtTier(t)) ?? tiers[0]
+  const activePrice = reached.priceKg
 
   return {
     tiers,
-    stretchLb,
-    committedLb,
-    lbToNext,
+    stretchKg,
+    committedKg,
+    kgToNext,
     nextTier,
     nextIsStretch,
     activePrice,
@@ -611,17 +612,20 @@ function buildTierContext(lot: Lot, pricingTiers: PricingTier[]): TierContext {
 
 function buildMarqueeItems(
   socialProof: CampaignSocialProof | undefined,
-  lbToNext: number,
-  nextTierName: string
+  kgToNext: number,
+  nextTierName: string,
+  unit: 'kg' | 'lb'
 ): string[] {
   const out: string[] = []
   if (socialProof?.activity) {
     for (const a of socialProof.activity.slice(0, 3)) {
-      out.push(`${a.displayName} just committed ${a.pounds.toLocaleString()} lb`)
+      out.push(
+        `${a.displayName} just committed ${formatUnitWeight(a.kg, unit, 0)} ${unit}`
+      )
     }
   }
-  if (lbToNext > 0) {
-    out.push(`${lbToNext.toLocaleString()} lb to ${nextTierName}`)
+  if (kgToNext > 0) {
+    out.push(`${formatUnitWeight(kgToNext, unit, 0)} ${unit} to ${nextTierName}`)
   }
   out.push('Bring a roaster · drop the price')
   if (out.length < 3) {

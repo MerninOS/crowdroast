@@ -11,9 +11,13 @@
  * literals.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { InviteDataProvider } from '@/hooks/use-invite-data'
+
+vi.mock('@/components/unit-provider', () => ({
+  useUnitPreference: () => ({ unit: 'lb' }),
+}))
 import { InviteBanner } from '@/components/campaign/InviteBanner'
 import { InvitePoke } from '@/components/campaign/InvitePoke'
 import { PostCommitNudge } from '@/components/campaign/PostCommitNudge'
@@ -42,7 +46,7 @@ describe.each([
       render(
         <InviteDataProvider>
           <InviteBanner
-            lbToNext={150}
+            kgToNext={150}
             nextTierName="Full Tier"
             nextIsStretch={false}
             onOpen={() => {}}
@@ -57,7 +61,7 @@ describe.each([
     it('InvitePoke uses the hub city', async () => {
       render(
         <InviteDataProvider>
-          <InvitePoke lbToNext={150} onOpen={() => {}} />
+          <InvitePoke kgToNext={150} onOpen={() => {}} />
         </InviteDataProvider>
       )
       await waitFor(() =>
@@ -104,7 +108,7 @@ describe('hub-local copy with null hubCity (graceful fallback)', () => {
     render(
       <InviteDataProvider>
         <InviteBanner
-          lbToNext={150}
+          kgToNext={150}
           nextTierName="Full Tier"
           nextIsStretch={false}
           onOpen={() => {}}

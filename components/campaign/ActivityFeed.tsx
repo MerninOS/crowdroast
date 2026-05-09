@@ -1,12 +1,15 @@
 'use client'
 
 import * as React from 'react'
+import { useUnitPreference } from '@/components/unit-provider'
+import { formatUnitWeight } from '@/lib/units'
 
 export type ActivityItem = {
   id: string
   displayName: string
   city: string | null
-  pounds: number
+  /** Quantity for this commit in kilograms. */
+  kg: number
   ago: string
 }
 
@@ -22,6 +25,7 @@ interface ActivityFeedProps {
 // rows. The data is server-rendered (not realtime) but the visual
 // energy is preserved — the dot pulses for ambient liveliness.
 export function ActivityFeed({ items, totalCount }: ActivityFeedProps) {
+  const { unit } = useUnitPreference()
   return (
     <div
       style={{
@@ -150,7 +154,7 @@ export function ActivityFeed({ items, totalCount }: ActivityFeedProps) {
                     <span style={{ color: 'var(--fg2)', fontWeight: 600 }}>
                       committed{' '}
                       <b style={{ color: 'var(--color-tomato)' }}>
-                        {it.pounds.toLocaleString()} lb
+                        {formatUnitWeight(it.kg, unit, 0)} {unit}
                       </b>
                     </span>
                   </div>

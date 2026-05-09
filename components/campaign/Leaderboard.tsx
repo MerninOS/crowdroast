@@ -1,11 +1,14 @@
 'use client'
 
 import * as React from 'react'
+import { useUnitPreference } from '@/components/unit-provider'
+import { formatUnitWeight } from '@/lib/units'
 
 export type LeaderboardEntry = {
   displayName: string
   city: string | null
-  pounds: number
+  /** Total quantity for this buyer in kilograms. */
+  kg: number
 }
 
 interface LeaderboardProps {
@@ -16,6 +19,7 @@ interface LeaderboardProps {
 // Top-3 entries get a colored medal + cream tint; remaining rows render
 // with a dashed border. Ranks 1/2/3 use tomato/sun/honey medals.
 export function Leaderboard({ entries }: LeaderboardProps) {
+  const { unit } = useUnitPreference()
   return (
     <div
       style={{
@@ -152,7 +156,7 @@ export function Leaderboard({ entries }: LeaderboardProps) {
                       lineHeight: 1,
                     }}
                   >
-                    {e.pounds.toLocaleString()}
+                    {formatUnitWeight(e.kg, unit, 0)}
                   </div>
                   <div
                     style={{
@@ -163,7 +167,7 @@ export function Leaderboard({ entries }: LeaderboardProps) {
                       color: 'var(--fg2)',
                     }}
                   >
-                    lb in
+                    {unit} in
                   </div>
                 </div>
               </div>

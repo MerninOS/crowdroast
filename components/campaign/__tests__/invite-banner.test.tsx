@@ -48,7 +48,7 @@ describe('InviteBanner (criterion 3)', () => {
     render(
       <InviteDataProvider>
         <InviteBanner
-          lbToNext={120}
+          kgToNext={120}
           nextTierName="Full Tier"
           nextIsStretch={false}
           onOpen={() => {}}
@@ -71,7 +71,7 @@ describe('InviteBanner (criterion 3)', () => {
     const { container } = render(
       <InviteDataProvider>
         <InviteBanner
-          lbToNext={120}
+          kgToNext={120}
           nextTierName="Full Tier"
           nextIsStretch={false}
           onOpen={() => {}}
