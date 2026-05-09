@@ -352,7 +352,6 @@ function AuthenticatedView({
                   lotId={lot.id}
                   activePricePerKg={activePrice}
                   maxKg={remainingKg}
-                  minKg={lot.min_commitment_kg}
                   hubId={hubId || undefined}
                   activeTierName={activeTier.name}
                   biddersIn={biddersIn}
