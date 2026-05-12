@@ -93,6 +93,9 @@ const activeLot = {
   commitment_deadline: null,
   price_per_kg: 20,
   currency: "USD",
+  // Bag-aware close (Task 1.9): commits require a backfilled bag size.
+  // These tests exercise downstream gates, so the lot is fully configured.
+  bag_size_kg: 10,
 };
 
 const validBody = () => ({

@@ -44,6 +44,20 @@ export async function POST(request: Request) {
     );
   }
 
+  // Bag-size backfill gate: legacy lots created before bag-aware close have
+  // bag_size_kg = NULL until the seller backfills via the seller dashboard.
+  // Block commits hard at the route boundary — must run before any Stripe
+  // call or commitment insert so we don't create orphaned setup intents.
+  if (lot.bag_size_kg === null || lot.bag_size_kg === undefined) {
+    return NextResponse.json(
+      {
+        error:
+          "This lot is still being set up. The seller needs to confirm the bag size before commits can be placed.",
+      },
+      { status: 400 }
+    );
+  }
+
   // Look up active campaign for this lot + hub
   const { data: campaign, error: campaignError } = await supabase
     .from("campaigns")
