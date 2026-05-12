@@ -96,6 +96,7 @@ export function BuyerCommitmentsBoard({
         id: `${openGroup.lotId}-${t.min_quantity_kg}`,
         lot_id: openGroup.lotId,
         min_quantity_kg: t.min_quantity_kg,
+        min_bags: null,
         price_per_kg: t.price_per_kg,
         created_at: "",
       }))
