@@ -426,6 +426,7 @@ export default function EditLotPage({
                       type="number"
                       required
                       min="1"
+                      step="0.01"
                       value={form.min_commitment_kg}
                       onChange={(e) =>
                         update("min_commitment_kg", e.target.value)
@@ -441,6 +442,7 @@ export default function EditLotPage({
                       type="number"
                       required
                       min="1"
+                      step="0.01"
                       value={form.total_quantity_kg}
                       onChange={(e) =>
                         update("total_quantity_kg", e.target.value)
@@ -551,6 +553,7 @@ export default function EditLotPage({
                           type="number"
                           min={minQty + 1}
                           max={maxQty}
+                          step="0.01"
                           value={tier.min_quantity_kg}
                           onChange={(e) =>
                             updateTier(idx, "min_quantity_kg", e.target.value)
