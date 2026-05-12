@@ -3,6 +3,10 @@ export type WeightUnit = "kg" | "lb";
 export const DEFAULT_WEIGHT_UNIT: WeightUnit = "kg";
 export const LB_PER_KG = 2.2046226218;
 const PRICE_CALC_DECIMALS = 5;
+// Display rounding matches the price input's step="0.01"; without it,
+// converting a kg-priced lot to lb yields a 5-decimal value that fails
+// HTML5 number validation on submit.
+const PRICE_DISPLAY_DECIMALS = 2;
 
 function roundTo(value: number, decimals: number): number {
   const factor = 10 ** decimals;
@@ -19,7 +23,7 @@ export function fromDisplayWeight(value: number, unit: WeightUnit): number {
 
 export function toDisplayPricePerUnit(pricePerKg: number, unit: WeightUnit): number {
   const converted = unit === "lb" ? pricePerKg / LB_PER_KG : pricePerKg;
-  return roundTo(converted, PRICE_CALC_DECIMALS);
+  return roundTo(converted, PRICE_DISPLAY_DECIMALS);
 }
 
 export function fromDisplayPricePerUnit(value: number, unit: WeightUnit): number {
