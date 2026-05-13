@@ -162,32 +162,70 @@ export async function POST(request: Request) {
           });
 
           if (!probe.ok) {
-            await admin
-              .from("commitments")
-              .update({
-                payment_error: `Auth probe failed: ${probe.reason}`,
-              })
-              .eq("stripe_checkout_session_id", session.id);
+            // M4 idempotency stamp: Stripe delivers webhooks at-least-once,
+            // and probeCardAuth is intentionally idempotent (deterministic
+            // key per PM → cached result), so a retry of this exact event
+            // would re-run the probe and re-send the buyer email. To stop
+            // that, we use the "claim then act" pattern from migration #42's
+            // `card_auth_failed_email_sent_at` column (mirrors the
+            // settlement_email_sent_at pattern in lib/settlement-email-trigger.ts):
+            //
+            //   1. UPDATE ... SET payment_error = ?, card_auth_failed_email_sent_at = now()
+            //        WHERE id = ? AND card_auth_failed_email_sent_at IS NULL
+            //        RETURNING id
+            //   2. If 1 row returned -> we won the claim -> send the email.
+            //      If 0 rows returned -> prior delivery already claimed +
+            //      sent -> skip the email (payment_error is already set).
+            //
+            // We stamp BEFORE sending so a Resend hiccup doesn't re-open
+            // the duplicate-send window on the next webhook retry. A lost
+            // email is preferable to multiple sends for this notice.
+            if (commitmentRow?.id) {
+              const { data: claimedRows } = await admin
+                .from("commitments")
+                .update({
+                  payment_error: `Auth probe failed: ${probe.reason}`,
+                  card_auth_failed_email_sent_at: new Date().toISOString(),
+                })
+                .eq("id", commitmentRow.id)
+                .is("card_auth_failed_email_sent_at", null)
+                .select("id");
 
-            // Best-effort buyer notification. Failure to send the email
-            // must not 500 the webhook (Stripe would retry and re-probe).
-            if (commitmentRow?.id && lot && buyer?.email) {
-              try {
-                await sendCardAuthFailedEmail({
-                  buyer: {
-                    email: buyer.email,
-                    contact_name: buyer.contact_name,
-                  },
-                  lot: { id: lot.id, title: lot.title },
-                  commitmentId: commitmentRow.id,
-                  failureReason: probe.reason,
-                });
-              } catch (emailErr) {
-                console.warn(
-                  "[webhook checkout.session.completed mode=setup] failed to send card-auth-failed email",
-                  emailErr instanceof Error ? emailErr.message : emailErr
-                );
+              const wonClaim = Array.isArray(claimedRows) && claimedRows.length > 0;
+
+              if (wonClaim && lot && buyer?.email) {
+                // Best-effort buyer notification. Failure to send must not
+                // 500 the webhook (Stripe would retry, and the stamp now
+                // suppresses the retry's re-send — matching the spec's
+                // "duplicate sends are worse than missed ones" tradeoff).
+                try {
+                  await sendCardAuthFailedEmail({
+                    buyer: {
+                      email: buyer.email,
+                      contact_name: buyer.contact_name,
+                    },
+                    lot: { id: lot.id, title: lot.title },
+                    commitmentId: commitmentRow.id,
+                    failureReason: probe.reason,
+                  });
+                } catch (emailErr) {
+                  console.warn(
+                    "[webhook checkout.session.completed mode=setup] failed to send card-auth-failed email (stamp already set; will not retry)",
+                    emailErr instanceof Error ? emailErr.message : emailErr
+                  );
+                }
               }
+            } else {
+              // No commitment row found for this session — fall back to the
+              // session-id-scoped write so payment_error is still recorded.
+              // Skipping email here is safe: with no row we have no buyer
+              // to email anyway.
+              await admin
+                .from("commitments")
+                .update({
+                  payment_error: `Auth probe failed: ${probe.reason}`,
+                })
+                .eq("stripe_checkout_session_id", session.id);
             }
           }
           // On probe.ok === true we leave `payment_error` NULL — the row's

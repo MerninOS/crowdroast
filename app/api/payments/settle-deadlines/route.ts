@@ -401,9 +401,21 @@ async function settleDeadlines(request: Request) {
       continue;
     }
 
+    // M9 fix: bag-aware lots use bag-count as the success/failure threshold,
+    // not min_commitment_kg. Hoist lotBagSizeKg here so the legacy kg-gate
+    // can be skipped for bag-aware lots — their own AC7 check inside the
+    // bag-aware branch is the source of truth.
+    const lotBagSizeKgEarly =
+      typeof lot.bag_size_kg === "number" &&
+      Number.isFinite(lot.bag_size_kg) &&
+      lot.bag_size_kg > 0
+        ? lot.bag_size_kg
+        : null;
+    const isBagAwareLot = lotBagSizeKgEarly !== null;
+
     const minimumMet = Number(lot.committed_quantity_kg) >= Number(lot.min_commitment_kg);
 
-    if (!minimumMet) {
+    if (!isBagAwareLot && !minimumMet) {
       const { data: lotCommitments, error: lotCommitmentsError } = await admin
         .from("commitments")
         .select("id, payment_status, stripe_payment_intent_id, stripe_charge_id")

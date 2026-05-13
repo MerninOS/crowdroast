@@ -135,7 +135,13 @@ function isTransientStripeError(errMsg: string): boolean {
     // 5xx-bucket signature words from Stripe's typical messages
     m.includes("server error") ||
     m.includes("temporarily unavailable") ||
-    m.includes("try again")
+    // Network-class failures. NOT matching "try again" — Stripe uses that
+    // phrase in real card-decline copy ("Your card was declined. Please
+    // try again or use a different card."), which would misclassify a
+    // genuine decline as transient and loop the row forever without
+    // bumping attempt_count. M3 review fix.
+    m.includes("timeout") ||
+    m.includes("timed out")
   );
 }
 

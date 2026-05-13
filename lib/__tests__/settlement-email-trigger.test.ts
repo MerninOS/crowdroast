@@ -233,6 +233,9 @@ describe("sendSettlementEmailIfReady", () => {
     });
     // Atomic stamp UPDATE → returns one row (we won the race).
     enqueue("commitments", { data: [{ id: "commit-1" }], error: null });
+    // Outcome UPDATE (settlement_email_status = 'sent') — fire-and-await,
+    // returns nothing meaningful.
+    enqueue("commitments", { data: null, error: null });
 
     const sendMock = vi.fn().mockResolvedValue({ success: true });
     const result = await sendSettlementEmailIfReady(
@@ -268,13 +271,25 @@ describe("sendSettlementEmailIfReady", () => {
 
     // Atomic stamp: UPDATE on commitments with payload setting
     // settlement_email_sent_at, gated by `.is("settlement_email_sent_at", null)`.
-    const stampUpdate = captured.find((c) => c.table === "commitments");
+    const commitmentUpdates = captured.filter((c) => c.table === "commitments");
+    const stampUpdate = commitmentUpdates.find(
+      (c) => c.payload && "settlement_email_sent_at" in c.payload
+    );
     expect(stampUpdate).toBeDefined();
     expect(stampUpdate?.payload).toMatchObject({
       settlement_email_sent_at: FIXED_NOW.toISOString(),
     });
     expect(stampUpdate?.isCol).toBe("settlement_email_sent_at");
     expect(stampUpdate?.isVal).toBeNull();
+
+    // Outcome stamp: settlement_email_status = 'sent' on success.
+    const outcomeUpdate = commitmentUpdates.find(
+      (c) => c.payload && "settlement_email_status" in c.payload
+    );
+    expect(outcomeUpdate).toBeDefined();
+    expect(outcomeUpdate?.payload).toMatchObject({
+      settlement_email_status: "sent",
+    });
   });
 
   // ----------------------------------------------------------------
@@ -289,6 +304,8 @@ describe("sendSettlementEmailIfReady", () => {
     // inserted by settlement.
     enqueue("commitment_bag_charges", { data: [], error: null });
     enqueue("commitments", { data: [{ id: "commit-1" }], error: null });
+    // Outcome UPDATE.
+    enqueue("commitments", { data: null, error: null });
 
     const sendMock = vi.fn().mockResolvedValue({ success: true });
     const result = await sendSettlementEmailIfReady(
@@ -316,7 +333,12 @@ describe("sendSettlementEmailIfReady", () => {
 
     // Stamp still fires for idempotency — a retry of settle-deadlines on
     // the same failed campaign must not re-send.
-    const stampUpdate = captured.find((c) => c.table === "commitments");
+    const stampUpdate = captured.find(
+      (c) =>
+        c.table === "commitments" &&
+        c.payload &&
+        "settlement_email_sent_at" in c.payload
+    );
     expect(stampUpdate?.payload).toMatchObject({
       settlement_email_sent_at: FIXED_NOW.toISOString(),
     });
@@ -368,6 +390,8 @@ describe("sendSettlementEmailIfReady", () => {
       error: null,
     });
     enqueue("commitments", { data: [{ id: "commit-1" }], error: null });
+    // Outcome UPDATE.
+    enqueue("commitments", { data: null, error: null });
 
     const sendMock = vi.fn().mockResolvedValue({ success: true });
     const result = await sendSettlementEmailIfReady(
@@ -396,5 +420,144 @@ describe("sendSettlementEmailIfReady", () => {
         },
       })
     );
+  });
+
+  // ----------------------------------------------------------------
+  // 7. M6 — Resend success stamps settlement_email_status = 'sent'
+  // ----------------------------------------------------------------
+  it("stamps settlement_email_status = 'sent' when Resend returns success", async () => {
+    enqueue("commitments", {
+      data: defaultCommitmentJoin(),
+      error: null,
+    });
+    enqueue("commitment_bag_charges", {
+      data: [
+        { bag_number: 1, kg: 30, amount_cents: 33000, payment_status: "charged" },
+      ],
+      error: null,
+    });
+    // Atomic stamp UPDATE — we win the race.
+    enqueue("commitments", { data: [{ id: "commit-1" }], error: null });
+    // Outcome UPDATE — write status = 'sent'.
+    enqueue("commitments", { data: null, error: null });
+
+    const sendMock = vi.fn().mockResolvedValue({ success: true });
+    const result = await sendSettlementEmailIfReady(
+      makeSupabase(),
+      "commit-1",
+      makeDeps(sendMock)
+    );
+
+    expect(result.status).toBe("sent");
+    expect(sendMock).toHaveBeenCalledTimes(1);
+
+    // The outcome write is the LAST capture against the commitments
+    // table — the stamp UPDATE went first.
+    const outcomeUpdate = captured.find(
+      (c) =>
+        c.table === "commitments" &&
+        c.payload &&
+        "settlement_email_status" in c.payload
+    );
+    expect(outcomeUpdate).toBeDefined();
+    expect(outcomeUpdate?.payload).toMatchObject({
+      settlement_email_status: "sent",
+    });
+  });
+
+  // ----------------------------------------------------------------
+  // 8. M6 — Resend failure stamps settlement_email_status = 'send_failed'
+  // ----------------------------------------------------------------
+  it("stamps settlement_email_status = 'send_failed' when Resend throws", async () => {
+    enqueue("commitments", {
+      data: defaultCommitmentJoin(),
+      error: null,
+    });
+    enqueue("commitment_bag_charges", {
+      data: [
+        { bag_number: 1, kg: 30, amount_cents: 33000, payment_status: "charged" },
+      ],
+      error: null,
+    });
+    enqueue("commitments", { data: [{ id: "commit-1" }], error: null });
+    // Outcome UPDATE — write status = 'send_failed'.
+    enqueue("commitments", { data: null, error: null });
+
+    // Resend exception — the trigger catches it but still stamps outcome.
+    const sendMock = vi.fn().mockRejectedValue(new Error("Resend 503"));
+    const result = await sendSettlementEmailIfReady(
+      makeSupabase(),
+      "commit-1",
+      makeDeps(sendMock)
+    );
+
+    expect(result.status).toBe("skipped");
+    expect(result.reason).toContain("send_threw_after_stamp");
+    expect(result.reason).toContain("Resend 503");
+
+    const outcomeUpdate = captured.find(
+      (c) =>
+        c.table === "commitments" &&
+        c.payload &&
+        "settlement_email_status" in c.payload
+    );
+    expect(outcomeUpdate).toBeDefined();
+    expect(outcomeUpdate?.payload).toMatchObject({
+      settlement_email_status: "send_failed",
+    });
+
+    // The stamp on settlement_email_sent_at is still present — we do
+    // NOT roll it back. The sweeper is responsible for clearing both
+    // columns and re-invoking the trigger.
+    const stampUpdate = captured.find(
+      (c) =>
+        c.table === "commitments" &&
+        c.payload &&
+        "settlement_email_sent_at" in c.payload
+    );
+    expect(stampUpdate?.payload).toMatchObject({
+      settlement_email_sent_at: FIXED_NOW.toISOString(),
+    });
+  });
+
+  // ----------------------------------------------------------------
+  // 9. M6 — Resend non-2xx (success=false) stamps 'send_failed'
+  // ----------------------------------------------------------------
+  it("stamps settlement_email_status = 'send_failed' when Resend returns success=false", async () => {
+    enqueue("commitments", {
+      data: defaultCommitmentJoin(),
+      error: null,
+    });
+    enqueue("commitment_bag_charges", {
+      data: [
+        { bag_number: 1, kg: 30, amount_cents: 33000, payment_status: "charged" },
+      ],
+      error: null,
+    });
+    enqueue("commitments", { data: [{ id: "commit-1" }], error: null });
+    enqueue("commitments", { data: null, error: null });
+
+    const sendMock = vi
+      .fn()
+      .mockResolvedValue({ success: false, error: "rate_limited" });
+    const result = await sendSettlementEmailIfReady(
+      makeSupabase(),
+      "commit-1",
+      makeDeps(sendMock)
+    );
+
+    expect(result.status).toBe("skipped");
+    expect(result.reason).toContain("send_failed_after_stamp");
+    expect(result.reason).toContain("rate_limited");
+
+    const outcomeUpdate = captured.find(
+      (c) =>
+        c.table === "commitments" &&
+        c.payload &&
+        "settlement_email_status" in c.payload
+    );
+    expect(outcomeUpdate?.payload).toMatchObject({
+      settlement_email_status: "send_failed",
+    });
   });
 });

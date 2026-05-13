@@ -249,12 +249,15 @@ export async function sendSettlementEmailIfReady(
 
   // ---------------------------------------------------------------------
   // 6. Fire the email. The stamp is already persisted; a Resend hiccup
-  //    here means the buyer doesn't get the email — surface as `'skipped'`
-  //    with reason so the call site can warn. We do NOT roll back the
-  //    stamp: that would re-open the duplicate-send window on the next
-  //    worker tick, and Resend transient failures are common enough that
-  //    rolling-back would create real duplicate-send risk in production.
+  //    here means the buyer doesn't get THIS attempt's email — surface as
+  //    `'skipped'` with reason. We ALSO write `settlement_email_status`
+  //    (`'sent' | 'send_failed'`, migration #42) so the daily sweeper can
+  //    find failed sends, clear both columns, and re-attempt. The stamp
+  //    column itself stays in place during the in-flight send so concurrent
+  //    callers cannot race a duplicate send through.
   // ---------------------------------------------------------------------
+  let sendSucceeded = false;
+  let sendErrorReason: string | null = null;
   try {
     const sendResult = await sendFn({
       buyer: { email: buyer.email, contact_name: buyer.contact_name },
@@ -264,16 +267,30 @@ export async function sendSettlementEmailIfReady(
       totals,
       commitmentUrl,
     });
-    if (!sendResult.success) {
-      return {
-        status: "skipped",
-        reason: `send_failed_after_stamp: ${sendResult.error || "unknown"}`,
-      };
+    if (sendResult.success) {
+      sendSucceeded = true;
+    } else {
+      sendErrorReason = `send_failed_after_stamp: ${sendResult.error || "unknown"}`;
     }
   } catch (err) {
+    sendErrorReason = `send_threw_after_stamp: ${err instanceof Error ? err.message : "unknown"}`;
+  }
+
+  // Record outcome on the commitment so the sweeper can pick up failed
+  // attempts. Write errors here are non-fatal — the stamp still gates
+  // duplicate sends. We log via the return reason so the call site can
+  // surface it, but the email status column drift is benign (sweeper
+  // will simply not re-attempt; humans can re-trigger via admin).
+  const outcomeStatus = sendSucceeded ? "sent" : "send_failed";
+  await supabase
+    .from("commitments")
+    .update({ settlement_email_status: outcomeStatus })
+    .eq("id", commitmentId);
+
+  if (!sendSucceeded) {
     return {
       status: "skipped",
-      reason: `send_threw_after_stamp: ${err instanceof Error ? err.message : "unknown"}`,
+      reason: sendErrorReason || "send_failed_after_stamp: unknown",
     };
   }
 
