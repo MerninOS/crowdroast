@@ -22,18 +22,28 @@ import {
   toDisplayWeight,
 } from "@/lib/units";
 import { addPlatformFee } from "@/lib/pricing";
+import { CommitSplitWarning } from "@/components/campaign/commit-split-warning";
 
 export function CommitmentForm({
   lotId,
   activePrice,
   maxKg,
   hubId,
+  bagSizeKg,
+  totalCommittedKg = 0,
   onSuccess,
 }: {
   lotId: string;
   activePrice: number;
   maxKg: number;
   hubId?: string;
+  /** Bag size for this lot in kg. When `null` (legacy lots not yet
+   *  backfilled), the cross-boundary split warning is suppressed. The
+   *  server-side 1.9 gate still rejects commits on bag-less lots. */
+  bagSizeKg?: number | null;
+  /** Total kg already committed to this lot. Used to compute current
+   *  bag remainder for the split warning. Defaults to 0. */
+  totalCommittedKg?: number;
   /** Fired after a successful in-page commit (toast path). NOT fired on
    *  the Stripe-checkout redirect path — the user leaves this page so
    *  there's no nudge surface to mount. The campaign-redesign orchestrator
@@ -53,6 +63,18 @@ export function CommitmentForm({
   const total = qtyKg * buyerPricePerKg;
   const maxInSelectedUnit = toDisplayWeight(maxKg, unit);
   const displayPrice = toDisplayPricePerUnit(buyerPricePerKg, unit);
+
+  // Bag remainder for the cross-boundary split warning. When the current
+  // committed kg lands exactly on a bag boundary (% === 0), the entire next
+  // bag is "remaining" — not zero — because a fresh bag is opening. When
+  // bagSizeKg is null/0 (legacy lot), we suppress the warning entirely.
+  const hasBagSize =
+    typeof bagSizeKg === "number" && Number.isFinite(bagSizeKg) && bagSizeKg > 0;
+  const bagRemainingKg = hasBagSize
+    ? (totalCommittedKg % bagSizeKg === 0
+        ? bagSizeKg
+        : bagSizeKg - (totalCommittedKg % bagSizeKg))
+    : 0;
 
   const validateQuantity = () => {
     if (qtyKg <= 0 || qtyKg > maxKg) {
@@ -153,6 +175,13 @@ export function CommitmentForm({
           </span>
         </div>
       </div>
+      {hasBagSize && (
+        <CommitSplitWarning
+          pending_kg={qtyKg}
+          bag_remaining_kg={bagRemainingKg}
+          bag_size_kg={bagSizeKg}
+        />
+      )}
       <Button type="submit" className="w-full" disabled={isLoading}>
         {isLoading ? "Submitting..." : "Commit to Purchase"}
       </Button>
