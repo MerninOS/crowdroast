@@ -161,6 +161,12 @@ export interface Commitment {
   picked_up_by: string | null;
   kg_locked_at_settlement: number | null;
   kg_refunded_at_settlement: number | null;
+  /**
+   * AC10 post-settlement email idempotency stamp (Task 4.13).
+   * NULL means the buyer has not yet received the campaign-settled summary
+   * email for this commitment. See migration #41 + lib/settlement-email-trigger.ts.
+   */
+  settlement_email_sent_at: string | null;
   refund_status: RefundStatus;
   refunded_amount_cents: number;
   refunded_at: string | null;
