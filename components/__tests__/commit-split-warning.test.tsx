@@ -98,10 +98,13 @@ describe("CommitSplitWarning", () => {
     expect(screen.getByTestId("commit-split-warning-locks-row").textContent).toMatch(
       /39\.7\s*lb/
     );
-    // 32 kg → 70.5 lb (at-risk row), and bag size 60 kg → 132.3 lb
+    // 32 kg → 70.6 lb (at-risk row), and bag size 60 kg → 132.3 lb.
+    // The 70.6 (not 70.5) reflects toDisplayWeight rounding to 2 decimals
+    // first (70.55), then toLocaleString({ maximumFractionDigits: 1 })
+    // half-rounding up. Documented in lib/units.ts after PR #77.
     const atRiskText =
       screen.getByTestId("commit-split-warning-atrisk-row").textContent ?? "";
-    expect(atRiskText).toMatch(/70\.5\s*lb/);
+    expect(atRiskText).toMatch(/70\.6\s*lb/);
     expect(atRiskText).toMatch(/132\.3\s*lb/);
   });
 });

@@ -484,6 +484,7 @@ export function CreateLotForm() {
                     type="number"
                     required
                     min="1"
+                    step="0.01"
                     placeholder="300"
                     value={form.min_commitment_kg}
                     onChange={(e) => update("min_commitment_kg", e.target.value)}
@@ -506,6 +507,7 @@ export function CreateLotForm() {
                     type="number"
                     required
                     min="1"
+                    step="0.01"
                     placeholder="1000"
                     value={form.total_quantity_kg}
                     onChange={(e) => update("total_quantity_kg", e.target.value)}
