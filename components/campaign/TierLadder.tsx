@@ -22,6 +22,15 @@ interface TierLadderProps {
   stretchKg: number
   /** Visual energy: 'rowdy' wiggles the next-tier flag. */
   hype?: 'calm' | 'rowdy'
+  /** Bag size for this lot in kg. When set (>0), the ladder switches to
+   *  bag-aware mode: eyebrow shows "X of N bags locked", the bar gets
+   *  per-bag dividers, and a "Only full bags ship — partial bags refund"
+   *  footnote renders. `null` keeps the legacy kg-percent rail (for lots
+   *  that pre-date the bag-aware close model). */
+  bagSizeKg?: number | null
+  /** Minimum bags needed for the campaign to succeed/settle. Used to
+   *  format the eyebrow nudge when bag-aware. Defaults to 0 (off). */
+  minBagsToSucceed?: number
   /** Optional slot rendered below the ladder for a sticky invite poke. */
   children?: React.ReactNode
 }
@@ -40,6 +49,8 @@ export function TierLadder({
   committedKg,
   stretchKg,
   hype = 'rowdy',
+  bagSizeKg = null,
+  minBagsToSucceed = 0,
   children,
 }: TierLadderProps) {
   const { unit } = useUnitPreference()
@@ -63,6 +74,18 @@ export function TierLadder({
     addPlatformFee(nextTier.priceKg),
     unit
   )
+
+  // Bag-aware derived state. Computed unconditionally so the dependency
+  // graph stays simple; the JSX gates rendering on `isBagAware`.
+  const isBagAware = bagSizeKg !== null && bagSizeKg > 0
+  const safeBagSize = isBagAware ? bagSizeKg : 1
+  const totalBags = isBagAware ? Math.floor(stretchKg / safeBagSize) : 0
+  const completedBags = isBagAware ? Math.floor(committedKg / safeBagSize) : 0
+  const inProgressKg = isBagAware ? committedKg - completedBags * safeBagSize : 0
+  const bagRemainingKg = isBagAware && inProgressKg > 0 ? safeBagSize - inProgressKg : 0
+  const currentBagNumber = completedBags + 1
+  const bagsShortOfMin = Math.max(0, (minBagsToSucceed || 0) - completedBags)
+  const bagLabel = (n: number) => (n === 1 ? 'bag' : 'bags')
 
   return (
     <div
@@ -111,10 +134,27 @@ export function TierLadder({
                 verticalAlign: 'middle',
               }}
             />
-            {reachedTier
-              ? `You're at ${currentTier.name}`
-              : 'Just listed'}{' '}
-            · {Math.round(stretchPct)}%
+            {isBagAware ? (
+              <>
+                {completedBags} of {totalBags} {bagLabel(totalBags)} locked
+                {inProgressKg > 0 && (
+                  <>
+                    {' '}·{' '}
+                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatQty(inProgressKg)} {unit}
+                    </span>{' '}
+                    into bag {currentBagNumber}
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                {reachedTier
+                  ? `You're at ${currentTier.name}`
+                  : 'Just listed'}{' '}
+                · {Math.round(stretchPct)}%
+              </>
+            )}
           </div>
           <h2
             style={{
@@ -196,6 +236,38 @@ export function TierLadder({
               transition: 'width .6s var(--ease-snap)',
             }}
           />
+          {/* Bag dividers — vertical espresso ticks at each bag boundary.
+            * Only renders for bag-aware lots with a sensible number of bags
+            * (<= 40, otherwise ticks crowd the rail into noise). */}
+          {isBagAware && totalBags > 0 && totalBags <= 40 && (
+            <div
+              aria-hidden="true"
+              data-testid="bag-dividers"
+              style={{
+                position: 'absolute',
+                inset: 0,
+                pointerEvents: 'none',
+              }}
+            >
+              {Array.from({ length: totalBags - 1 }, (_, i) => {
+                const left = ((i + 1) / totalBags) * 100
+                return (
+                  <span
+                    key={i}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      bottom: 0,
+                      left: `${left}%`,
+                      width: 2,
+                      background: 'var(--color-espresso)',
+                      opacity: 0.55,
+                    }}
+                  />
+                )
+              })}
+            </div>
+          )}
         </div>
 
         {/* Desktop: absolute-positioned chips along the bar */}
@@ -237,6 +309,96 @@ export function TierLadder({
           })}
         </ul>
       </div>
+
+      {/* Bag-aware status line — sits between the bar and the children slot.
+        * Renders only for bag-aware lots, with separate messages for the
+        * filling / freshly-completed / under-minimum / fully-locked states. */}
+      {isBagAware && (
+        <div
+          data-testid="bag-status-line"
+          style={{
+            marginTop: 18,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            flexWrap: 'wrap',
+            fontFamily: 'var(--font-body)',
+            fontSize: 13,
+            fontWeight: 700,
+            color: 'var(--color-espresso)',
+          }}
+        >
+          <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8 }}>
+            {inProgressKg > 0 ? (
+              <>
+                <span
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    fontSize: 20,
+                    lineHeight: 1,
+                    color: 'var(--color-espresso)',
+                  }}
+                >
+                  Bag {currentBagNumber}
+                </span>
+                <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                  {formatQty(inProgressKg)} {unit} / {formatQty(safeBagSize)} {unit}
+                </span>
+                <span style={{ fontWeight: 700, color: 'var(--fg2)' }}>
+                  · {formatQty(bagRemainingKg)} {unit} from completion
+                </span>
+              </>
+            ) : completedBags > 0 ? (
+              <span style={{ fontWeight: 800 }}>
+                Bag {completedBags} just locked. Next bag&apos;s waiting.
+              </span>
+            ) : (
+              <span style={{ fontWeight: 800 }}>First bag&apos;s waiting.</span>
+            )}
+          </div>
+          {bagsShortOfMin > 0 && (
+            <span
+              style={{
+                background: 'var(--color-sun)',
+                color: 'var(--color-espresso)',
+                border: '2px solid var(--color-espresso)',
+                borderRadius: 9999,
+                padding: '4px 12px',
+                fontSize: 11,
+                fontWeight: 800,
+                letterSpacing: '0.1em',
+                textTransform: 'uppercase',
+                boxShadow: '2px 2px 0 var(--color-espresso)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {bagsShortOfMin} more {bagLabel(bagsShortOfMin)} to settle
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Refund rule footnote — load-bearing copy that sets the buyer
+        * expectation BEFORE they enter the commit form. Always visible
+        * on bag-aware lots, not gated on any commit state. */}
+      {isBagAware && (
+        <p
+          data-testid="bag-refund-footnote"
+          style={{
+            margin: '14px 0 0',
+            fontFamily: 'var(--font-body)',
+            fontSize: 12,
+            fontWeight: 700,
+            letterSpacing: '0.04em',
+            color: 'var(--fg2)',
+            lineHeight: 1.5,
+          }}
+        >
+          <strong style={{ color: 'var(--color-espresso)' }}>Only full bags ship.</strong>{' '}
+          Anything in an open bag at the deadline refunds to your card.
+        </p>
+      )}
 
       {children}
 

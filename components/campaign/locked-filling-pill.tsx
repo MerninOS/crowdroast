@@ -88,8 +88,8 @@ export function LockedFillingPill({
         <span
           aria-label={
             bag_remaining_kg != null && bag_remaining_kg > 0
-              ? `${formatUnitWeight(filling_kg, unit, 1)} ${unit} filling, ${formatUnitWeight(bag_remaining_kg, unit, 1)} ${unit} from completion`
-              : `${formatUnitWeight(filling_kg, unit, 1)} ${unit} filling`
+              ? `${formatUnitWeight(filling_kg, unit, 1)} ${unit} filling — refunds if the bag doesn't complete; ${formatUnitWeight(bag_remaining_kg, unit, 1)} ${unit} from completion`
+              : `${formatUnitWeight(filling_kg, unit, 1)} ${unit} filling — refunds if the bag doesn't complete`
           }
           style={{
             display: "inline-flex",

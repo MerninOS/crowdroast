@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { notFound, redirect } from "next/navigation";
 import { CampaignPage } from "@/components/campaign/CampaignPage";
-import type { Lot, PricingTier } from "@/lib/types";
+import type { Commitment, Lot, PricingTier } from "@/lib/types";
 import {
   getCampaignSocialProof,
   type SocialProofCommitment,
@@ -99,6 +99,24 @@ export default async function BuyerLotDetailPage({
     (commitments ?? []) as unknown as SocialProofCommitment[]
   );
 
+  // Bag-aware commits never set stripe_payment_intent_id (settlement issues
+  // per-bag charges later), so the payment_intent filter above would hide
+  // them from the "Your Commits" surface. Re-fetch the same campaign's
+  // commits without that filter — but only past the "pending_setup" state,
+  // so abandoned-checkout rows don't leak into the viewer's list. Limited
+  // to the viewer's own buyer_id since the YourCommits block is
+  // viewer-scoped and we don't need other buyers' rows here.
+  const { data: viewerCommitments } = activeCampaign
+    ? await supabase
+        .from("commitments")
+        .select("id, buyer_id, quantity_kg, created_at, status, payment_status")
+        .eq("campaign_id", activeCampaign.id)
+        .eq("buyer_id", user.id)
+        .neq("status", "cancelled")
+        .neq("payment_status", "pending_setup")
+        .order("created_at", { ascending: true })
+    : { data: [] };
+
   // Fetch hub name for hero / farmer card display copy. The invite CTAs
   // get their own hubName from POST /api/invite-codes via useInviteData,
   // but visual surfaces shouldn't be coupled to that auth-gated fetch.
@@ -114,6 +132,7 @@ export default async function BuyerLotDetailPage({
       hubId={hubId || null}
       hubName={hub?.name || null}
       pricingTiers={(pricingTiers as unknown as PricingTier[]) || []}
+      commitments={(viewerCommitments as unknown as Commitment[]) || []}
       socialProof={socialProof}
     />
   );

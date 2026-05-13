@@ -204,11 +204,11 @@ export function CommitSplitWarning({
             >
               {formatUnitWeight(atRiskKg, unit, 1)} {unit}
             </strong>
-            → starts a new bag (at-risk until the bag hits{" "}
+            → starts a new bag — refunds if the bag doesn&apos;t hit{" "}
             <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 900 }}>
               {formatUnitWeight(bag_size_kg, unit, 1)} {unit}
             </span>
-            )
+            {" "}by the deadline
           </span>
           <span
             style={{

@@ -7,6 +7,7 @@ import {
 } from "@/lib/stripe";
 import { addPlatformFee } from "@/lib/pricing";
 import { assignKgToBags } from "@/lib/bag-assignment";
+import { computeCompletedBagsAndPrice } from "@/lib/settle-bag-pricing";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
@@ -117,9 +118,29 @@ export async function POST(request: Request) {
   // After this commitment, the new total committed quantity
   const newTotal = lot.committed_quantity_kg + quantity_kg;
 
-  // Find the highest tier that the new total reaches
+  // Resolve the active seller price per kg. For bag-aware lots (the live
+  // path now), keep the commit-time tier in sync with settlement by
+  // routing through computeCompletedBagsAndPrice — same algorithm that
+  // lib/settle-bag-pricing.ts uses at deadline. Without this, a buyer can
+  // be quoted one price (kg-tier) and charged another (bag-tier) at
+  // settlement when min_quantity_kg doesn't land on a bag boundary.
   let activeSellerPricePerKg = lot.price_per_kg;
-  if (tiers && tiers.length > 0) {
+  if (lot.bag_size_kg !== null && lot.bag_size_kg > 0) {
+    const { price_per_kg } = computeCompletedBagsAndPrice({
+      total_committed_kg: newTotal,
+      bag_size_kg: Number(lot.bag_size_kg),
+      base_price_per_kg: lot.price_per_kg,
+      tiers: (tiers ?? []).map((t) => ({
+        min_bags:
+          t.min_bags === null || t.min_bags === undefined
+            ? null
+            : Number(t.min_bags),
+        price_per_kg: t.price_per_kg,
+      })),
+    });
+    activeSellerPricePerKg = price_per_kg;
+  } else if (tiers && tiers.length > 0) {
+    // Legacy kg-tier resolution preserved for unconverted lots.
     for (const tier of tiers) {
       if (newTotal >= tier.min_quantity_kg) {
         activeSellerPricePerKg = tier.price_per_kg;
