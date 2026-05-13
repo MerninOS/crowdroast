@@ -11,6 +11,7 @@ import {
   derivePortfolioStats,
   type CommitmentGroup,
 } from "@/components/buyer-commitments/bucket-by-lifecycle";
+import type { BagChargeRow } from "@/components/buyer-commitments/commitment-drawer/bag-breakdown";
 import { PortfolioStrip } from "@/components/buyer-commitments/portfolio-strip";
 import { NeedsAttentionCard } from "@/components/buyer-commitments/needs-attention-card";
 import { BuyerCommitmentsBoard } from "@/components/buyer-commitments/buyer-commitments-board";
@@ -203,6 +204,33 @@ export default async function BuyerCommitmentsPage({
       Math.abs(Number(row.amount_cents || 0));
   }
 
+  // Per-bag charge rows for the buyer's commitments. Created at settlement
+  // (migration #38) by lib/settle-attribution.ts — one row per (commitment,
+  // completed_bag). Used by the closed-value drawer body to show the buyer
+  // their bag-by-bag charge state (AC10 / Task 4.12).
+  //
+  // RLS scoping: migration #38's `bag_charges_select_buyer` policy already
+  // restricts SELECT to rows whose commitment_id maps to the caller's
+  // own commitments. Filtering by commitment_id IN (...) on the user-bound
+  // client is therefore safe and just narrows what RLS would already allow.
+  const commitmentIds = items.map((c) => c.id);
+  const bagChargesByCommitmentId: Record<string, BagChargeRow[]> = {};
+  if (commitmentIds.length > 0) {
+    const { data: bagCharges } = await supabase
+      .from("commitment_bag_charges")
+      .select(
+        "id, commitment_id, bag_number, kg, amount_cents, payment_status"
+      )
+      .in("commitment_id", commitmentIds)
+      .order("bag_number", { ascending: true });
+    for (const row of (bagCharges || []) as BagChargeRow[]) {
+      if (!bagChargesByCommitmentId[row.commitment_id]) {
+        bagChargesByCommitmentId[row.commitment_id] = [];
+      }
+      bagChargesByCommitmentId[row.commitment_id].push(row);
+    }
+  }
+
   // Group by campaign instance, not by lot — a lot can have multiple campaigns
   // (e.g. one failed, one succeeded). Legacy commitments without a campaign_id
   // fall back to a lot-scoped key so they still render.
@@ -223,6 +251,7 @@ export default async function BuyerCommitmentsPage({
         commitments: [c],
         shipment: shipmentByLotId[c.lot_id] ?? null,
         creditAppliedByCommitmentId,
+        bagChargesByCommitmentId,
       });
     }
   }

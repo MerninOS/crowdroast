@@ -1,6 +1,7 @@
 import { addPlatformFee } from "@/lib/pricing";
 import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
 import { ContributionsTable } from "./contributions-table";
+import { BagBreakdown } from "./bag-breakdown";
 import { refundDollarsFor } from "./refund-amount";
 import type { CommitmentGroup } from "../bucket-by-lifecycle";
 
@@ -188,6 +189,11 @@ export function ClosedDrawerBody({
           </div>
         </div>
       )}
+
+      <BagBreakdown
+        commitments={group.commitments}
+        bagChargesByCommitmentId={group.bagChargesByCommitmentId ?? {}}
+      />
 
       <div className="flex flex-col gap-2">
         <div className="font-body text-[11px] font-extrabold uppercase tracking-[0.14em] text-espresso/60">

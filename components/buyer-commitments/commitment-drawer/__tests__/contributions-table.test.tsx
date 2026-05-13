@@ -38,6 +38,7 @@ function makeCommitment(overrides: Partial<Commitment> = {}): Commitment {
     picked_up_by: null,
     kg_locked_at_settlement: null,
     kg_refunded_at_settlement: null,
+    settlement_email_sent_at: null,
     refund_status: "not_refunded",
     refunded_amount_cents: 0,
     refunded_at: null,
