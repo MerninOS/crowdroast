@@ -97,13 +97,22 @@ export default async function BuyerCommitmentsPage({
     await syncPendingSetupCommitments(supabase, user.id);
   }
 
+  // Show ANY commit the buyer has made — both legacy payment_intent commits
+  // and bag-aware setup_intent commits. The prior filter
+  // `.not("stripe_payment_intent_id", "is", null)` invisibly hid every
+  // bag-aware commit because those use setup_intent (no PI).
+  // The `pending_setup` status filter excludes commits that haven't yet
+  // returned from Stripe Checkout (they're transient).
   const { data: commitments } = await supabase
     .from("commitments")
     .select(
-      "*, picked_up_at, lot:lots!commitments_lot_id_fkey(id, title, origin_country, region, farm, variety, process, score, images, crop_year, total_quantity_kg, settlement_status, settlement_processed_at, commitment_deadline, currency, committed_quantity_kg, price_per_kg)"
+      "*, picked_up_at, lot:lots!commitments_lot_id_fkey(id, title, origin_country, region, farm, variety, process, score, images, crop_year, total_quantity_kg, settlement_status, settlement_processed_at, commitment_deadline, currency, committed_quantity_kg, price_per_kg, bag_size_kg, min_bags_to_succeed)"
     )
     .eq("buyer_id", user.id)
-    .not("stripe_payment_intent_id", "is", null)
+    .neq("payment_status", "pending_setup")
+    .or(
+      "stripe_payment_intent_id.not.is.null,stripe_setup_intent_id.not.is.null"
+    )
     .order("created_at", { ascending: false });
 
   const items = (commitments || []) as Commitment[];

@@ -36,13 +36,18 @@ export default async function PublicLotDetailPage({
     .eq("lot_id", id)
     .order("min_quantity_kg", { ascending: true });
 
+  // Include both legacy PI commits AND bag-aware setup_intent commits.
+  // The pending_setup filter excludes commits mid-Checkout-redirect.
   const { data: commitments } = await supabase
     .from("commitments")
     .select(
       "*, buyer:profiles!commitments_buyer_id_fkey(company_name, contact_name)"
     )
     .eq("lot_id", id)
-    .not("stripe_payment_intent_id", "is", null)
+    .neq("payment_status", "pending_setup")
+    .or(
+      "stripe_payment_intent_id.not.is.null,stripe_setup_intent_id.not.is.null"
+    )
     .order("created_at", { ascending: true });
 
   return (
