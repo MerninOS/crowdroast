@@ -27,7 +27,9 @@ export default async function SellerCommitmentsPage() {
 
   const { data: lots } = await supabase
     .from("lots")
-    .select("id, title, committed_quantity_kg, min_commitment_kg, currency, price_per_kg")
+    .select(
+      "id, title, committed_quantity_kg, min_commitment_kg, currency, price_per_kg, bag_size_kg, min_bags_to_succeed"
+    )
     .eq("seller_id", user.id);
 
   const lotIds = (lots || []).map((l) => l.id);
@@ -92,10 +94,26 @@ export default async function SellerCommitmentsPage() {
 
       const hub = (campaign.hub as unknown) as { id: string; name: string } | null;
 
+      // Bag-aware lots: "Guaranteed" means enough completed bags to meet
+      // min_bags_to_succeed. Legacy lots keep kg-threshold semantics.
+      const lotBagSizeKg =
+        lot.bag_size_kg != null && Number(lot.bag_size_kg) > 0
+          ? Number(lot.bag_size_kg)
+          : null;
+      const isLotBagAware = lotBagSizeKg !== null;
+      const completedBags = isLotBagAware
+        ? Math.floor(Number(lot.committed_quantity_kg) / lotBagSizeKg)
+        : 0;
+      const minBags = Number(lot.min_bags_to_succeed || 0);
+
       let statusLabel: LotCampaignCard["statusLabel"];
       if (campaign.status === "settled") {
         statusLabel = "Successful";
-      } else if (Number(lot.committed_quantity_kg) >= Number(lot.min_commitment_kg)) {
+      } else if (
+        isLotBagAware
+          ? completedBags >= minBags
+          : Number(lot.committed_quantity_kg) >= Number(lot.min_commitment_kg)
+      ) {
         statusLabel = "Open / Guaranteed";
       } else {
         statusLabel = "Open / At Risk";

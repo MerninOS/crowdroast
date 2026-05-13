@@ -178,6 +178,18 @@ export default async function BuyerOverview({
     const committed = Number(lot.committed_quantity_kg || 0);
     const minCommitment = Number(lot.min_commitment_kg || 0);
 
+    // Bag-aware lots: surface progress in completed-bag terms so the buyer
+    // sees the same units the campaign settles in. Legacy lots stay kg-based.
+    const bagSizeKg =
+      lot.bag_size_kg != null && Number(lot.bag_size_kg) > 0
+        ? Number(lot.bag_size_kg)
+        : null;
+    const minBagsToSucceed = Number(lot.min_bags_to_succeed || 0);
+    const isBagAware = bagSizeKg !== null;
+    const completedBags = isBagAware
+      ? Math.floor(committed / bagSizeKg)
+      : 0;
+
     const currentPrice = (() => {
       if (tiers.length === 0) return Number(lot.price_per_kg);
       const sortedDesc = [...tiers].sort(
@@ -202,6 +214,10 @@ export default async function BuyerOverview({
             label: "Trigger campaign",
             targetKg: minCommitment,
             remainingKg: Math.max(0, minCommitment - committed),
+            remainingBags:
+              isBagAware && minBagsToSucceed > 0
+                ? Math.max(0, minBagsToSucceed - completedBags)
+                : null,
             nextPricePerKg: null as number | null,
           }
         : nextTier
@@ -209,12 +225,14 @@ export default async function BuyerOverview({
               label: "Next tier",
               targetKg: Number(nextTier.min_quantity_kg),
               remainingKg: Math.max(0, Number(nextTier.min_quantity_kg) - committed),
+              remainingBags: null as number | null,
               nextPricePerKg: Number(nextTier.price_per_kg),
             }
           : {
               label: "Best tier reached",
               targetKg: committed,
               remainingKg: 0,
+              remainingBags: null as number | null,
               nextPricePerKg: null as number | null,
             };
 
@@ -248,6 +266,10 @@ export default async function BuyerOverview({
       nextMilestone,
       progressPct,
       progressTextTarget: nextTarget || previousTarget,
+      isBagAware,
+      bagSizeKg,
+      completedBags,
+      minBagsToSucceed,
       invested: investedLotIds.has(lot.id),
       timeLeft: formatTimeLeft(lot.campaign_deadline),
     };

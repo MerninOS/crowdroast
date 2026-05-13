@@ -116,6 +116,41 @@ export function RaisingDrawerBody({ group, tiers }: RaisingDrawerBodyProps) {
         />
       </div>
 
+      {/*
+       * Card-saved indicator for bag-aware commits (setup_intent path).
+       * Bag-aware commits never charge upfront — Stripe saves the card via
+       * a setup_intent and we charge it bag-by-bag at settlement. This
+       * banner is the buyer-facing confirmation that their card is on
+       * file but no money has moved yet.
+       */}
+      {myCommits.some(
+        (c) =>
+          c.stripe_setup_intent_id != null &&
+          (c.payment_status === "setup_complete" ||
+            c.payment_status === "pending_setup")
+      ) && (
+        <div
+          className="flex items-start gap-3 rounded-md border-[3px] border-matcha bg-matcha/10 px-4 py-3"
+          data-testid="raising-card-saved"
+        >
+          <div
+            aria-hidden="true"
+            className="font-headline text-lg leading-none text-matcha"
+          >
+            ✓
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <div className="font-body text-[11px] font-extrabold uppercase tracking-[0.12em] text-matcha">
+              Card on file
+            </div>
+            <div className="font-body text-sm text-espresso">
+              No charge yet. We&apos;ll bill your card for each bag as it
+              fills — you only pay for coffee that actually ships.
+            </div>
+          </div>
+        </div>
+      )}
+
       {sortedTiers.length > 0 && (
         <div className="flex flex-col gap-2" data-testid="raising-tier-list">
           <div className="font-body text-[11px] font-extrabold uppercase tracking-[0.14em] text-espresso/60">
