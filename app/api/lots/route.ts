@@ -26,7 +26,23 @@ type CreateLotBody = {
   certifications?: unknown;
   images?: unknown;
   status?: unknown;
-  pricing_tiers?: unknown;
+  // Tiers arrive in the post-cutover shape: each row carries `min_bags`
+  // (integer ≥ 1) and `price_per_kg`. `min_quantity_kg` is intentionally
+  // omitted — Task 3.3 persists tier rows with min_bags set and the legacy
+  // kg column NULL. We keep the field-level type as `unknown` so the route
+  // is responsible for parsing/validation rather than trusting the caller.
+  pricing_tiers?: Array<{
+    min_bags?: unknown;
+    price_per_kg?: unknown;
+    // Accept (and ignore) the legacy key in case any older caller still
+    // sends it — `min_bags` always wins. See "Backwards compat" below.
+    min_quantity_kg?: unknown;
+  }>;
+};
+
+type ParsedTier = {
+  min_bags: number;
+  price_per_kg: number;
 };
 
 function toFiniteNumber(value: unknown): number | null {
@@ -176,6 +192,86 @@ export async function POST(request: Request) {
     }
   }
 
+  // --- Pricing tier parsing + validation ----------------------------------
+  // Tiers now key off `min_bags` (Task 3.2/3.3) — bag-count threshold rather
+  // than kg threshold. We validate up front (before inserting the lot) so an
+  // invalid tier doesn't leave behind an orphan lot row. Errors are flattened
+  // into the same `fieldErrors` map the rest of the route uses, keyed as
+  // `pricing_tiers[i].<field>` so the form can either surface them inline or
+  // aggregate them under a single tier panel.
+  let parsedTiers: ParsedTier[] = [];
+  if (body.pricing_tiers !== undefined && body.pricing_tiers !== null) {
+    if (!Array.isArray(body.pricing_tiers)) {
+      fieldErrors.pricing_tiers = "Pricing tiers must be a list.";
+    } else if (body.pricing_tiers.length > 0) {
+      // Bag ceiling: only meaningful when total/bag are both valid. When
+      // unavailable we still check `min_bags >= 1` and ascending order so the
+      // user gets *some* tier feedback alongside the lot-level errors.
+      const bagCeiling =
+        totalQuantityKg !== null && bagSize !== null && bagSize >= 1
+          ? Math.floor(totalQuantityKg / bagSize)
+          : null;
+
+      const tierResults: ParsedTier[] = [];
+      let previousMinBags: number | null = null;
+
+      for (let i = 0; i < body.pricing_tiers.length; i++) {
+        const raw = body.pricing_tiers[i];
+        // Backwards compat: prefer `min_bags`. If only `min_quantity_kg` is
+        // supplied, we deliberately do NOT auto-convert — the seller must
+        // restate the threshold in bags (matches the rationale in migration
+        // #36 for not auto-converting existing tier rows).
+        const minBagsParsed = toIntegerOrNull(raw?.min_bags);
+        const pricePerKgParsed = toFiniteNumber(raw?.price_per_kg);
+
+        if (minBagsParsed === null || minBagsParsed < 1) {
+          fieldErrors[`pricing_tiers[${i}].min_bags`] =
+            "Min bags must be a whole number of 1 or more.";
+        } else if (bagCeiling !== null && minBagsParsed > bagCeiling) {
+          fieldErrors[`pricing_tiers[${i}].min_bags`] =
+            `Min bags can't exceed the lot's bag count (${bagCeiling}).`;
+        } else if (previousMinBags !== null) {
+          if (minBagsParsed === previousMinBags) {
+            fieldErrors[`pricing_tiers[${i}].min_bags`] =
+              `Min bags (${minBagsParsed}) duplicates the previous tier.`;
+          } else if (minBagsParsed < previousMinBags) {
+            fieldErrors[`pricing_tiers[${i}].min_bags`] =
+              `Min bags must be greater than the previous tier (${previousMinBags}).`;
+          }
+        }
+
+        if (pricePerKgParsed === null || pricePerKgParsed <= 0) {
+          fieldErrors[`pricing_tiers[${i}].price_per_kg`] =
+            "Tier price per kg must be a positive number.";
+        }
+
+        // Track the previous *valid* min_bags so a single bad row doesn't
+        // cascade an "out of order" error onto the next one.
+        if (
+          minBagsParsed !== null &&
+          minBagsParsed >= 1 &&
+          (bagCeiling === null || minBagsParsed <= bagCeiling)
+        ) {
+          previousMinBags = minBagsParsed;
+        }
+
+        if (
+          minBagsParsed !== null &&
+          minBagsParsed >= 1 &&
+          pricePerKgParsed !== null &&
+          pricePerKgParsed > 0
+        ) {
+          tierResults.push({
+            min_bags: minBagsParsed,
+            price_per_kg: pricePerKgParsed,
+          });
+        }
+      }
+
+      parsedTiers = tierResults;
+    }
+  }
+
   if (Object.keys(fieldErrors).length > 0) {
     return NextResponse.json({ errors: fieldErrors }, { status: 400 });
   }
@@ -239,17 +335,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Optionally persist pricing tiers when supplied. Tier validation lives in
-  // the client form today; we accept whatever shape the caller provides and
-  // let the DB enforce constraints.
-  if (Array.isArray(body.pricing_tiers) && body.pricing_tiers.length > 0) {
-    const tierRows = (body.pricing_tiers as Array<{
-      min_quantity_kg: number;
-      price_per_kg: number;
-    }>).map((t) => ({
+  // Persist pricing tiers in the post-cutover shape — `min_bags` carries the
+  // bag-count threshold, `min_quantity_kg` is explicitly NULL on every new
+  // row (migration #37 relaxed the NOT NULL constraint to allow this). The
+  // tier shape was validated up front, so any rows reaching this point are
+  // safe to insert.
+  if (parsedTiers.length > 0) {
+    const tierRows = parsedTiers.map((t) => ({
       lot_id: lot.id,
-      min_quantity_kg: Number(t.min_quantity_kg),
-      price_per_kg: Number(t.price_per_kg),
+      min_bags: t.min_bags,
+      min_quantity_kg: null,
+      price_per_kg: t.price_per_kg,
     }));
     await supabase.from("pricing_tiers").insert(tierRows);
   }
