@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import {
   createPaymentCheckoutSession,
+  createSetupCheckoutSession,
   createStripeCustomer,
 } from "@/lib/stripe";
 import { addPlatformFee } from "@/lib/pricing";
@@ -249,6 +250,46 @@ export async function POST(request: Request) {
   try {
     const successUrl = `${origin}/dashboard/buyer/commitments?payment=success`;
     const cancelUrl = `${origin}/dashboard/buyer/lot/${lot_id}?payment=cancelled`;
+
+    // Bag-aware path: lots with a configured bag_size_kg do not charge at
+    // commit time (AC5). We save the card via a setup-mode Checkout Session
+    // and let settlement issue per-bag charges later. The 1.9 gate above
+    // already rejects null bag_size_kg, so this branch is the live path for
+    // every current commit; the legacy mode-payment branch below is kept
+    // byte-for-byte for any lots that bypass the gate. Auth-probe wiring
+    // (AC12) lands in 4.3b — this task only saves the card.
+    if (lot.bag_size_kg !== null && lot.bag_size_kg !== undefined) {
+      const setupSession = await createSetupCheckoutSession({
+        customerId: stripeCustomerId!,
+        successUrl,
+        cancelUrl,
+        commitmentId: data.id,
+        lotId: lot_id,
+        currency: lot.currency || "USD",
+      });
+
+      // The hosted Checkout Session in mode: setup returns a `url` for the
+      // buyer-facing redirect. Surface it as `setup_client_secret` per the
+      // 4.3 contract — the frontend swap (mode: payment → mode: setup) keys
+      // off this field name to distinguish bag-aware responses from legacy.
+      if (!setupSession.url) {
+        throw new Error("Stripe setup checkout session returned no URL");
+      }
+
+      await supabase
+        .from("commitments")
+        .update({ stripe_checkout_session_id: setupSession.id })
+        .eq("id", data.id);
+
+      return NextResponse.json(
+        {
+          commitment: data,
+          setup_client_secret: setupSession.url,
+          ...(split ? { split } : {}),
+        },
+        { status: 201 }
+      );
+    }
 
     const session = await createPaymentCheckoutSession({
       customerId: stripeCustomerId!,

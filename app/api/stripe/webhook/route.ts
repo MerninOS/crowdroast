@@ -1,6 +1,12 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getPaymentIntent, verifyStripeWebhookSignature } from "@/lib/stripe";
+import {
+  getPaymentIntent,
+  getSetupIntent,
+  probeCardAuth,
+  verifyStripeWebhookSignature,
+} from "@/lib/stripe";
 import { insertReferralAttributionIfEligible } from "@/lib/referrals/insert-attribution";
+import { sendCardAuthFailedEmail } from "@/lib/email";
 import { NextResponse } from "next/server";
 
 interface StripeEvent {
@@ -90,20 +96,115 @@ export async function POST(request: Request) {
       } else if (session.mode === "setup") {
         const admin = createAdminClient();
 
+        // Stripe sets `session.payment_method` to null on hosted-redirect
+        // setup sessions; the actual PM lives on the resulting setup_intent.
+        // Resolve it now so we can both persist it and probe it (AC12).
+        let paymentMethodId: string | null = session.payment_method || null;
+        if (!paymentMethodId && session.setup_intent) {
+          try {
+            const setupIntent = await getSetupIntent(session.setup_intent);
+            paymentMethodId = setupIntent.payment_method || null;
+          } catch {
+            paymentMethodId = null;
+          }
+        }
+
         const updatePayload: Record<string, unknown> = {
           payment_status: "setup_complete",
           stripe_setup_intent_id: session.setup_intent || null,
           stripe_customer_id: session.customer || null,
         };
-
-        if (session.payment_method) {
-          updatePayload.stripe_payment_method_id = session.payment_method;
+        if (paymentMethodId) {
+          updatePayload.stripe_payment_method_id = paymentMethodId;
         }
 
         await admin
           .from("commitments")
           .update(updatePayload)
           .eq("stripe_checkout_session_id", session.id);
+
+        // AC12: now that the buyer has finished Stripe-hosted setup, verify
+        // the saved card will actually clear at settlement by running a
+        // tiny auth-and-void via probeCardAuth. The probe is idempotent
+        // (deterministic key per PM), so Stripe webhook retries are safe.
+        //
+        // Settlement-gate convention: the charge worker reads
+        // `payment_error IS NULL` as the "card cleared the probe" signal.
+        // We therefore leave `payment_status` at 'setup_complete' on both
+        // outcomes and use `payment_error` as the auth-OK / auth-failed
+        // discriminator. No new CHECK-constraint enum value required.
+        const customerId = session.customer || null;
+        if (paymentMethodId && customerId) {
+          // Look up the commitment with the lot + buyer it belongs to so
+          // we can (a) write `payment_error` to the right row on failure
+          // and (b) compose the buyer email with the lot title + manage
+          // URL on the failure branch.
+          const { data: commitmentRow } = await admin
+            .from("commitments")
+            .select(
+              "id, lot:lots!commitments_lot_id_fkey(id, title, currency), buyer:profiles!commitments_buyer_id_fkey(email, contact_name)"
+            )
+            .eq("stripe_checkout_session_id", session.id)
+            .maybeSingle();
+
+          const lot = (commitmentRow?.lot ?? null) as
+            | { id: string; title: string; currency: string | null }
+            | null;
+          const buyer = (commitmentRow?.buyer ?? null) as
+            | { email: string | null; contact_name: string | null }
+            | null;
+          const currency = lot?.currency || "USD";
+
+          const probe = await probeCardAuth({
+            paymentMethodId,
+            customerId,
+            currency,
+          });
+
+          if (!probe.ok) {
+            await admin
+              .from("commitments")
+              .update({
+                payment_error: `Auth probe failed: ${probe.reason}`,
+              })
+              .eq("stripe_checkout_session_id", session.id);
+
+            // Best-effort buyer notification. Failure to send the email
+            // must not 500 the webhook (Stripe would retry and re-probe).
+            if (commitmentRow?.id && lot && buyer?.email) {
+              try {
+                await sendCardAuthFailedEmail({
+                  buyer: {
+                    email: buyer.email,
+                    contact_name: buyer.contact_name,
+                  },
+                  lot: { id: lot.id, title: lot.title },
+                  commitmentId: commitmentRow.id,
+                  failureReason: probe.reason,
+                });
+              } catch (emailErr) {
+                console.warn(
+                  "[webhook checkout.session.completed mode=setup] failed to send card-auth-failed email",
+                  emailErr instanceof Error ? emailErr.message : emailErr
+                );
+              }
+            }
+          }
+          // On probe.ok === true we leave `payment_error` NULL — the row's
+          // existing state IS the auth-OK signal (per the IS NULL gate
+          // convention above). No extra column or timestamp needed.
+        } else if (!paymentMethodId) {
+          // Defensive: a successful setup session should always yield a PM.
+          // If we somehow didn't get one, surface it via payment_error so
+          // the settlement worker treats this row as not-ready-to-charge
+          // and buyer-facing tooling can prompt for a new card.
+          await admin
+            .from("commitments")
+            .update({
+              payment_error: "Couldn't retrieve payment method after setup",
+            })
+            .eq("stripe_checkout_session_id", session.id);
+        }
       }
     }
 

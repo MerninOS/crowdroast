@@ -38,6 +38,12 @@ import { renderLotShippedHtml } from "./templates/LotShipped";
 import { renderReadyForPickupHtml } from "./templates/ReadyForPickup";
 import { renderReferralSignupHtml } from "./templates/ReferralSignup";
 import { renderReferralCreditEarnedHtml } from "./templates/ReferralCreditEarned";
+import { renderCardAuthFailedHtml } from "./templates/CardAuthFailed";
+import { renderPaymentUpdateRequiredHtml } from "./templates/PaymentUpdateRequired";
+import {
+  renderCampaignSettledHtml,
+  type CampaignSettledBagRow,
+} from "./templates/CampaignSettled";
 import type { Profile, Hub, Lot, Commitment } from "@/lib/types";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://crowdroast.com";
@@ -764,6 +770,130 @@ export async function sendReferralCreditEarnedEmail(
   return sendEmail({
     to: params.inviter.email,
     subject: `${params.inviteeName}'s lot closed — you've earned $10 in credits`,
+    html,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// AC12 — Card auth probe failed (post-setup webhook)
+// ---------------------------------------------------------------------------
+// Fired by the `checkout.session.completed` (mode=setup) webhook branch when
+// `probeCardAuth` returns `{ ok: false }`. The commitment row stays at
+// `payment_status = 'setup_complete'` but `payment_error` is non-null, which
+// is the convention the settle-time charge worker uses to skip the row.
+
+export interface CardAuthFailedEmailParams {
+  buyer: Pick<Profile, "email" | "contact_name">;
+  lot: Pick<Lot, "id" | "title">;
+  commitmentId: string;
+  failureReason: string;
+}
+
+export async function sendCardAuthFailedEmail(
+  params: CardAuthFailedEmailParams
+): Promise<SendEmailResult> {
+  if (!params.buyer.email) return { success: false, error: "Buyer has no email address" };
+  // Stage 4.12 will build the real "manage commitment" page; this URL is the
+  // placeholder it will own. Linking now keeps the email actionable as soon
+  // as that page lands without a webhook redeploy.
+  const manageUrl = `${APP_URL}/dashboard/buyer/commitments/${params.commitmentId}`;
+  const html = await renderCardAuthFailedHtml({
+    buyerName: params.buyer.contact_name || "there",
+    lotTitle: params.lot.title,
+    failureReason: params.failureReason,
+    manageUrl,
+  });
+  return sendEmail({
+    to: params.buyer.email,
+    subject: `Your card couldn't be verified — update your payment to keep your spot`,
+    html,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// AC13 — Payment-update required (between bag-charge retries 2 and 3)
+// ---------------------------------------------------------------------------
+// Fired by the charge worker (`lib/charge-worker.ts`) exactly once per
+// `commitment_bag_charges` row, when `attempt_count` transitions 1 → 2 (the
+// SECOND real card attempt just declined; one more retry is still queued).
+// Idempotency is enforced by stamping `payment_update_email_sent_at` on the
+// row in the same UPDATE.
+
+export interface PaymentUpdateRequiredEmailParams {
+  buyer: Pick<Profile, "email" | "contact_name">;
+  lotTitle: string;
+  commitmentId: string;
+  reason: string;
+  /**
+   * Manage-commitment URL. Caller-provided rather than constructed here so
+   * the worker can use the existing `/dashboard/buyer/commitments/{id}`
+   * convention without having to know `APP_URL`.
+   */
+  manageUrl: string;
+}
+
+export async function sendPaymentUpdateRequiredEmail(
+  params: PaymentUpdateRequiredEmailParams
+): Promise<SendEmailResult> {
+  if (!params.buyer.email) {
+    return { success: false, error: "Buyer has no email address" };
+  }
+  const html = await renderPaymentUpdateRequiredHtml({
+    buyerName: params.buyer.contact_name || "there",
+    lotTitle: params.lotTitle,
+    reason: params.reason,
+    manageUrl: params.manageUrl,
+  });
+  return sendEmail({
+    to: params.buyer.email,
+    subject: "Your card declined — update it to keep your spot",
+    html,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// AC10 — Campaign settled summary (Task 4.13)
+// ---------------------------------------------------------------------------
+// Fired by `lib/settlement-email-trigger.ts` once every `commitment_bag_charges`
+// row for the buyer's commitment has reached a terminal state (`charged` or
+// `payment_failed`), OR — for the campaign-failure variant — directly from the
+// settle-deadlines route when a campaign fails under min_bags_to_succeed and
+// no bag-charge rows were ever created. Idempotency is enforced by the
+// `commitments.settlement_email_sent_at` atomic stamp (migration #41).
+
+export interface CampaignSettledEmailParams {
+  buyer: Pick<Profile, "email" | "contact_name">;
+  lotTitle: string;
+  /** Three-letter currency code from the commitment / lot ("USD" by default). */
+  currency: string;
+  /** Per-bag rows. Empty array triggers the campaign-failure variant. */
+  bagRows: CampaignSettledBagRow[];
+  totals: {
+    kgPurchased: number;
+    kgFailed: number;
+    totalChargedCents: number;
+  };
+  /** Manage-commitment URL on the buyer dashboard. Caller-provided. */
+  commitmentUrl: string;
+}
+
+export async function sendCampaignSettledEmail(
+  params: CampaignSettledEmailParams
+): Promise<SendEmailResult> {
+  if (!params.buyer.email) {
+    return { success: false, error: "Buyer has no email address" };
+  }
+  const html = await renderCampaignSettledHtml({
+    buyerName: params.buyer.contact_name || "there",
+    lotTitle: params.lotTitle,
+    currency: params.currency,
+    bagRows: params.bagRows,
+    totals: params.totals,
+    commitmentUrl: params.commitmentUrl,
+  });
+  return sendEmail({
+    to: params.buyer.email,
+    subject: `Your CrowdRoast settlement — ${params.lotTitle}`,
     html,
   });
 }
