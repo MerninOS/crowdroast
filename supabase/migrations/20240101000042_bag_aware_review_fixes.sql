@@ -77,10 +77,19 @@ revoke update on public.commitments from authenticated;
 
 -- Re-grant UPDATE on the explicit allow-list of columns buyers + sellers
 -- legitimately edit through the user-bound supabase-js client. Anything
--- NOT in this list (notably: payment_status, stripe_*, charge_amount_cents,
+-- NOT in this list (notably: payment_status, charge_amount_cents,
 -- refund_*, kg_*_at_settlement, settlement_email_*, total_price,
--- price_per_kg, quantity_kg, payment_error) is now writable only via
--- service-role.
+-- price_per_kg, quantity_kg, payment_error, stripe_payment_method_id,
+-- stripe_payment_intent_id, stripe_setup_intent_id, stripe_charge_id,
+-- stripe_customer_id) is now writable only via service-role.
+--
+-- `stripe_checkout_session_id` is INCLUDED in the allow-list because
+-- the bag-aware commit route at app/api/commitments/route.ts writes it
+-- back to the buyer's row immediately after creating the setup-mode
+-- Checkout Session — that path runs under the buyer's authenticated
+-- session, not service-role. Knowing your own session id is not a
+-- security-critical write; the financial-control fields above remain
+-- protected.
 grant update (
   notes,
   status,
@@ -90,7 +99,8 @@ grant update (
   hub_id,
   charge_currency,
   charged_at,
-  refund_reason
+  refund_reason,
+  stripe_checkout_session_id
 ) on public.commitments to authenticated;
 
 -- =============================================================================
