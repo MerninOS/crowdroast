@@ -138,6 +138,100 @@ describe("POST /api/commitments — campaign requirement", () => {
     expect(body.error).toMatch(/no active campaign/i);
   });
 
+  it("returns split { locked_kg, filling_kg } based on bag_size_kg after a successful commit", async () => {
+    // Lot configured for bag-aware split: 60kg bags, lot has no prior commits.
+    // Buyer commits 100kg → only commit on the campaign → 60 locked (one full bag),
+    // 40 filling (partial second bag).
+    const splitLot = {
+      ...activeLot,
+      id: "lot-uuid-split",
+      total_quantity_kg: 600,
+      committed_quantity_kg: 0,
+      bag_size_kg: 60,
+    };
+
+    const newCommitId = "commit-uuid-new";
+    const newCommitCreatedAt = new Date("2026-05-12T12:00:00Z").toISOString();
+
+    let commitmentsCall = 0;
+    mockSupabaseFrom.mockImplementation((table: string) => {
+      if (table === "lots") {
+        return makeChain({ data: splitLot, error: null });
+      }
+      if (table === "campaigns") {
+        return makeChain({
+          data: {
+            id: "campaign-uuid-split",
+            deadline: daysFromNow(7),
+            status: "active",
+          },
+          error: null,
+        });
+      }
+      if (table === "pricing_tiers") {
+        return makeChain({ data: [], error: null });
+      }
+      if (table === "profiles") {
+        return makeChain({
+          data: {
+            email: "buyer@roastery.com",
+            stripe_customer_id: "cus_existing",
+          },
+          error: null,
+        });
+      }
+      if (table === "commitments") {
+        commitmentsCall += 1;
+        // 1st call: existingUnpaidCommitment lookup → none
+        if (commitmentsCall === 1) {
+          return makeChain({ data: null, error: null });
+        }
+        // 2nd call: insert + select().single() → return the new commit row
+        if (commitmentsCall === 2) {
+          return makeChain({
+            data: {
+              id: newCommitId,
+              quantity_kg: 100,
+              created_at: newCommitCreatedAt,
+            },
+            error: null,
+          });
+        }
+        // 3rd call: campaign commits load for assignKgToBags — only this commit
+        if (commitmentsCall === 3) {
+          return makeChain({
+            data: [
+              {
+                id: newCommitId,
+                quantity_kg: 100,
+                created_at: newCommitCreatedAt,
+              },
+            ],
+            error: null,
+          });
+        }
+        // 4th call: post-Stripe update of stripe_checkout_session_id
+        return makeChain({ data: null, error: null });
+      }
+      return makeChain({ data: null, error: null });
+    });
+
+    const res = await POST(
+      makeRequest({
+        lot_id: splitLot.id,
+        hub_id: "hub-uuid-1",
+        quantity_kg: 100,
+      })
+    );
+
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.split).toEqual({ locked_kg: 60, filling_kg: 40 });
+    // Be additive: existing response fields must still be present.
+    expect(body.commitment).toBeDefined();
+    expect(body.checkout_url).toBeDefined();
+  });
+
   it("returns 400 when campaign deadline has passed", async () => {
     const pastDeadline = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 

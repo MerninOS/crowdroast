@@ -4,6 +4,7 @@ import {
   createStripeCustomer,
 } from "@/lib/stripe";
 import { addPlatformFee } from "@/lib/pricing";
+import { assignKgToBags } from "@/lib/bag-assignment";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
@@ -193,6 +194,50 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  // Compute the bag-aware Locked/Filling split for the buyer's new commit.
+  // The 1.9 gate guarantees lot.bag_size_kg is a positive integer at this point.
+  // This runs before Stripe so a Stripe failure path doesn't lose the split work
+  // (and so a successful response includes the split alongside the checkout URL).
+  let split: { locked_kg: number; filling_kg: number } | null = null;
+  const { data: campaignCommits, error: campaignCommitsError } = await supabase
+    .from("commitments")
+    .select("id, quantity_kg, created_at")
+    .eq("campaign_id", campaign.id)
+    .neq("status", "cancelled");
+
+  if (campaignCommitsError || !campaignCommits) {
+    console.warn(
+      `[commitments] failed to load campaign commits for split (campaign_id=${campaign.id}): ${
+        campaignCommitsError?.message ?? "no data"
+      }`
+    );
+  } else {
+    try {
+      const assignments = assignKgToBags({
+        commitments: campaignCommits as Array<{
+          id: string;
+          quantity_kg: number;
+          created_at: string;
+        }>,
+        bag_size_kg: lot.bag_size_kg,
+      });
+      const own = assignments.find((row) => row.commitment_id === data.id);
+      if (own) {
+        split = { locked_kg: own.locked_kg, filling_kg: own.filling_kg };
+      } else {
+        console.warn(
+          `[commitments] assignKgToBags did not return a row for new commitment ${data.id} (campaign_id=${campaign.id})`
+        );
+      }
+    } catch (assignError) {
+      console.warn(
+        `[commitments] assignKgToBags threw for campaign_id=${campaign.id}: ${
+          assignError instanceof Error ? assignError.message : "unknown error"
+        }`
+      );
+    }
+  }
+
   const origin = request.headers.get("origin") || process.env.NEXT_PUBLIC_APP_URL;
   if (!origin) {
     return NextResponse.json(
@@ -225,6 +270,7 @@ export async function POST(request: Request) {
       {
         commitment: data,
         checkout_url: session.url,
+        ...(split ? { split } : {}),
       },
       { status: 201 }
     );
