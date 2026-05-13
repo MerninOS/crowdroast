@@ -16,14 +16,22 @@
  * concurrent worker ticks via duplicate-key error.
  *
  * Split math (see migration #40 header for the long form):
- *   • seller_amount   = round(kg_charged × seller_price_per_kg × 100)
- *   • hub_amount      = floor(seller_base_cents × HUB_SHARE_BPS / 10000),
+ *   • seller_amount   = sum( round(row.amount_cents / (1 + PLATFORM_FEE_RATE)) )
+ *                       across the bag's `charged` rows (per-row back-solve
+ *                       from the buyer-side cents, mirroring buyer-side
+ *                       rounding so the seller share can't exceed the
+ *                       buyer total).
+ *   • hub_amount      = floor(total_buyer_paid × HUB_SHARE_BPS / 10000),
  *                       capped at (total_buyer_paid − seller_amount)
  *   • platform_keeps  = total_buyer_paid − seller_amount − hub_amount
+ *                       (clamped at 0 in `computeSplit` as a defensive
+ *                       guard against any residual rounding drift)
  *
  * Where `total_buyer_paid` is the sum of `amount_cents` across the bag's
  * `charged` rows ONLY — `payment_failed` rows contributed no money and are
- * excluded.
+ * excluded. We deliberately do NOT re-resolve the seller's tier price from
+ * `pricing_tiers` (the legacy `min_quantity_kg` column would lie post the
+ * bag-tier migration). The row IS the contract.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -31,11 +39,8 @@ import {
   createBagTransfer,
   type StripeTransfer,
 } from "@/lib/stripe";
-import { HUB_SHARE_BPS } from "@/lib/pricing";
-import {
-  computeSellerNetAmountCents,
-  computeSplit,
-} from "@/lib/payments/settlement-logic.js";
+import { HUB_SHARE_BPS, PLATFORM_FEE_RATE } from "@/lib/pricing";
+import { computeSplit } from "@/lib/payments/settlement-logic.js";
 
 // -------------------------------------------------------------------------
 // Public types
@@ -86,10 +91,10 @@ export interface TransferOutBagDeps {
 
 /**
  * Narrow shape of the commitment + lot + campaign + hub join we need to
- * locate the two Stripe Connect destination accounts and resolve the
- * tier-applied seller price. Pricing-tier rows are joined out-of-band
- * because PostgREST single-object embed semantics get awkward with a
- * one-to-many at the leaf.
+ * locate the two Stripe Connect destination accounts. Seller pricing is
+ * NOT resolved from this join — it is back-solved per-row from each
+ * `commitment_bag_charges.amount_cents` (which is the actual buyer-side
+ * contract for that row, stamped at charge time). See "Split math" above.
  */
 interface CommitmentJoin {
   lot_id: string;
@@ -98,9 +103,6 @@ interface CommitmentJoin {
     id: string;
     seller_id: string;
     currency: string | null;
-    price_per_kg: number;
-    committed_quantity_kg: number;
-    bag_size_kg: number | null;
     seller_profile: {
       stripe_connect_account_id: string | null;
     } | null;
@@ -124,11 +126,6 @@ interface SiblingChargeRow {
     | "charged"
     | "retry_scheduled"
     | "payment_failed";
-}
-
-interface PricingTierRow {
-  min_quantity_kg: number;
-  price_per_kg: number;
 }
 
 // -------------------------------------------------------------------------
@@ -162,7 +159,7 @@ export async function transferOutBagIfReady(
   const { data: commitmentJoin, error: commitmentError } = await supabase
     .from("commitments")
     .select(
-      "lot_id, campaign_id, lot:lot_id(id, seller_id, currency, price_per_kg, committed_quantity_kg, bag_size_kg, seller_profile:seller_id(stripe_connect_account_id)), campaign:campaign_id(id, hub:hub_id(owner_profile:owner_id(stripe_connect_account_id)))"
+      "lot_id, campaign_id, lot:lot_id(id, seller_id, currency, seller_profile:seller_id(stripe_connect_account_id)), campaign:campaign_id(id, hub:hub_id(owner_profile:owner_id(stripe_connect_account_id)))"
     )
     .eq("id", args.commitmentId)
     .single();
@@ -262,12 +259,8 @@ export async function transferOutBagIfReady(
     (sum, r) => sum + Number(r.amount_cents || 0),
     0
   );
-  const totalChargedKg = chargedRows.reduce(
-    (sum, r) => sum + Number(r.kg || 0),
-    0
-  );
 
-  if (totalChargedCents === 0 || totalChargedKg === 0) {
+  if (totalChargedCents === 0) {
     // All rows ended `payment_failed` — there's no money to transfer.
     // Record the row so we don't re-evaluate the bag on every future tick.
     const { error: insertError } = await supabase
@@ -302,47 +295,42 @@ export async function transferOutBagIfReady(
   }
 
   // ---------------------------------------------------------------------
-  // 4. Resolve the tier-applied seller price per kg.
+  // 4. Compute the seller's base (pre-platform-fee) cut per row.
   // ---------------------------------------------------------------------
-  // The bag-aware settlement code resolves the tier from completed-bag count
-  // (Task 4.6) and stamps `amount_cents` on each row at that buyer-side
-  // price. To compute the seller's BASE (pre-platform-fee) cut, we re-derive
-  // the per-kg seller price from the lot + tiers — cheaper than back-solving
-  // the per-row math through the platform-fee multiplier.
-  const { data: tierRows, error: tierError } = await supabase
-    .from("pricing_tiers")
-    .select("min_quantity_kg, price_per_kg")
-    .eq("lot_id", lotId);
-
-  if (tierError) {
-    return {
-      status: "skipped",
-      reason: `pricing_tiers_lookup_failed: ${tierError.message}`,
-    };
-  }
-  const sellerPricePerKg = resolveTierPrice({
-    basePrice: Number(normalized.lot.price_per_kg || 0),
-    committedQuantityKg: Number(normalized.lot.committed_quantity_kg || 0),
-    tiers: (tierRows as PricingTierRow[]) || [],
-  });
+  // Each `commitment_bag_charges` row's `amount_cents` is the canonical
+  // buyer-side contract: it was stamped at charge time using whichever tier
+  // applied to the completed-bag count then. Back-solving the seller's base
+  // amount from that stamped value sidesteps the tier-dimension problem
+  // entirely — we don't care whether the tier was resolved by kg or by bag
+  // count, because the row already encodes the answer:
+  //
+  //   amount_cents = round(kg × seller_price × (1 + fee) × 100)
+  //   sellerBase_per_row ≈ round(amount_cents / (1 + fee))
+  //
+  // Per-row rounding here MIRRORS the per-row rounding on the buyer side,
+  // so totalChargedCents − sum(sellerBase_per_row) cannot drift in a
+  // direction that pushes the platform share negative (the prior bug:
+  // seller computed once over the totalKg sum, with rounding that could
+  // exceed the per-row sum on irrational prices/tiny kgs).
+  const sellerAmountCents = chargedRows.reduce(
+    (sum, r) =>
+      sum + Math.round(Number(r.amount_cents || 0) / (1 + PLATFORM_FEE_RATE)),
+    0
+  );
 
   // ---------------------------------------------------------------------
   // 5. Compute the split.
   // ---------------------------------------------------------------------
-  // sellerAmount: kg charged × seller base price (NO platform fee — the seller
-  //               sees only their own listed price). Reuses the same helper
-  //               the legacy path uses.
-  // hubAmount:    2% of the seller's base, capped to the available headroom.
-  //               `computeSplit` does the floor + cap in one place.
+  // sellerAmount: per-row sum derived above (NO platform fee — the seller
+  //               sees only their own listed price).
+  // hubAmount:    2% of buyer total, capped to available headroom. `computeSplit`
+  //               does the floor + cap in one place, and now also clamps
+  //               platformAmount at 0 with a warn-log if it ever goes negative.
   // platformKeeps: total received from buyers minus seller minus hub. This is
   //                where the platform's 10% fee (≈ totalCharged − sellerBase)
   //                lives, minus the 2% it forwards to the hub. Stripe
   //                processing fees come out of this share — we don't move
   //                them, so they stay on the platform's main balance.
-  const sellerAmountCents = computeSellerNetAmountCents(
-    totalChargedKg,
-    sellerPricePerKg
-  );
   const split = computeSplit({
     grossAmountCents: totalChargedCents,
     sellerNetAmountCents: sellerAmountCents,
@@ -478,12 +466,6 @@ function normalizeLotEmbed(raw: unknown): CommitmentJoin["lot"] {
     id: String((lotObj as Record<string, unknown>).id || ""),
     seller_id: String((lotObj as Record<string, unknown>).seller_id || ""),
     currency: ((lotObj as Record<string, unknown>).currency as string) || null,
-    price_per_kg: Number((lotObj as Record<string, unknown>).price_per_kg || 0),
-    committed_quantity_kg: Number(
-      (lotObj as Record<string, unknown>).committed_quantity_kg || 0
-    ),
-    bag_size_kg:
-      ((lotObj as Record<string, unknown>).bag_size_kg as number | null) ?? null,
     seller_profile: sellerProfile
       ? {
           stripe_connect_account_id:
@@ -521,33 +503,6 @@ function pickFirst(value: unknown): unknown {
   if (value == null) return null;
   if (Array.isArray(value)) return value[0] ?? null;
   return value;
-}
-
-/**
- * Resolve the tier-applied seller (base) price-per-kg. Mirrors the existing
- * `getFinalPricePerKg` in `lib/payments/settlement-logic.js` but takes the
- * lot's already-known `committed_quantity_kg` so we don't have to re-sum
- * commitments. Inline rather than imported to keep this module's deps small
- * and the math local-to-the-call-site.
- */
-function resolveTierPrice(params: {
-  basePrice: number;
-  committedQuantityKg: number;
-  tiers: PricingTierRow[];
-}): number {
-  const base = Number(params.basePrice || 0);
-  const committedQty = Number(params.committedQuantityKg || 0);
-  // Walk highest threshold first so the largest qualifying tier wins.
-  const sorted = [...(params.tiers || [])].sort(
-    (a, b) =>
-      Number(b.min_quantity_kg || 0) - Number(a.min_quantity_kg || 0)
-  );
-  for (const tier of sorted) {
-    if (committedQty >= Number(tier.min_quantity_kg || 0)) {
-      return Number(tier.price_per_kg ?? base);
-    }
-  }
-  return base;
 }
 
 // Re-export the constant so tests can assert the 2% math without a separate

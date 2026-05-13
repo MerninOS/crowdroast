@@ -194,11 +194,14 @@ describe("transferOutBagIfReady", () => {
   // 3. transferred: happy path
   // ------------------------------------------------------------------
   it("fires seller + hub transfers and inserts bag_transfers on the happy path", async () => {
-    // Two charged rows summing $200 buyer-paid (after platform fee).
-    // Buyer-side total cents = 20 kg × $10 × 1.10 × 100 = 22,000 cents.
-    // Seller-base cents      = 20 kg × $10        × 100 = 20,000 cents.
-    // Hub (2% of buyer total, capped by total − seller) = floor(22000 * 200 / 10000)
-    //                                                    = 440 cents.
+    // Two charged rows. Each: 10 kg × $10/kg × 1.10 (platform fee) × 100 cents
+    //                      = 11,000 cents buyer-paid (`amount_cents`).
+    // Bag total buyer-paid = 22,000 cents.
+    // Seller back-solved per row: round(11000 / 1.10) = 10,000 cents each.
+    // Seller sum across the two rows = 20,000 cents (matches the historic
+    // 20 kg × $10 × 100 figure but is derived from amount_cents, NOT a tier
+    // lookup — that's the B2 fix).
+    // Hub = floor(22000 × 200 / 10000) = 440 cents (capped by total−seller).
     // Platform keeps = 22000 − 20000 − 440 = 1,560 cents (≈ 8% of seller base).
     enqueue("commitments", {
       data: defaultCommitmentJoin(),
@@ -212,7 +215,9 @@ describe("transferOutBagIfReady", () => {
       ],
       error: null,
     });
-    enqueue("pricing_tiers", { data: [], error: null });
+    // NOTE: pricing_tiers is intentionally NOT queried anymore — the seller
+    // base is back-solved per-row from amount_cents. If this enqueue list
+    // included a pricing_tiers stub, the test would emit "Unexpected from()".
     // Final INSERT into bag_transfers.
     enqueue("bag_transfers", { data: null, error: null });
 
@@ -304,6 +309,68 @@ describe("transferOutBagIfReady", () => {
     expect(result.status).toBe("skipped");
     expect(result.reason).toBe("seller_missing_connect_account");
     expect(transferMock).not.toHaveBeenCalled();
+  });
+
+  // ------------------------------------------------------------------
+  // 5a. money-correctness: irrational price + uneven kg → platform stays ≥ 0
+  // ------------------------------------------------------------------
+  // Pathological case the old kg-tier resolver could mis-handle: many small
+  // rows with prices that don't round cleanly through the platform-fee
+  // multiplier. Asserts:
+  //   1. seller_amount is the SUM of per-row round(amount_cents / 1.10),
+  //      not a single round() over the total kg (root cause of B3).
+  //   2. platform_amount NEVER lands negative.
+  //   3. The three shares sum to the buyer-paid total (no money invented
+  //      or lost).
+  //   4. `pricing_tiers` is never queried (B2 fix — no kg-tier resolver).
+  it("computes split correctly with irrational prices and uneven kg without going negative", async () => {
+    // Three charged rows with amounts that don't divide cleanly by 1.10.
+    // Sum of buyer-paid = 11003 cents. Per-row seller back-solve:
+    //   round(3667 / 1.10) = round(3333.6363…) = 3334
+    //   round(3668 / 1.10) = round(3334.5454…) = 3335
+    //   round(3668 / 1.10) = 3335
+    //   Sum = 10004 cents.
+    // Hub = floor(11003 × 200 / 10000) = 220.
+    // Platform = 11003 − 10004 − 220 = 779 (>0 ✓).
+    enqueue("commitments", {
+      data: defaultCommitmentJoin(),
+      error: null,
+    });
+    enqueue("bag_transfers", { data: null, error: null });
+    enqueue("commitment_bag_charges", {
+      data: [
+        { amount_cents: 3667, kg: 3.333, payment_status: "charged" },
+        { amount_cents: 3668, kg: 3.334, payment_status: "charged" },
+        { amount_cents: 3668, kg: 3.334, payment_status: "charged" },
+      ],
+      error: null,
+    });
+    enqueue("bag_transfers", { data: null, error: null });
+
+    const transferMock = vi
+      .fn()
+      .mockImplementationOnce(async () => ({ id: "tr_seller_irr" }))
+      .mockImplementationOnce(async () => ({ id: "tr_hub_irr" }));
+
+    const result = await transferOutBagIfReady(
+      makeSupabase(),
+      { commitmentId: "commit-1", bagNumber: 7 },
+      makeDeps(transferMock)
+    );
+
+    expect(result.status).toBe("transferred");
+    expect(result.amounts).toBeDefined();
+    const amounts = result.amounts!;
+    expect(amounts.totalChargedCents).toBe(11003);
+    expect(amounts.sellerCents).toBe(10004);
+    expect(amounts.hubCents).toBe(220);
+    expect(amounts.platformCents).toBe(779);
+
+    // Hard invariants — the whole point of the B3 fix.
+    expect(amounts.platformCents).toBeGreaterThanOrEqual(0);
+    expect(amounts.sellerCents + amounts.hubCents + amounts.platformCents).toBe(
+      amounts.totalChargedCents
+    );
   });
 
   // ------------------------------------------------------------------

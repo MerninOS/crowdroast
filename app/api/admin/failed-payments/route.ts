@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireAdminContext } from "@/lib/auth/admin-route";
 import { recordOpsAction, type OpsActionKind } from "@/lib/admin/ops-actions";
+import { transferOutBagIfReady } from "@/lib/bag-transfer-out";
+import { sendSettlementEmailIfReady } from "@/lib/settlement-email-trigger";
 
 // GET /api/admin/failed-payments
 // Lists every commitment_bag_charges row in 'payment_failed' status, joined to
@@ -30,7 +32,7 @@ function isOpsActionKind(value: unknown): value is OpsActionKind {
 
 export async function GET() {
   const ctx = await requireAdminContext();
-  if ("error" in ctx) return ctx.error;
+  if ("error" in ctx) return ctx.error!;
 
   // The schema (migration #38) doesn't ship a FK-driven nested select for
   // commitments → lots → profiles. Fetch the failed rows first, then resolve
@@ -117,7 +119,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const ctx = await requireAdminContext();
-  if ("error" in ctx) return ctx.error;
+  if ("error" in ctx) return ctx.error!;
 
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object") {
@@ -145,7 +147,7 @@ export async function POST(request: Request) {
   // cancel_bag_portion, not as a distinct payment_status value.
   const { data: row, error: rowErr } = await ctx.admin
     .from("commitment_bag_charges")
-    .select("id, payment_status, amount_cents, attempt_count")
+    .select("id, commitment_id, bag_number, payment_status, amount_cents, attempt_count")
     .eq("id", chargeId)
     .maybeSingle();
 
@@ -212,15 +214,53 @@ export async function POST(request: Request) {
   // service-role — RLS is not the gate here, the route handler is.
   if (Object.keys(updatePatch).length > 1) {
     // (more than just updated_at)
-    const { error: updateErr } = await ctx.admin
+    // Use .select().maybeSingle() so we can detect zero-rowcount — another
+    // admin may have raced us between the load above and this UPDATE. If
+    // that happens, return 409 and DON'T write an audit row (M2 fix).
+    const { data: updated, error: updateErr } = await ctx.admin
       .from("commitment_bag_charges")
       .update(updatePatch)
       .eq("id", chargeId)
-      .eq("payment_status", "payment_failed"); // optimistic concurrency
+      .eq("payment_status", "payment_failed") // optimistic concurrency
+      .select("id")
+      .maybeSingle();
 
     if (updateErr) {
       return NextResponse.json({ error: updateErr.message }, { status: 500 });
     }
+    if (!updated) {
+      return NextResponse.json(
+        { error: "charge already moved by another admin between load and update; retry" },
+        { status: 409 }
+      );
+    }
+  }
+
+  // B4 fix: cover actions transition the row to 'charged', which means the
+  // bag-aware settlement model treats it as resolved. The charge worker's
+  // own terminal exits fire transfer-out + settlement email — when ops
+  // covers the cost the worker never runs, so we fire them manually here.
+  // Fire-and-forget with try/catch, matching the worker's pattern. Each
+  // hook is internally idempotent (bag_transfers composite PK + atomic
+  // settlement_email_sent_at stamp) so a double-call is safe.
+  if (action === "mark_covered_by_platform" || action === "mark_covered_by_hub") {
+    await Promise.allSettled([
+      transferOutBagIfReady(ctx.admin, {
+        commitmentId: row.commitment_id as string,
+        bagNumber: row.bag_number as number,
+      }).catch((err) => {
+        console.warn(
+          `[admin/failed-payments] transferOutBagIfReady failed for charge ${chargeId}: ${err}`
+        );
+      }),
+      sendSettlementEmailIfReady(ctx.admin, row.commitment_id as string).catch(
+        (err) => {
+          console.warn(
+            `[admin/failed-payments] sendSettlementEmailIfReady failed for commitment ${row.commitment_id}: ${err}`
+          );
+        }
+      ),
+    ]);
   }
 
   const auditResult = await recordOpsAction(ctx.admin, {
