@@ -10,6 +10,14 @@
       "schedule": "0 1 * * *"
     },
     {
+      "path": "/api/cron/process-bag-charges",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/sweep-bag-aware",
+      "schedule": "30 6 * * *"
+    },
+    {
       "path": "/api/cron/seller-coffees-digest",
       "schedule": "0 17 * * *"
     },

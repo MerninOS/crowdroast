@@ -259,6 +259,14 @@ export async function createAndConfirmPaymentIntent(params: {
   paymentMethodId: string;
   commitmentId: string;
   lotId: string;
+  // Optional caller-supplied idempotency key. Defaults to a commitment-scoped
+  // key (`commitment-charge-<id>`), which is correct for legacy 1-charge-per-
+  // commitment flows. Bag-aware settlement (Task 4.8) issues multiple charges
+  // per commitment — one per completed bag — and supplies the row's stable
+  // `stripe_idempotency_key` (`charge:campaign:<id>:commitment:<id>:bag:<n>`)
+  // so retries collapse to the same Stripe operation per bag rather than the
+  // whole commitment.
+  idempotencyKey?: string;
 }) {
   return stripeRequest<StripePaymentIntent>(
     "/payment_intents",
@@ -272,8 +280,76 @@ export async function createAndConfirmPaymentIntent(params: {
       "metadata[commitment_id]": params.commitmentId,
       "metadata[lot_id]": params.lotId,
     },
-    `commitment-charge-${params.commitmentId}`
+    params.idempotencyKey || `commitment-charge-${params.commitmentId}`
   );
+}
+
+/**
+ * Verifies a saved payment method is valid and chargeable by creating a
+ * tiny manual-capture PaymentIntent (50 minor units, e.g. $0.50 USD), then
+ * immediately canceling it to release the authorization. Implements AC12 of
+ * the bag-aware-campaign-close spec: under the charge-on-fill model the
+ * actual money move happens at settlement, so we need a commit-time signal
+ * that the card the buyer just saved will work later. An auth-and-void is
+ * the documented Stripe pattern for card validation.
+ *
+ * Returns a discriminated union rather than throwing so callers can branch
+ * cleanly between "issue a 400 to the buyer" and "real infra failure":
+ *   - { ok: true } — auth succeeded (status `requires_capture` or `succeeded`).
+ *     The cancel call is best-effort; if it fails the auth expires on its
+ *     own within ~7 days, which is acceptable. We log a warning but still
+ *     return ok: true because the buyer's card was successfully validated.
+ *   - { ok: false, reason } — auth failed. `reason` is the Stripe decline
+ *     code where available (e.g. "card_declined", "insufficient_funds") or
+ *     the raw error message otherwise. Caller should map to a user-facing
+ *     error in Mernin' voice.
+ *
+ * Stripe does not charge processing fees on authorizations that are voided
+ * before capture, so probing every commit is free in production (and test
+ * mode is free regardless). See spec Open Question #9. The idempotency key
+ * is deterministic per payment method, so a retried commit attempt reuses
+ * the same auth instead of stacking new ones against the cardholder.
+ */
+export async function probeCardAuth(params: {
+  paymentMethodId: string;
+  customerId: string;
+  currency: string;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  let intent: StripePaymentIntent;
+  try {
+    intent = await stripeRequest<StripePaymentIntent>(
+      "/payment_intents",
+      {
+        amount: 50,
+        currency: params.currency.toLowerCase(),
+        customer: params.customerId,
+        payment_method: params.paymentMethodId,
+        capture_method: "manual",
+        confirm: true,
+        off_session: true,
+        "metadata[purpose]": "auth_probe",
+      },
+      `auth-probe-${params.paymentMethodId}`
+    );
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : "card_auth_failed";
+    return { ok: false, reason };
+  }
+
+  if (intent.status !== "requires_capture" && intent.status !== "succeeded") {
+    return { ok: false, reason: intent.status || "card_auth_failed" };
+  }
+
+  try {
+    await stripeRequest<StripePaymentIntent>(`/payment_intents/${intent.id}/cancel`, {});
+  } catch (cancelErr) {
+    const detail = cancelErr instanceof Error ? cancelErr.message : String(cancelErr);
+    console.warn(
+      `[probeCardAuth] failed to cancel auth-probe PaymentIntent ${intent.id}; it will expire on its own. Detail: ${detail}`
+    );
+  }
+
+  return { ok: true };
 }
 
 export async function createTransfer(params: {
@@ -295,6 +371,57 @@ export async function createTransfer(params: {
       "metadata[recipient_role]": params.role,
     },
     `transfer-${params.role}-${params.commitmentId}`
+  );
+}
+
+/**
+ * Bag-aware (Task 4.11) transfer-out helper. Differs from `createTransfer`
+ * on two axes:
+ *
+ *   1. **No `source_transaction`**. The bag-aware settlement model charges
+ *      multiple buyers' cards into a single bag — each buyer charge already
+ *      cleared into the platform's main balance with its own PaymentIntent.
+ *      Linking the aggregate payout to one of those charges would
+ *      under-report the bag's revenue and misroute Stripe's
+ *      `source_transaction` debits. Dropping it means the transfer is
+ *      satisfied from the platform's general Stripe balance, which is the
+ *      correct semantics here: the buyer-side money has already landed there.
+ *      A consequence: Stripe processing fees are NOT auto-deducted from this
+ *      transfer's source — the platform absorbs them out of its retained 8%
+ *      share. See `lib/bag-transfer-out.ts` for the math.
+ *
+ *   2. **Bag-scoped idempotency**. The legacy key `transfer-<role>-<commit>`
+ *      is commitment-unique; the bag-aware model has multiple bags per
+ *      commitment, so the key must include `lot_id + bag_number` to keep
+ *      a re-run from collapsing two distinct transfers onto one Stripe
+ *      operation. The deterministic format
+ *      `bag-transfer-<role>-<lotId>-<bagNumber>` matches our existing
+ *      convention.
+ *
+ * Recorded metadata is bag-scoped (lot_id, bag_number) rather than
+ * commitment-scoped because there is no single commitment that "owns" a
+ * bag in this model — buyers contribute kg across bags.
+ */
+export async function createBagTransfer(params: {
+  amountCents: number;
+  currency: string;
+  destinationAccountId: string;
+  lotId: string;
+  bagNumber: number;
+  role: "seller" | "hub";
+}) {
+  return stripeRequest<StripeTransfer>(
+    "/transfers",
+    {
+      amount: params.amountCents,
+      currency: params.currency.toLowerCase(),
+      destination: params.destinationAccountId,
+      "metadata[lot_id]": params.lotId,
+      "metadata[bag_number]": params.bagNumber,
+      "metadata[recipient_role]": params.role,
+      "metadata[settlement_model]": "bag_aware",
+    },
+    `bag-transfer-${params.role}-${params.lotId}-${params.bagNumber}`
   );
 }
 

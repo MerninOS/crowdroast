@@ -1,4 +1,5 @@
 import type { Campaign, Commitment, Lot, Shipment } from "@/lib/types";
+import type { BagChargeRow } from "./commitment-drawer/bag-breakdown";
 
 export type LifecycleStage =
   | "raising"
@@ -51,6 +52,13 @@ export interface CommitmentGroup {
   // Populated server-side at /dashboard/buyer/commitments and used by the
   // closed drawer to surface the inviter-credit line.
   creditAppliedByCommitmentId?: Record<string, number>;
+  // commitment_bag_charges rows owned by the buyer for each commitment in
+  // this group, keyed by commitment_id. Populated server-side at
+  // /dashboard/buyer/commitments (scoped by RLS to the buyer); used by the
+  // closed-value drawer body to render the per-bag breakdown. Absent or
+  // empty array means no bag-charges have been created (legacy lot, or
+  // campaign that failed minimum and never reached bag-charge creation).
+  bagChargesByCommitmentId?: Record<string, BagChargeRow[]>;
 }
 
 export interface BucketedGroups {

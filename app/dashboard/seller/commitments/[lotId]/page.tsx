@@ -5,6 +5,7 @@ import { ArrowLeft, ShoppingCart } from "lucide-react";
 import { Card, CardContent } from "@merninos/ui";
 import { Badge } from "@merninos/ui";
 import { UnitWeightText, UnitPriceText } from "@/components/unit-value";
+import { SellerCampaignPreview } from "@/components/seller-campaign-preview";
 
 function getCurrentLotPrice(
   lot: { committed_quantity_kg: number; price_per_kg: number },
@@ -61,7 +62,9 @@ export default async function SellerLotCommitmentsPage({
 
   const { data: lot } = await supabase
     .from("lots")
-    .select("id, title, committed_quantity_kg, min_commitment_kg, currency, price_per_kg, seller_id")
+    .select(
+      "id, title, committed_quantity_kg, min_commitment_kg, currency, price_per_kg, seller_id, bag_size_kg, min_bags_to_succeed"
+    )
     .eq("id", lotId)
     .eq("seller_id", user.id)
     .single();
@@ -161,6 +164,17 @@ export default async function SellerLotCommitmentsPage({
             })}
           </p>
         )}
+      </div>
+
+      {/* Live bag-aware campaign preview — headline status for the seller.
+          When bag_size_kg is null (legacy, pre-backfill lot), the component
+          renders its own "bag size missing" prompt. */}
+      <div className="mb-6">
+        <SellerCampaignPreview
+          total_pledged_kg={Number(lot.committed_quantity_kg) || 0}
+          bag_size_kg={Number(lot.bag_size_kg) || 0}
+          min_bags_to_succeed={Number(lot.min_bags_to_succeed) || 1}
+        />
       </div>
 
       {/* Revenue summary */}

@@ -1,9 +1,11 @@
 import { createClient } from "@/lib/supabase/server";
 import {
   createPaymentCheckoutSession,
+  createSetupCheckoutSession,
   createStripeCustomer,
 } from "@/lib/stripe";
 import { addPlatformFee } from "@/lib/pricing";
+import { assignKgToBags } from "@/lib/bag-assignment";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
@@ -40,6 +42,20 @@ export async function POST(request: Request) {
   if (lot.status !== "active") {
     return NextResponse.json(
       { error: "Lot is not accepting commitments" },
+      { status: 400 }
+    );
+  }
+
+  // Bag-size backfill gate: legacy lots created before bag-aware close have
+  // bag_size_kg = NULL until the seller backfills via the seller dashboard.
+  // Block commits hard at the route boundary — must run before any Stripe
+  // call or commitment insert so we don't create orphaned setup intents.
+  if (lot.bag_size_kg === null || lot.bag_size_kg === undefined) {
+    return NextResponse.json(
+      {
+        error:
+          "This lot is still being set up. The seller needs to confirm the bag size before commits can be placed.",
+      },
       { status: 400 }
     );
   }
@@ -179,6 +195,50 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  // Compute the bag-aware Locked/Filling split for the buyer's new commit.
+  // The 1.9 gate guarantees lot.bag_size_kg is a positive integer at this point.
+  // This runs before Stripe so a Stripe failure path doesn't lose the split work
+  // (and so a successful response includes the split alongside the checkout URL).
+  let split: { locked_kg: number; filling_kg: number } | null = null;
+  const { data: campaignCommits, error: campaignCommitsError } = await supabase
+    .from("commitments")
+    .select("id, quantity_kg, created_at")
+    .eq("campaign_id", campaign.id)
+    .neq("status", "cancelled");
+
+  if (campaignCommitsError || !campaignCommits) {
+    console.warn(
+      `[commitments] failed to load campaign commits for split (campaign_id=${campaign.id}): ${
+        campaignCommitsError?.message ?? "no data"
+      }`
+    );
+  } else {
+    try {
+      const assignments = assignKgToBags({
+        commitments: campaignCommits as Array<{
+          id: string;
+          quantity_kg: number;
+          created_at: string;
+        }>,
+        bag_size_kg: lot.bag_size_kg,
+      });
+      const own = assignments.find((row) => row.commitment_id === data.id);
+      if (own) {
+        split = { locked_kg: own.locked_kg, filling_kg: own.filling_kg };
+      } else {
+        console.warn(
+          `[commitments] assignKgToBags did not return a row for new commitment ${data.id} (campaign_id=${campaign.id})`
+        );
+      }
+    } catch (assignError) {
+      console.warn(
+        `[commitments] assignKgToBags threw for campaign_id=${campaign.id}: ${
+          assignError instanceof Error ? assignError.message : "unknown error"
+        }`
+      );
+    }
+  }
+
   const origin = request.headers.get("origin") || process.env.NEXT_PUBLIC_APP_URL;
   if (!origin) {
     return NextResponse.json(
@@ -190,6 +250,46 @@ export async function POST(request: Request) {
   try {
     const successUrl = `${origin}/dashboard/buyer/commitments?payment=success`;
     const cancelUrl = `${origin}/dashboard/buyer/lot/${lot_id}?payment=cancelled`;
+
+    // Bag-aware path: lots with a configured bag_size_kg do not charge at
+    // commit time (AC5). We save the card via a setup-mode Checkout Session
+    // and let settlement issue per-bag charges later. The 1.9 gate above
+    // already rejects null bag_size_kg, so this branch is the live path for
+    // every current commit; the legacy mode-payment branch below is kept
+    // byte-for-byte for any lots that bypass the gate. Auth-probe wiring
+    // (AC12) lands in 4.3b — this task only saves the card.
+    if (lot.bag_size_kg !== null && lot.bag_size_kg !== undefined) {
+      const setupSession = await createSetupCheckoutSession({
+        customerId: stripeCustomerId!,
+        successUrl,
+        cancelUrl,
+        commitmentId: data.id,
+        lotId: lot_id,
+        currency: lot.currency || "USD",
+      });
+
+      // The hosted Checkout Session in mode: setup returns a `url` for the
+      // buyer-facing redirect. Surface it as `setup_client_secret` per the
+      // 4.3 contract — the frontend swap (mode: payment → mode: setup) keys
+      // off this field name to distinguish bag-aware responses from legacy.
+      if (!setupSession.url) {
+        throw new Error("Stripe setup checkout session returned no URL");
+      }
+
+      await supabase
+        .from("commitments")
+        .update({ stripe_checkout_session_id: setupSession.id })
+        .eq("id", data.id);
+
+      return NextResponse.json(
+        {
+          commitment: data,
+          setup_client_secret: setupSession.url,
+          ...(split ? { split } : {}),
+        },
+        { status: 201 }
+      );
+    }
 
     const session = await createPaymentCheckoutSession({
       customerId: stripeCustomerId!,
@@ -211,6 +311,7 @@ export async function POST(request: Request) {
       {
         commitment: data,
         checkout_url: session.url,
+        ...(split ? { split } : {}),
       },
       { status: 201 }
     );

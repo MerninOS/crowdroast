@@ -55,6 +55,14 @@ export type ClaimType =
 
 export type ClaimStatus = "open" | "under_review" | "resolved" | "rejected";
 
+export type RefundStatus =
+  | "not_refunded"
+  | "pending"
+  | "partial"
+  | "full"
+  | "complete"
+  | "failed";
+
 export interface Profile {
   id: string;
   role: UserRole;
@@ -106,6 +114,8 @@ export interface Lot {
   total_quantity_kg: number;
   committed_quantity_kg: number;
   min_commitment_kg: number;
+  bag_size_kg: number | null;
+  min_bags_to_succeed: number;
   price_per_kg: number;
   currency: string;
   status: LotStatus;
@@ -149,7 +159,15 @@ export interface Commitment {
   notes: string | null;
   picked_up_at: string | null;
   picked_up_by: string | null;
-  refund_status: string;
+  kg_locked_at_settlement: number | null;
+  kg_refunded_at_settlement: number | null;
+  /**
+   * AC10 post-settlement email idempotency stamp (Task 4.13).
+   * NULL means the buyer has not yet received the campaign-settled summary
+   * email for this commitment. See migration #41 + lib/settlement-email-trigger.ts.
+   */
+  settlement_email_sent_at: string | null;
+  refund_status: RefundStatus;
   refunded_amount_cents: number;
   refunded_at: string | null;
   refunded_by: string | null;
@@ -222,9 +240,16 @@ export interface PricingTier {
   id: string;
   lot_id: string;
   min_quantity_kg: number;
+  min_bags: number | null;
   price_per_kg: number;
   created_at: string;
 }
+
+export type BagAssignmentResult = {
+  commitment_id: string;
+  locked_kg: number;
+  filling_kg: number;
+};
 
 export type HubAccessRequestStatus = "pending" | "approved" | "denied" | "cancelled";
 

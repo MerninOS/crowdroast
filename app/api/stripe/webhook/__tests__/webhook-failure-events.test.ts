@@ -18,6 +18,17 @@ const updateCalls: Array<{
   filters: Array<{ op: string; col: string; val: unknown }>;
 }> = [];
 
+// Lookup row returned by `.maybeSingle()` for the post-setup commitment
+// lookup that joins lot + buyer. Tests override this before invoking POST
+// to exercise the AC12 probe branches.
+let commitmentLookup: unknown = null;
+
+// M4: rows the atomic card_auth_failed_email_sent_at claim UPDATE returns.
+// Default `[{ id: "..." }]` means the claim won and the webhook should
+// send the email; `[]` means a prior delivery already stamped the row
+// (Stripe retry) so the webhook should skip the email.
+let cardAuthClaimRows: Array<{ id: string }> = [{ id: "claimed-row" }];
+
 function makeChain(table: string) {
   let pendingPayload: Record<string, unknown> | null = null;
   const filters: Array<{ op: string; col: string; val: unknown }> = [];
@@ -39,16 +50,24 @@ function makeChain(table: string) {
       filters.push({ op: "is", col, val });
       return chain;
     }),
-    // Post-update commitment lookup added by buyer-referral wiring uses
-    // .maybeSingle(); resolving to null means the helper short-circuits
-    // (no commitment row to look up an inviter for) which is fine for these
-    // failure-path tests that don't need attribution behavior.
-    maybeSingle: vi.fn(async () => ({ data: null, error: null })),
+    // Post-update commitment lookup used by buyer-referral wiring and by
+    // the AC12 setup-mode probe branch. For the AC12 tests we surface
+    // `commitmentLookup`; for failure-path tests it stays null and helpers
+    // short-circuit harmlessly.
+    maybeSingle: vi.fn(async () => ({ data: commitmentLookup, error: null })),
     then: (resolve: (v: unknown) => void) => {
       if (pendingPayload) {
         updateCalls.push({ table, payload: pendingPayload, filters: [...filters] });
       }
-      return Promise.resolve({ data: null, error: null }).then(resolve);
+      // M4: the card-auth-failed atomic claim UPDATE chains `.is("card_auth_failed_email_sent_at", null).select("id")`
+      // and destructures `data` as `claimedRows`. Surface the configurable
+      // `cardAuthClaimRows` when the chain carried that filter so tests
+      // can simulate both "won claim" and "Stripe retry — already stamped".
+      const isCardAuthClaim = filters.some(
+        (f) => f.op === "is" && f.col === "card_auth_failed_email_sent_at" && f.val === null
+      );
+      const data = isCardAuthClaim ? cardAuthClaimRows : null;
+      return Promise.resolve({ data, error: null }).then(resolve);
     },
   };
   return chain;
@@ -60,9 +79,20 @@ vi.mock("@/lib/supabase/admin", () => ({
   })),
 }));
 
+const mockProbeCardAuth = vi.fn();
+const mockGetSetupIntent = vi.fn();
+
 vi.mock("@/lib/stripe", () => ({
   verifyStripeWebhookSignature: vi.fn(() => true),
   getPaymentIntent: vi.fn().mockResolvedValue({ latest_charge: null }),
+  getSetupIntent: (...args: unknown[]) => mockGetSetupIntent(...args),
+  probeCardAuth: (...args: unknown[]) => mockProbeCardAuth(...args),
+}));
+
+const mockSendCardAuthFailedEmail = vi.fn();
+
+vi.mock("@/lib/email", () => ({
+  sendCardAuthFailedEmail: (...args: unknown[]) => mockSendCardAuthFailedEmail(...args),
 }));
 
 import { POST } from "@/app/api/stripe/webhook/route";
@@ -77,6 +107,12 @@ function makeRequest(event: unknown): Request {
 
 beforeEach(() => {
   updateCalls.length = 0;
+  commitmentLookup = null;
+  cardAuthClaimRows = [{ id: "claimed-row" }];
+  mockProbeCardAuth.mockReset();
+  mockGetSetupIntent.mockReset();
+  mockSendCardAuthFailedEmail.mockReset();
+  mockSendCardAuthFailedEmail.mockResolvedValue({ success: true });
   process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
 });
 
@@ -242,6 +278,268 @@ describe("Stripe webhook — failure events cancel commitments", () => {
     expect(updateCalls[0].payload).toMatchObject({
       status: "cancelled",
       payment_status: "charge_failed",
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // AC12: post-setup card-auth probe (Task 4.3b)
+  // -------------------------------------------------------------------------
+  // The bag-aware commit flow now redirects buyers to Stripe-hosted setup.
+  // When `checkout.session.completed` (mode=setup) arrives we (1) persist the
+  // PM, (2) run probeCardAuth, (3) on failure write payment_error + send the
+  // buyer an email. The settlement charge worker reads
+  // `payment_error IS NULL` as the auth-OK signal, so the row stays at
+  // payment_status='setup_complete' on both probe outcomes.
+
+  it("checkout.session.completed (mode=setup) probes the card and leaves payment_error NULL on probe success", async () => {
+    commitmentLookup = {
+      id: "commit-ok",
+      lot: { id: "lot-1", title: "Single-origin Yirgacheffe", currency: "USD" },
+      buyer: { email: "buyer@example.com", contact_name: "Bo" },
+    };
+    mockProbeCardAuth.mockResolvedValue({ ok: true });
+
+    const res = await POST(
+      makeRequest({
+        id: "evt_setup_ok",
+        type: "checkout.session.completed",
+        data: {
+          object: {
+            id: "cs_setup_ok",
+            mode: "setup",
+            setup_intent: "seti_ok",
+            customer: "cus_ok",
+            payment_method: "pm_ok",
+          },
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockProbeCardAuth).toHaveBeenCalledWith({
+      paymentMethodId: "pm_ok",
+      customerId: "cus_ok",
+      currency: "USD",
+    });
+
+    // Only the initial setup_complete update should fire — no failure write
+    // means payment_error stays NULL (the settle-time auth-OK signal).
+    const commitmentUpdates = updateCalls.filter((c) => c.table === "commitments");
+    expect(commitmentUpdates).toHaveLength(1);
+    expect(commitmentUpdates[0].payload).toMatchObject({
+      payment_status: "setup_complete",
+      stripe_payment_method_id: "pm_ok",
+      stripe_setup_intent_id: "seti_ok",
+    });
+    expect(commitmentUpdates[0].payload.payment_error).toBeUndefined();
+    expect(mockSendCardAuthFailedEmail).not.toHaveBeenCalled();
+  });
+
+  it("checkout.session.completed (mode=setup) sets payment_error and emails the buyer on probe failure", async () => {
+    commitmentLookup = {
+      id: "commit-fail",
+      lot: { id: "lot-2", title: "Honey-process Geisha", currency: "USD" },
+      buyer: { email: "buyer2@example.com", contact_name: "Pat" },
+    };
+    mockProbeCardAuth.mockResolvedValue({ ok: false, reason: "card_declined" });
+
+    const res = await POST(
+      makeRequest({
+        id: "evt_setup_fail",
+        type: "checkout.session.completed",
+        data: {
+          object: {
+            id: "cs_setup_fail",
+            mode: "setup",
+            setup_intent: "seti_fail",
+            customer: "cus_fail",
+            payment_method: "pm_fail",
+          },
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockProbeCardAuth).toHaveBeenCalledTimes(1);
+
+    // Two commitments updates: the initial setup_complete write, then the
+    // atomic claim UPDATE that stamps payment_error +
+    // card_auth_failed_email_sent_at (M4 idempotency) and gates on the
+    // stamp being NULL. payment_status stays at setup_complete; the
+    // auth-OK gate uses payment_error IS NULL.
+    const commitmentUpdates = updateCalls.filter((c) => c.table === "commitments");
+    expect(commitmentUpdates).toHaveLength(2);
+    expect(commitmentUpdates[0].payload).toMatchObject({
+      payment_status: "setup_complete",
+    });
+    expect(commitmentUpdates[1].payload).toMatchObject({
+      payment_error: "Auth probe failed: card_declined",
+    });
+    expect(commitmentUpdates[1].payload.card_auth_failed_email_sent_at).toEqual(
+      expect.any(String)
+    );
+    // The failure write must NOT downgrade status — the settlement worker
+    // skips on payment_error, so the row remains "setup complete but unsafe".
+    expect(commitmentUpdates[1].payload.payment_status).toBeUndefined();
+    // M4: must filter on the stamp-is-null guard so a Stripe retry of the
+    // same event can't double-stamp the row.
+    expect(commitmentUpdates[1].filters).toContainEqual({
+      op: "is",
+      col: "card_auth_failed_email_sent_at",
+      val: null,
+    });
+    expect(commitmentUpdates[1].filters).toContainEqual({
+      op: "eq",
+      col: "id",
+      val: "commit-fail",
+    });
+
+    expect(mockSendCardAuthFailedEmail).toHaveBeenCalledWith({
+      buyer: { email: "buyer2@example.com", contact_name: "Pat" },
+      lot: { id: "lot-2", title: "Honey-process Geisha" },
+      commitmentId: "commit-fail",
+      failureReason: "card_declined",
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // M4: card-auth-failed email is idempotent across Stripe webhook retries
+  // -------------------------------------------------------------------------
+  // Stripe delivers webhooks at-least-once. probeCardAuth is intentionally
+  // idempotent (replays its cached result on retry), so without an
+  // idempotency stamp the buyer would be emailed multiple times. Migration
+  // #42 adds `card_auth_failed_email_sent_at`; the handler now stamps it
+  // atomically alongside `payment_error` and gates the email send on the
+  // claim winning.
+
+  it("M4: first delivery of probe-fail event stamps card_auth_failed_email_sent_at and sends the email", async () => {
+    commitmentLookup = {
+      id: "commit-m4-first",
+      lot: { id: "lot-m4", title: "Washed Bourbon", currency: "USD" },
+      buyer: { email: "buyer-m4@example.com", contact_name: "M" },
+    };
+    mockProbeCardAuth.mockResolvedValue({ ok: false, reason: "card_declined" });
+    // First delivery wins the claim — UPDATE returns 1 row.
+    cardAuthClaimRows = [{ id: "commit-m4-first" }];
+
+    const res = await POST(
+      makeRequest({
+        id: "evt_m4_first",
+        type: "checkout.session.completed",
+        data: {
+          object: {
+            id: "cs_m4_first",
+            mode: "setup",
+            setup_intent: "seti_m4",
+            customer: "cus_m4",
+            payment_method: "pm_m4",
+          },
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+
+    const claimUpdate = updateCalls
+      .filter((c) => c.table === "commitments")
+      .find((c) => "card_auth_failed_email_sent_at" in c.payload);
+    expect(claimUpdate).toBeDefined();
+    expect(claimUpdate!.payload).toMatchObject({
+      payment_error: "Auth probe failed: card_declined",
+    });
+    expect(claimUpdate!.payload.card_auth_failed_email_sent_at).toEqual(
+      expect.any(String)
+    );
+    expect(claimUpdate!.filters).toContainEqual({
+      op: "is",
+      col: "card_auth_failed_email_sent_at",
+      val: null,
+    });
+
+    // Won the claim → email goes out exactly once.
+    expect(mockSendCardAuthFailedEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it("M4: Stripe-retried probe-fail event skips the email when the stamp is already set", async () => {
+    commitmentLookup = {
+      id: "commit-m4-retry",
+      lot: { id: "lot-m4", title: "Washed Bourbon", currency: "USD" },
+      buyer: { email: "buyer-m4@example.com", contact_name: "M" },
+    };
+    mockProbeCardAuth.mockResolvedValue({ ok: false, reason: "card_declined" });
+    // Retry delivery — a prior webhook already stamped the row, so the
+    // conditional UPDATE returns 0 rows.
+    cardAuthClaimRows = [];
+
+    const res = await POST(
+      makeRequest({
+        id: "evt_m4_retry",
+        type: "checkout.session.completed",
+        data: {
+          object: {
+            id: "cs_m4_retry",
+            mode: "setup",
+            setup_intent: "seti_m4",
+            customer: "cus_m4",
+            payment_method: "pm_m4",
+          },
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+
+    // The handler still attempts the atomic UPDATE (that's how it discovers
+    // the stamp is already set), but the row count is 0, so the email send
+    // must be suppressed.
+    const claimUpdate = updateCalls
+      .filter((c) => c.table === "commitments")
+      .find((c) => "card_auth_failed_email_sent_at" in c.payload);
+    expect(claimUpdate).toBeDefined();
+    expect(claimUpdate!.filters).toContainEqual({
+      op: "is",
+      col: "card_auth_failed_email_sent_at",
+      val: null,
+    });
+
+    // Lost the claim → email must NOT be sent again. This is the M4 fix.
+    expect(mockSendCardAuthFailedEmail).not.toHaveBeenCalled();
+  });
+
+  it("checkout.session.completed (mode=setup) falls back to getSetupIntent when session.payment_method is null", async () => {
+    commitmentLookup = {
+      id: "commit-fb",
+      lot: { id: "lot-3", title: "Natural Bourbon", currency: "USD" },
+      buyer: { email: "buyer3@example.com", contact_name: "Sam" },
+    };
+    mockGetSetupIntent.mockResolvedValue({
+      id: "seti_fallback",
+      payment_method: "pm_from_si",
+    });
+    mockProbeCardAuth.mockResolvedValue({ ok: true });
+
+    const res = await POST(
+      makeRequest({
+        id: "evt_setup_fb",
+        type: "checkout.session.completed",
+        data: {
+          object: {
+            id: "cs_setup_fb",
+            mode: "setup",
+            setup_intent: "seti_fallback",
+            customer: "cus_fb",
+            payment_method: null,
+          },
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockGetSetupIntent).toHaveBeenCalledWith("seti_fallback");
+    expect(mockProbeCardAuth).toHaveBeenCalledWith({
+      paymentMethodId: "pm_from_si",
+      customerId: "cus_fb",
+      currency: "USD",
     });
   });
 

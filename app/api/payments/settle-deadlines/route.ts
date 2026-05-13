@@ -8,6 +8,9 @@ import {
 } from "@/lib/email";
 import { finalizeCampaign } from "@/lib/lots/finalize-campaign";
 import { createShipmentForLot } from "@/lib/shipments";
+import { expandToBagPortions } from "@/lib/bag-assignment";
+import { PLATFORM_FEE_RATE } from "@/lib/pricing";
+import { computeCompletedBagsAndPrice } from "@/lib/settle-bag-pricing";
 import {
   createRefund,
   createTransfer,
@@ -24,6 +27,7 @@ import {
   computeSplit,
   getFinalPricePerKg,
 } from "@/lib/payments/settlement-logic";
+import { sendSettlementEmailIfReady } from "@/lib/settlement-email-trigger";
 import { insertReferralAttributionIfEligible } from "@/lib/referrals/insert-attribution";
 import { settleAttributionIfPending } from "@/lib/referrals/settle-attribution";
 import { voidAttributionsForCampaign } from "@/lib/referrals/void-attribution";
@@ -382,7 +386,7 @@ async function settleDeadlines(request: Request) {
     const { data: lot, error: lotFetchError } = await admin
       .from("lots")
       .select(
-        "id, title, seller_id, status, currency, price_per_kg, committed_quantity_kg, min_commitment_kg, commitment_deadline"
+        "id, title, seller_id, status, currency, price_per_kg, committed_quantity_kg, min_commitment_kg, commitment_deadline, bag_size_kg, min_bags_to_succeed"
       )
       .eq("id", campaign.lot_id)
       .single();
@@ -397,9 +401,21 @@ async function settleDeadlines(request: Request) {
       continue;
     }
 
+    // M9 fix: bag-aware lots use bag-count as the success/failure threshold,
+    // not min_commitment_kg. Hoist lotBagSizeKg here so the legacy kg-gate
+    // can be skipped for bag-aware lots — their own AC7 check inside the
+    // bag-aware branch is the source of truth.
+    const lotBagSizeKgEarly =
+      typeof lot.bag_size_kg === "number" &&
+      Number.isFinite(lot.bag_size_kg) &&
+      lot.bag_size_kg > 0
+        ? lot.bag_size_kg
+        : null;
+    const isBagAwareLot = lotBagSizeKgEarly !== null;
+
     const minimumMet = Number(lot.committed_quantity_kg) >= Number(lot.min_commitment_kg);
 
-    if (!minimumMet) {
+    if (!isBagAwareLot && !minimumMet) {
       const { data: lotCommitments, error: lotCommitmentsError } = await admin
         .from("commitments")
         .select("id, payment_status, stripe_payment_intent_id, stripe_charge_id")
@@ -637,9 +653,270 @@ async function settleDeadlines(request: Request) {
 
     const { data: tiers } = await admin
       .from("pricing_tiers")
-      .select("min_quantity_kg, price_per_kg")
-      .eq("lot_id", lot.id)
-      .order("min_quantity_kg", { ascending: false });
+      .select("min_quantity_kg, min_bags, price_per_kg")
+      .eq("lot_id", lot.id);
+
+    // Bag-aware vs legacy branching (Task 4.5b).
+    //
+    // For bag-aware lots (lot.bag_size_kg !== null) the charge model is
+    // charge-on-fill: we resolve the per-kg price by COMPLETED bag count
+    // (via computeCompletedBagsAndPrice), expand each commitment into one
+    // row per (commitment, completed bag) (via expandToBagPortions), and
+    // insert those rows into commitment_bag_charges. The charge worker
+    // (Task 4.8) then attempts the Stripe payment_intent for each row.
+    //
+    // What this branch DOES (Task 4.5b):
+    //   * Insert commitment_bag_charges rows for every completed bag
+    //     portion. amount_cents = round(kg * price_per_kg * 100) — raw,
+    //     pre-fee. Platform/hub fee multipliers land in Task 4.6.
+    //   * Stamp kg_locked_at_settlement on each commitment with the sum
+    //     of its locked-bag kg.
+    //   * Idempotent: re-runs use upsert with ignoreDuplicates on
+    //     (commitment_id, bag_number); existing rows are skipped.
+    //   * Skip the legacy refund / partial-charge-adjustment codepath
+    //     entirely — bag-aware never charged-at-commit so there is
+    //     nothing to refund.
+    //
+    // What this branch does NOT do (deferred):
+    //   * No min_bags_to_succeed failure handling (Task 4.7).
+    //   * No fee splits or Stripe transfers (Tasks 4.6 / 4.11).
+    //   * No card charging (Task 4.8 — the worker).
+    //
+    // Legacy lots (lot.bag_size_kg === null) continue down the existing
+    // getFinalPricePerKg + computeChargeAdjustment + createRefund branch
+    // unchanged. We guard with a typeof + > 0 check (not just !== null) so
+    // a missing field on a stub/mock row falls through to legacy rather
+    // than crashing inside computeCompletedBagsAndPrice's positive-number
+    // validation.
+    const lotBagSizeKg =
+      typeof lot.bag_size_kg === "number" && Number.isFinite(lot.bag_size_kg)
+        ? lot.bag_size_kg
+        : null;
+    if (lotBagSizeKg !== null && lotBagSizeKg > 0) {
+      // Pull every non-cancelled commit on this campaign — bag-aware bag
+      // assignment partitions by (created_at ASC, id ASC) over the full
+      // commit set, regardless of whether each one has been charge-ready
+      // yet at settlement time.
+      const { data: bagCommitments, error: bagCommitmentsError } = await admin
+        .from("commitments")
+        .select("id, quantity_kg, created_at")
+        .eq("campaign_id", campaign.id)
+        .neq("status", "cancelled");
+
+      if (bagCommitmentsError) {
+        results.push({
+          campaign_id: campaign.id,
+          lot_id: lot.id,
+          outcome: "failed",
+          error: bagCommitmentsError.message,
+        });
+        continue;
+      }
+
+      const bagCommitmentsTyped: Array<{
+        id: string;
+        quantity_kg: number;
+        created_at: string;
+      }> = (bagCommitments || []).map((c) => ({
+        id: c.id,
+        quantity_kg: Number(c.quantity_kg),
+        created_at: c.created_at,
+      }));
+
+      // Resolve completed bag count and the bag-tier-driven per-kg price.
+      // Reuse lot.committed_quantity_kg — the lot trigger keeps it in sync
+      // with the sum of non-cancelled commits on the active campaign, and
+      // it was already the source-of-truth for the minimumMet check above.
+      const bagPricing = computeCompletedBagsAndPrice({
+        total_committed_kg: Number(lot.committed_quantity_kg),
+        bag_size_kg: lotBagSizeKg,
+        base_price_per_kg: Number(lot.price_per_kg),
+        tiers: (tiers || []).map((t) => ({
+          min_bags: t.min_bags,
+          price_per_kg: Number(t.price_per_kg),
+        })),
+      });
+
+      const pricePerKg = bagPricing.price_per_kg;
+
+      // Task 4.7 — bag-aware below-min-bags failure (spec AC7).
+      //
+      // When fewer than min_bags_to_succeed bags fill, no charges happen —
+      // no commitment_bag_charges rows are created. Under charge-on-fill,
+      // this is the cleanest failure mode: nothing was charged at commit
+      // time (setup_intent only), so there is literally nothing to refund.
+      // We just mark the campaign 'failed' via the same finalizeCampaign
+      // RPC the legacy below-minimum-kg path uses, then move on to the
+      // next campaign. Idempotent: finalize_campaign no-ops if the
+      // campaign is already 'failed' (it checks status='active' under FOR
+      // UPDATE lock — see migration 20240101000024_finalize_campaign.sql).
+      //
+      // Email + ops surfacing land in Task 4.13. Refunds are not needed —
+      // see spec Open Question #2 (charge-on-fill model).
+      const minBagsToSucceed =
+        typeof lot.min_bags_to_succeed === "number" &&
+        Number.isFinite(lot.min_bags_to_succeed)
+          ? lot.min_bags_to_succeed
+          : 1;
+      if (bagPricing.completed_bags < minBagsToSucceed) {
+        if (!debug) {
+          const finalizeResult = await finalizeCampaign(admin, campaign.id, "failed");
+          if (!finalizeResult.ok) {
+            console.error(
+              `settle-deadlines: finalize_campaign failed for bag-aware below-min-bags campaign ${campaign.id}`,
+              finalizeResult.error
+            );
+            finalizeFailures.push({
+              campaign_id: campaign.id,
+              outcome: "failed",
+              error: finalizeResult.error,
+            });
+          }
+        }
+
+        results.push({
+          campaign_id: campaign.id,
+          lot_id: lot.id,
+          outcome: "failed",
+          reason: "below_min_bags",
+          bag_size_kg: lotBagSizeKg,
+          completed_bags: bagPricing.completed_bags,
+          min_bags_to_succeed: minBagsToSucceed,
+          bag_charges_planned: 0,
+          bag_charges_inserted: 0,
+          orphans_cancelled: orphansCancelled,
+        });
+
+        // Task 4.13 — AC10 settlement-email side-effect (campaign-failure
+        // variant). When a bag-aware campaign fails under min_bags_to_succeed
+        // no `commitment_bag_charges` rows exist, so the charge worker never
+        // runs — the worker's per-row settlement-email trigger never fires.
+        // We have to send the failure-variant email from here, once per
+        // commit. `sendSettlementEmailIfReady` handles the "zero rows
+        // exist" branch and renders the failure-variant copy.
+        //
+        // Background-task pattern: each call is awaited via
+        // Promise.allSettled at the end of the route — same as the existing
+        // sendLotFailedNotifications. Per-commit rather than per-buyer so
+        // the idempotency stamp (settlement_email_sent_at on commitments)
+        // is one-to-one with the row it gates.
+        if (!debug) {
+          for (const commit of bagCommitmentsTyped) {
+            backgroundTasks.push(
+              sendSettlementEmailIfReady(admin, commit.id).catch((err) => {
+                console.warn(
+                  "[settle-deadlines] sendSettlementEmailIfReady threw for failed campaign",
+                  {
+                    commitmentId: commit.id,
+                    error: err instanceof Error ? err.message : err,
+                  }
+                );
+                return undefined;
+              })
+            );
+          }
+        }
+
+        // Skip expandToBagPortions + commitment_bag_charges insert + the
+        // kg_locked_at_settlement stamping. None of that is meaningful when
+        // the campaign failed and no bag will ship.
+        continue;
+      }
+
+      const portions = expandToBagPortions({
+        commitments: bagCommitmentsTyped,
+        bag_size_kg: lotBagSizeKg,
+      });
+
+      // Build the insert payload AND aggregate kg_locked per commitment in
+      // one pass — both views are derived from the same portion list.
+      const lockedKgByCommitment = new Map<string, number>();
+      const chargeRows = portions.map((portion) => {
+        // Buyer-paid amount = kg × price × (1 + platform fee). The hub-fee
+        // 2% comes out of the platform's 10% slice at transfer-out time
+        // (Task 4.11), not from the buyer or seller.
+        const amountCents = Math.round(
+          portion.kg * pricePerKg * (1 + PLATFORM_FEE_RATE) * 100
+        );
+        lockedKgByCommitment.set(
+          portion.commitment_id,
+          (lockedKgByCommitment.get(portion.commitment_id) || 0) + portion.kg
+        );
+        return {
+          commitment_id: portion.commitment_id,
+          bag_number: portion.bag_number,
+          kg: portion.kg,
+          amount_cents: amountCents,
+          stripe_idempotency_key: `charge:campaign:${campaign.id}:commitment:${portion.commitment_id}:bag:${portion.bag_number}`,
+          payment_status: "awaiting_charge" as const,
+        };
+      });
+
+      let bagChargesInserted = 0;
+      let bagChargesInsertError: string | null = null;
+
+      if (!debug && chargeRows.length > 0) {
+        // Idempotency: settlement is re-entrant by design (cron retries on
+        // partial failure). UNIQUE(commitment_id, bag_number) plus
+        // UNIQUE(stripe_idempotency_key) on commitment_bag_charges guard
+        // against duplicate rows. `ignoreDuplicates: true` makes a second
+        // run a no-op for any row that already exists.
+        const { error: upsertError, count } = await admin
+          .from("commitment_bag_charges")
+          .upsert(chargeRows, {
+            onConflict: "commitment_id,bag_number",
+            ignoreDuplicates: true,
+            count: "exact",
+          });
+
+        if (upsertError) {
+          bagChargesInsertError = upsertError.message;
+        } else {
+          bagChargesInserted = count ?? 0;
+        }
+      }
+
+      // Stamp kg_locked_at_settlement on each commit even on retry — the
+      // value is derived from the (deterministic) bag assignment, so
+      // re-writing it is safe and lets a retry self-heal a missed update.
+      let commitmentsStamped = 0;
+      if (!debug && !bagChargesInsertError) {
+        for (const [commitmentId, lockedKg] of lockedKgByCommitment) {
+          const { error: updateError } = await admin
+            .from("commitments")
+            .update({ kg_locked_at_settlement: lockedKg })
+            .eq("id", commitmentId);
+          if (!updateError) commitmentsStamped += 1;
+        }
+      }
+
+      results.push({
+        campaign_id: campaign.id,
+        lot_id: lot.id,
+        outcome: bagChargesInsertError ? "failed" : "bag_charges_created",
+        bag_size_kg: lotBagSizeKg,
+        completed_bags: bagPricing.completed_bags,
+        price_per_kg: pricePerKg,
+        tier_applied: bagPricing.tier_applied,
+        bag_charges_planned: chargeRows.length,
+        bag_charges_inserted: bagChargesInserted,
+        commitments_stamped: commitmentsStamped,
+        orphans_cancelled: orphansCancelled,
+        ...(bagChargesInsertError ? { error: bagChargesInsertError } : {}),
+        ...(debug
+          ? {
+              debug_charge_rows: chargeRows,
+              debug_locked_kg: Object.fromEntries(lockedKgByCommitment),
+            }
+          : {}),
+      });
+
+      // Bag-aware lots skip transfer-out, success emails, shipment creation,
+      // finalize_campaign, and the legacy refund path. Those land in
+      // Task 4.6 (fees) / 4.8 (charge worker) / 4.11 (transfer-out) /
+      // 4.7 (min-bags failure mode + finalize wiring).
+      continue;
+    }
 
     const finalSellerPricePerKg = getFinalPricePerKg(
       lot.price_per_kg,

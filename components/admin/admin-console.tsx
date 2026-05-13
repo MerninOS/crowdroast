@@ -23,12 +23,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { FailedPaymentsSection } from "@/components/admin/failed-payments-section";
 
 type PlatformRole = "buyer" | "seller" | "hub_owner";
 type RequestedRole = "seller" | "hub_owner";
 type RequestStatus = "pending" | "approved" | "rejected";
 type ClaimStatus = "open" | "under_review" | "resolved" | "rejected";
-type AdminSection = "roles" | "hubs" | "invites" | "requests" | "claims" | "refunds";
+type AdminSection =
+  | "roles"
+  | "hubs"
+  | "invites"
+  | "requests"
+  | "claims"
+  | "refunds"
+  | "failed-payments";
 
 interface ProfileRow {
   id: string;
@@ -1212,6 +1220,8 @@ export function AdminConsole({
         </CardContent>
       </Card>
       )}
+
+      {activeSection === "failed-payments" && <FailedPaymentsSection />}
       </div>
     </div>
   );
