@@ -169,6 +169,7 @@ type Summary = {
   campaignsFinalizeFailed: number;
   refundsIssued: number;
   refundsFailed: number;
+  refundFailedCommitIds: string[];
   totalRefundCents: number;
   commitsCancelledNoCharge: number;
   oldModelCommits: number;
@@ -234,6 +235,7 @@ async function run(): Promise<void> {
     campaignsFinalizeFailed: 0,
     refundsIssued: 0,
     refundsFailed: 0,
+    refundFailedCommitIds: [],
     totalRefundCents: 0,
     commitsCancelledNoCharge: 0,
     oldModelCommits: 0,
@@ -330,6 +332,7 @@ async function run(): Promise<void> {
             }
           } catch (err) {
             summary.refundsFailed += 1;
+            summary.refundFailedCommitIds.push(commit.id);
             warn(
               `  commit ${commit.id}: REFUND FAILED — ${err instanceof Error ? err.message : String(err)}`
             );
@@ -437,6 +440,10 @@ async function run(): Promise<void> {
     );
     if (summary.refundsFailed > 0) {
       console.log(`  Refunds FAILED:                    ${summary.refundsFailed}  <-- inspect logs`);
+      console.log(`  Failed commit IDs (manually re-attempt refunds):`);
+      for (const id of summary.refundFailedCommitIds) {
+        console.log(`    - ${id}`);
+      }
     }
     console.log(`  Commits cancelled (no charge):     ${summary.commitsCancelledNoCharge}`);
   } else {
