@@ -10,14 +10,20 @@ import { NextResponse } from "next/server";
 /**
  * Bag-aware campaign close — charge worker cron (Task 4.8).
  *
- * Runs hourly at :15 past the hour (see vercel.json). settle-deadlines runs
- * at :00, so this offset avoids stomping mid-creation of new
- * `commitment_bag_charges` rows.
+ * Runs daily at 02:00 UTC (see vercel.json). settle-deadlines runs at
+ * 00:00, lot-expiry at 01:00; this offset comes after both so new
+ * `commitment_bag_charges` rows from the night's settlement are visible.
  *
  * Picks up rows in `awaiting_charge` or `retry_scheduled` whose
  * `next_attempt_at` is null or due, then dispatches one Stripe call per row
- * via `processBagCharge`. The worker itself enforces the AC13 retry ladder
- * (12h / 48h) and AC14 terminal `payment_failed`.
+ * via `processBagCharge`. The worker itself records `next_attempt_at` at
+ * +12h / +48h after declines per AC13's math — but because Vercel Hobby
+ * caps cron frequency at daily, the actual retry tick lands at the
+ * next-daily-tick-after-next_attempt_at. Effective retry ladder on
+ * Hobby: attempt 1 at ~02:00 the morning after settlement, attempt 2 at
+ * ~02:00 the following day (~24h gap vs. the +12h target), attempt 3
+ * ~48h later (on-schedule). Upgrade to Pro to restore the original
+ * `15 * * * *` (hourly) cadence and tighter ladder timing.
  *
  * Vercel Cron does not auto-retry on failure. The worker writes
  * `next_attempt_at` BEFORE flipping to `'charging'` (5-minute lease), so a
@@ -27,7 +33,7 @@ import { NextResponse } from "next/server";
 // Hard cap on rows per tick. With Vercel's 300s function limit and Stripe's
 // typical 200–400ms charge latency, ~100 rows fits comfortably with margin.
 // If a campaign has more rows than this, leftover rows are simply picked up
-// next hour — which is well within AC13's 12/48h retry windows.
+// next tick.
 const BATCH_LIMIT = 100;
 
 // Soft wall-clock cap — bail and let the next tick continue if we approach
