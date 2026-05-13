@@ -354,4 +354,102 @@ describe("POST /api/commitments — campaign requirement", () => {
     const body = await res.json();
     expect(body.error).toMatch(/campaign deadline has passed/i);
   });
+
+  it("resolves seller price from tier.min_bags (not min_quantity_kg) for bag-aware lots", async () => {
+    // 60kg bags. Tier has min_bags = 2 (= 120kg). min_quantity_kg = 200kg
+    // (intentionally mismatched — the legacy code path would NOT pick the
+    // tier because newTotal=180 < 200, but the bag-aware path SHOULD pick
+    // it because completed_bags=3 ≥ min_bags=2).
+    const lot = {
+      ...activeLot,
+      id: "lot-bag-tier",
+      total_quantity_kg: 600,
+      committed_quantity_kg: 0,
+      bag_size_kg: 60,
+      price_per_kg: 20, // base
+    };
+    const newCommitId = "commit-bag-tier-new";
+    const newCommitCreatedAt = new Date(
+      "2026-05-12T12:00:00Z"
+    ).toISOString();
+
+    let insertedPayload: Record<string, unknown> | null = null;
+    let commitmentsCall = 0;
+    mockSupabaseFrom.mockImplementation((table: string) => {
+      if (table === "lots") {
+        return makeChain({ data: lot, error: null });
+      }
+      if (table === "campaigns") {
+        return makeChain({
+          data: {
+            id: "campaign-bag-tier",
+            deadline: daysFromNow(7),
+            status: "active",
+          },
+          error: null,
+        });
+      }
+      if (table === "pricing_tiers") {
+        // The tier is configured at min_bags=2 (= 120kg) with a 15/kg price.
+        // min_quantity_kg is 200kg — INTENTIONALLY higher than the new total
+        // so the legacy kg-tier path would NOT pick this tier.
+        return makeChain({
+          data: [
+            { min_bags: 2, min_quantity_kg: 200, price_per_kg: 15 },
+          ],
+          error: null,
+        });
+      }
+      if (table === "profiles") {
+        return makeChain({
+          data: {
+            email: "buyer@roastery.com",
+            stripe_customer_id: "cus_existing",
+          },
+          error: null,
+        });
+      }
+      if (table === "commitments") {
+        commitmentsCall += 1;
+        if (commitmentsCall === 1) {
+          return makeChain({ data: null, error: null });
+        }
+        if (commitmentsCall === 2) {
+          // Capture the insert payload so we can assert price_per_kg.
+          const chain = makeChain({
+            data: { id: newCommitId, quantity_kg: 180, created_at: newCommitCreatedAt },
+            error: null,
+          });
+          const insert = chain.insert as ReturnType<typeof vi.fn>;
+          insert.mockImplementation((payload: Record<string, unknown>) => {
+            insertedPayload = payload;
+            return chain;
+          });
+          return chain;
+        }
+        if (commitmentsCall === 3) {
+          return makeChain({
+            data: [
+              { id: newCommitId, quantity_kg: 180, created_at: newCommitCreatedAt },
+            ],
+            error: null,
+          });
+        }
+        return makeChain({ data: null, error: null });
+      }
+      return makeChain({ data: null, error: null });
+    });
+
+    const res = await POST(
+      makeRequest({ lot_id: lot.id, hub_id: "hub-uuid-1", quantity_kg: 180 })
+    );
+    expect(res.status).toBe(201);
+
+    // Bag-aware resolution kicked in: 180kg/60kg = 3 bags, 3 ≥ min_bags=2,
+    // so seller price drops to the tier price (15), not the base price (20).
+    expect(insertedPayload).not.toBeNull();
+    expect(
+      (insertedPayload as unknown as Record<string, unknown>).price_per_kg
+    ).toBe(15);
+  });
 });

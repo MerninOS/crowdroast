@@ -20,6 +20,7 @@ import {
   type WeightUnit,
 } from '@/lib/units'
 import { addPlatformFee } from '@/lib/pricing'
+import { CommitSplitWarning } from './commit-split-warning'
 
 interface CampaignCommitFormProps {
   lotId: string
@@ -32,6 +33,13 @@ interface CampaignCommitFormProps {
   activeTierName: string
   /** Number of roasters currently in — surfaces on the header. */
   biddersIn: number
+  /** Bag size for this lot in kg. When set (>0), preset chips snap to
+   *  bag multiples and the cross-boundary split warning renders. `null`
+   *  keeps the legacy round-kg preset ladder for unconverted lots. */
+  bagSizeKg?: number | null
+  /** Total kg already committed to this lot — used to compute the current
+   *  bag's remaining capacity for the split warning. Defaults to 0. */
+  totalCommittedKg?: number
   onSuccess?: () => void
 }
 
@@ -43,6 +51,49 @@ function getPresets(unit: WeightUnit): number[] {
 }
 function getStep(unit: WeightUnit): number {
   return unit === 'lb' ? 22 : 10
+}
+
+type PresetChoice = {
+  /** Display label for the chip (e.g. "1 bag", "Top off"). */
+  label: string
+  /** Quantity in the buyer's chosen display unit. */
+  displayQty: number
+}
+
+/**
+ * Build the bag-aware preset ladder. The ladder telegraphs the bag concept
+ * without forcing bag-multiple commits: the buyer can still type any kg
+ * amount. "Top off" snaps to the kg needed to finish the open bag — the
+ * single highest-value click on a bag-aware lot, because it turns at-risk
+ * filling kg into locked kg.
+ *
+ * `bagRemainingKg` of 0 means the open bag just completed (or no commits
+ * yet) — in that case "Top off" would equal 1 bag, so we suppress it to
+ * avoid a duplicate chip.
+ */
+function getBagPresets(
+  bagSizeKg: number,
+  bagRemainingKg: number,
+  unit: WeightUnit,
+  maxDisplay: number
+): PresetChoice[] {
+  const round1 = (n: number) => Math.round(n * 10) / 10
+  const halfBagDisplay = round1(toDisplayWeight(bagSizeKg / 2, unit))
+  const oneBagDisplay = round1(toDisplayWeight(bagSizeKg, unit))
+  const twoBagDisplay = round1(toDisplayWeight(bagSizeKg * 2, unit))
+  const topOffDisplay =
+    bagRemainingKg > 0 ? round1(toDisplayWeight(bagRemainingKg, unit)) : 0
+
+  const choices: PresetChoice[] = []
+  if (topOffDisplay > 0 && topOffDisplay < oneBagDisplay) {
+    choices.push({ label: 'Top off', displayQty: topOffDisplay })
+  }
+  choices.push({ label: '½ bag', displayQty: halfBagDisplay })
+  choices.push({ label: '1 bag', displayQty: oneBagDisplay })
+  choices.push({ label: '2 bags', displayQty: twoBagDisplay })
+
+  // Filter out anything that won't fit in remaining lot capacity.
+  return choices.filter((c) => c.displayQty > 0 && c.displayQty <= maxDisplay)
 }
 
 // Direct port of design/project/campaign/CommitForm.jsx — espresso card
@@ -58,15 +109,31 @@ export function CampaignCommitForm({
   hubId,
   activeTierName,
   biddersIn,
+  bagSizeKg = null,
+  totalCommittedKg = 0,
   onSuccess,
 }: CampaignCommitFormProps) {
   const router = useRouter()
   const { unit } = useUnitPreference()
 
   const maxDisplay = Math.floor(toDisplayWeight(maxKg, unit))
-  const presets = getPresets(unit)
+  const isBagAware = bagSizeKg !== null && bagSizeKg > 0
+  // Current bag's remaining kg — the kg needed to lock the open bag. When
+  // totalCommittedKg lands exactly on a bag boundary (or is zero), the
+  // entire next bag is "remaining" because a fresh bag is opening.
+  const bagRemainingKg = isBagAware
+    ? totalCommittedKg % bagSizeKg === 0
+      ? bagSizeKg
+      : bagSizeKg - (totalCommittedKg % bagSizeKg)
+    : 0
+  const legacyPresets = getPresets(unit)
+  const bagPresets = isBagAware
+    ? getBagPresets(bagSizeKg, bagRemainingKg, unit, maxDisplay)
+    : []
   const step = getStep(unit)
-  const defaultDisplay = presets.find((n) => n <= maxDisplay) ?? 1
+  const defaultDisplay = isBagAware
+    ? bagPresets[0]?.displayQty ?? Math.min(maxDisplay, Math.round(toDisplayWeight(bagSizeKg, unit)))
+    : legacyPresets.find((n) => n <= maxDisplay) ?? 1
 
   const [qty, setQty] = React.useState<number>(defaultDisplay)
   const [notes, setNotes] = React.useState('')
@@ -281,29 +348,55 @@ export function CampaignCommitForm({
           flexWrap: 'wrap',
         }}
       >
-        {presets.map((n) => (
-          <button
-            key={n}
-            type="button"
-            onClick={() => setQty(n)}
-            style={{
-              flex: '1 1 0',
-              padding: '8px 4px',
-              background: qty === n ? 'var(--color-tomato)' : 'transparent',
-              border: '2px solid var(--color-cream)',
-              borderRadius: 8,
-              color: 'var(--color-cream)',
-              fontFamily: 'var(--font-body)',
-              fontWeight: 800,
-              fontSize: 11,
-              letterSpacing: '.08em',
-              textTransform: 'uppercase',
-              cursor: 'pointer',
-            }}
-          >
-            {n} {unit}
-          </button>
-        ))}
+        {isBagAware
+          ? bagPresets.map((choice) => (
+              <button
+                key={choice.label}
+                type="button"
+                onClick={() => setQty(choice.displayQty)}
+                title={`${choice.displayQty} ${unit}`}
+                style={{
+                  flex: '1 1 0',
+                  padding: '8px 4px',
+                  background:
+                    qty === choice.displayQty ? 'var(--color-tomato)' : 'transparent',
+                  border: '2px solid var(--color-cream)',
+                  borderRadius: 8,
+                  color: 'var(--color-cream)',
+                  fontFamily: 'var(--font-body)',
+                  fontWeight: 800,
+                  fontSize: 11,
+                  letterSpacing: '.08em',
+                  textTransform: 'uppercase',
+                  cursor: 'pointer',
+                }}
+              >
+                {choice.label}
+              </button>
+            ))
+          : legacyPresets.map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => setQty(n)}
+                style={{
+                  flex: '1 1 0',
+                  padding: '8px 4px',
+                  background: qty === n ? 'var(--color-tomato)' : 'transparent',
+                  border: '2px solid var(--color-cream)',
+                  borderRadius: 8,
+                  color: 'var(--color-cream)',
+                  fontFamily: 'var(--font-body)',
+                  fontWeight: 800,
+                  fontSize: 11,
+                  letterSpacing: '.08em',
+                  textTransform: 'uppercase',
+                  cursor: 'pointer',
+                }}
+              >
+                {n} {unit}
+              </button>
+            ))}
       </div>
 
       {/* Stats row with dashed borders */}
@@ -367,6 +460,20 @@ export function CampaignCommitForm({
         </div>
       </div>
 
+      {/* Cross-boundary split warning — only when bag-aware AND the pending
+        * qty would tip into a fresh bag. The component returns null when
+        * the pledge fits inside the open bag, so we can mount it
+        * unconditionally on bag-aware lots and let it self-gate. */}
+      {isBagAware && (
+        <div style={{ marginBottom: 14 }}>
+          <CommitSplitWarning
+            pending_kg={qtyKg}
+            bag_remaining_kg={bagRemainingKg}
+            bag_size_kg={bagSizeKg}
+          />
+        </div>
+      )}
+
       {/* Commit button OR success state */}
       {committed ? (
         <div
@@ -423,7 +530,9 @@ export function CampaignCommitForm({
           lineHeight: 1.5,
         }}
       >
-        Refund in full if the campaign doesn&apos;t hit its minimum. No fees.
+        {isBagAware
+          ? "Only full bags ship. Anything in an open bag at the deadline refunds to your card."
+          : "Refund in full if the campaign doesn't hit its minimum. No fees."}
       </div>
 
       {/* Confirm dialog (preserves CommitmentForm's safety net) */}

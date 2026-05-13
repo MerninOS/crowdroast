@@ -17,7 +17,8 @@ import { PostCommitNudge } from './PostCommitNudge'
 import { InviteModal } from './InviteModal'
 import { SocialProof } from './SocialProof'
 import { FarmerCard } from './FarmerCard'
-import type { Lot, PricingTier, UserRole } from '@/lib/types'
+import { YourCommits } from './YourCommits'
+import type { Commitment, Lot, PricingTier, UserRole } from '@/lib/types'
 import type { CampaignSocialProof } from '@/lib/lots/social-proof'
 
 interface CampaignPageProps {
@@ -27,6 +28,11 @@ interface CampaignPageProps {
   hubId?: string | null
   hubName?: string | null
   pricingTiers?: PricingTier[]
+  /** All commitments on the active campaign — used to compute the viewer's
+   *  bag-aware locked/filling split for the "Your Commits" block. The page
+   *  already fetches this for social proof, so we plumb it through rather
+   *  than re-querying client-side. */
+  commitments?: Commitment[]
   socialProof?: CampaignSocialProof
   backHref?: string
   backLabel?: string
@@ -180,6 +186,7 @@ function AuthenticatedView({
   hubId,
   hubName,
   pricingTiers = [],
+  commitments = [],
   socialProof,
   backHref,
   backLabel,
@@ -205,6 +212,10 @@ function AuthenticatedView({
     activePrice,
     activeTier,
   } = React.useMemo(() => buildTierContext(lot, pricingTiers), [lot, pricingTiers])
+
+  const bagSizeKg =
+    lot.bag_size_kg != null && lot.bag_size_kg > 0 ? Number(lot.bag_size_kg) : null
+  const minBagsToSucceed = Number(lot.min_bags_to_succeed ?? 0)
 
   const biddersIn = socialProof?.recentCommitCount ?? 0
 
@@ -355,6 +366,8 @@ function AuthenticatedView({
                   hubId={hubId || undefined}
                   activeTierName={activeTier.name}
                   biddersIn={biddersIn}
+                  bagSizeKg={bagSizeKg}
+                  totalCommittedKg={lot.committed_quantity_kg}
                   onSuccess={() => setHasCommitted(true)}
                 />
               )}
@@ -372,6 +385,8 @@ function AuthenticatedView({
             tiers={tiers}
             committedKg={committedKg}
             stretchKg={stretchKg}
+            bagSizeKg={bagSizeKg}
+            minBagsToSucceed={minBagsToSucceed}
             hype="rowdy"
           >
             <div style={{ marginTop: 18, maxWidth: 520 }}>
@@ -380,6 +395,20 @@ function AuthenticatedView({
           </TierLadder>
         </div>
       </section>
+
+      {/* YOUR COMMITS — bag-aware, viewer-scoped */}
+      {bagSizeKg !== null && (
+        <section className="cp-section" style={{ padding: '0 24px 40px' }}>
+          <div style={{ maxWidth: 1280, margin: '0 auto' }}>
+            <YourCommits
+              userId={userId}
+              commitments={commitments}
+              bagSizeKg={bagSizeKg}
+              totalCommittedKg={lot.committed_quantity_kg}
+            />
+          </div>
+        </section>
+      )}
 
       {/* MARQUEE strip */}
       <Marquee
@@ -538,7 +567,17 @@ type TierContext = {
 function buildTierContext(lot: Lot, pricingTiers: PricingTier[]): TierContext {
   const stretchKg = lot.total_quantity_kg
   const committedKg = lot.committed_quantity_kg
-  const triggerKg = lot.min_commitment_kg
+  // Bag-aware lots key both trigger and tier thresholds off bag counts so
+  // chip positions match the bag-shaped settlement math in
+  // lib/settle-bag-pricing.ts. Legacy (null bag_size_kg) keeps the kg-based
+  // thresholds the existing tier-progress test pins.
+  const bagSizeKg =
+    lot.bag_size_kg != null && lot.bag_size_kg > 0 ? Number(lot.bag_size_kg) : null
+  const minBagsToSucceed = Number(lot.min_bags_to_succeed ?? 0)
+  const triggerKg =
+    bagSizeKg !== null && minBagsToSucceed > 0
+      ? minBagsToSucceed * bagSizeKg
+      : lot.min_commitment_kg
   const sorted = [...pricingTiers].sort(
     (a, b) => a.min_quantity_kg - b.min_quantity_kg
   )
@@ -559,8 +598,15 @@ function buildTierContext(lot: Lot, pricingTiers: PricingTier[]): TierContext {
     priceKg: lot.price_per_kg,
   }
   const pricingTierSteps: CampaignTier[] = sorted.map((t, i) => {
+    // Bag-aware: position the chip at the kg that corresponds to its min_bags
+    // boundary. Falls back to the legacy min_quantity_kg if the tier was
+    // not converted (min_bags === null) or the lot has no bag_size_kg yet.
+    const tierKg =
+      bagSizeKg !== null && t.min_bags !== null && t.min_bags !== undefined
+        ? t.min_bags * bagSizeKg
+        : t.min_quantity_kg
     const threshold =
-      stretchKg > 0 ? Math.round((t.min_quantity_kg / stretchKg) * 100) : 0
+      stretchKg > 0 ? Math.round((tierKg / stretchKg) * 100) : 0
     return {
       id: `tier-${i}`,
       name: i === sorted.length - 1 ? 'Full Tier' : 'Early Tier',
