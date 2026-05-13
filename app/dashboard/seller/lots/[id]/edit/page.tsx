@@ -17,7 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@merninos/ui";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Trash2, Lock, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Lock, AlertTriangle, Package } from "lucide-react";
 import Link from "next/link";
 import { use } from "react";
 import { LotImageUploader } from "@/components/lot-image-uploader";
@@ -31,6 +31,11 @@ import {
 import { addPlatformFee } from "@/lib/pricing";
 
 interface TierRow {
+  // Edit-form tiers still ship the legacy `min_quantity_kg` shape because
+  // the PATCH `/api/lots/[id]` route writes back to that column (it does
+  // not yet accept `min_bags` for general edits — only the dedicated
+  // backfill branch does). Keeping the shape unchanged means this refactor
+  // touches the UX without breaking the API contract.
   min_quantity_kg: string;
   price_per_kg: string;
 }
@@ -49,6 +54,10 @@ export default function EditLotPage({
   const [headerImageUrl, setHeaderImageUrl] = useState("");
   const [supportingImages, setSupportingImages] = useState<string[]>([]);
   const [hasActiveCampaign, setHasActiveCampaign] = useState(false);
+  // `requiresBackfill` flips true when the loaded lot has no bag_size_kg —
+  // legacy lots created before the bag-aware migration must go through the
+  // dedicated backfill flow before the bag-mental-model edit form is safe.
+  const [requiresBackfill, setRequiresBackfill] = useState(false);
   const [form, setForm] = useState({
     title: "",
     origin_country: "",
@@ -61,8 +70,12 @@ export default function EditLotPage({
     crop_year: "",
     score: "",
     description: "",
-    total_quantity_kg: "",
-    min_commitment_kg: "",
+    // Bag-mental-model fields (source of truth in the new UI). The kg
+    // companions are derived on submit so the PATCH payload still carries
+    // total_quantity_kg + min_commitment_kg.
+    bag_size_kg: "",
+    max_bag_count: "",
+    min_bags_to_succeed: "1",
     price_per_kg: "",
     expiry_date: "",
     flavor_notes: "",
@@ -91,6 +104,32 @@ export default function EditLotPage({
       setHeaderImageUrl(existingImages[0] || "");
       setSupportingImages(existingImages.slice(1));
 
+      // Compute the bag-shape companions for the form state. When a legacy
+      // lot lacks `bag_size_kg`, we flip `requiresBackfill` and leave the bag
+      // inputs empty — the UI will surface a banner directing the seller to
+      // the backfill page instead of guessing values. The DB constraint
+      // (migration: total_quantity_kg must be a clean multiple of bag_size_kg
+      // when both are set) guarantees the division below is integer-clean for
+      // any lot that already went through backfill or new-lot creation.
+      const bagSizeFromDb =
+        typeof lot.bag_size_kg === "number" && lot.bag_size_kg > 0
+          ? lot.bag_size_kg
+          : null;
+      const totalKgFromDb =
+        typeof lot.total_quantity_kg === "number" && lot.total_quantity_kg > 0
+          ? lot.total_quantity_kg
+          : null;
+      const derivedMaxBagCount =
+        bagSizeFromDb && totalKgFromDb
+          ? Math.round(totalKgFromDb / bagSizeFromDb)
+          : null;
+      const minBagsFromDb =
+        typeof lot.min_bags_to_succeed === "number" && lot.min_bags_to_succeed > 0
+          ? lot.min_bags_to_succeed
+          : null;
+
+      setRequiresBackfill(bagSizeFromDb === null);
+
       setForm({
         title: lot.title || "",
         origin_country: lot.origin_country || "",
@@ -103,12 +142,11 @@ export default function EditLotPage({
         crop_year: lot.crop_year || "",
         score: lot.score?.toString() || "",
         description: lot.description || "",
-        total_quantity_kg: lot.total_quantity_kg
-          ? toDisplayWeight(lot.total_quantity_kg, unit).toString()
-          : "",
-        min_commitment_kg: lot.min_commitment_kg
-          ? toDisplayWeight(lot.min_commitment_kg, unit).toString()
-          : "",
+        bag_size_kg: bagSizeFromDb !== null ? String(bagSizeFromDb) : "",
+        max_bag_count:
+          derivedMaxBagCount !== null ? String(derivedMaxBagCount) : "",
+        min_bags_to_succeed:
+          minBagsFromDb !== null ? String(minBagsFromDb) : "1",
         price_per_kg: lot.price_per_kg
           ? toDisplayPricePerUnit(lot.price_per_kg, unit).toString()
           : "",
@@ -154,13 +192,33 @@ export default function EditLotPage({
     setIsLoading(true);
 
     const enteredBasePrice = Number.parseFloat(form.price_per_kg);
-    const enteredMinTotal = Number.parseFloat(form.min_commitment_kg);
-    const enteredMaxTotal = Number.parseFloat(form.total_quantity_kg);
     const basePrice = fromDisplayPricePerUnit(enteredBasePrice, unit);
-    const minTotal = fromDisplayWeight(enteredMinTotal, unit);
-    const maxTotal = fromDisplayWeight(enteredMaxTotal, unit);
 
-    // Validate tiers
+    // Derive kg totals from the bag-mental-model inputs. Bag size is in kg
+    // and bag count is unit-agnostic, so this multiplication stays in kg
+    // regardless of the display unit toggle. The PATCH route still expects
+    // total_quantity_kg + min_commitment_kg in the payload, so we compute
+    // them here.
+    const bagSizeForSubmit = Number.parseInt(form.bag_size_kg, 10);
+    const maxBagCountForSubmit = Number.parseInt(form.max_bag_count, 10);
+    if (
+      !Number.isInteger(bagSizeForSubmit) ||
+      bagSizeForSubmit < 1 ||
+      !Number.isInteger(maxBagCountForSubmit) ||
+      maxBagCountForSubmit < 1
+    ) {
+      toast.error("Fill in bag size and max bags before saving.");
+      setIsLoading(false);
+      return;
+    }
+    const maxTotal = bagSizeForSubmit * maxBagCountForSubmit;
+    // `min_commitment_kg` is the legacy kg threshold; bag-aware settlement
+    // is governed by min_bags_to_succeed. Pin to one bag so we satisfy the
+    // validator's `min_commitment_kg <= bag_size_kg` rule.
+    const minTotal = bagSizeForSubmit;
+
+    // Validate tiers — still kg-shaped because the PATCH route writes the
+    // legacy `min_quantity_kg` column for tier rows. (See TierRow comment.)
     for (let i = 0; i < tiers.length; i++) {
       const enteredTierQty = Number.parseFloat(tiers[i].min_quantity_kg);
       const enteredTierPrice = Number.parseFloat(tiers[i].price_per_kg);
@@ -173,14 +231,14 @@ export default function EditLotPage({
       }
       if (tierQty <= minTotal) {
         toast.error(
-          `Tier ${i + 1}: quantity (${enteredTierQty} ${unit}) must be above the minimum trigger (${enteredMinTotal} ${unit})`
+          `Tier ${i + 1}: quantity (${enteredTierQty} ${unit}) must be above the minimum trigger`
         );
         setIsLoading(false);
         return;
       }
       if (tierQty > maxTotal) {
         toast.error(
-          `Tier ${i + 1}: quantity (${enteredTierQty} ${unit}) cannot exceed the maximum (${enteredMaxTotal} ${unit})`
+          `Tier ${i + 1}: quantity (${enteredTierQty} ${unit}) cannot exceed the maximum`
         );
         setIsLoading(false);
         return;
@@ -194,11 +252,27 @@ export default function EditLotPage({
       }
     }
 
+    // Payload keeps the legacy kg field names — the PATCH route hasn't
+    // changed shape — but the values are derived from the bag inputs.
     const res = await fetch(`/api/lots/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        ...form,
+        title: form.title,
+        origin_country: form.origin_country,
+        region: form.region,
+        farm: form.farm,
+        variety: form.variety,
+        process: form.process,
+        altitude_min: form.altitude_min,
+        altitude_max: form.altitude_max,
+        crop_year: form.crop_year,
+        score: form.score,
+        description: form.description,
+        total_quantity_kg: maxTotal,
+        min_commitment_kg: minTotal,
+        price_per_kg: basePrice,
+        expiry_date: form.expiry_date,
         flavor_notes: form.flavor_notes
           ? form.flavor_notes.split(",").map((s) => s.trim())
           : [],
@@ -227,8 +301,36 @@ export default function EditLotPage({
 
   const basePrice = Number.parseFloat(form.price_per_kg) || 0;
   const buyerBasePrice = addPlatformFee(basePrice);
-  const minQty = Number.parseFloat(form.min_commitment_kg) || 0;
-  const maxQty = Number.parseFloat(form.total_quantity_kg) || 0;
+
+  // Bag-shape derived values for live previews. The tier editor still needs
+  // kg min/max bounds for its inputs, so we derive `minQty` (one bag) and
+  // `maxQty` (full lot kg) from the bag fields without re-introducing the
+  // kg-first mental model in the seller UI.
+  const bagSizeKgParsed = Number.parseInt(form.bag_size_kg, 10);
+  const bagSizeKgValid =
+    Number.isInteger(bagSizeKgParsed) && bagSizeKgParsed >= 1;
+  const maxBagCountParsed = Number.parseInt(form.max_bag_count, 10);
+  const maxBagCountValid =
+    Number.isInteger(maxBagCountParsed) && maxBagCountParsed >= 1;
+  const totalQtyKg =
+    bagSizeKgValid && maxBagCountValid
+      ? bagSizeKgParsed * maxBagCountParsed
+      : 0;
+  const minBagsParsed = Number.parseInt(form.min_bags_to_succeed, 10);
+  const minBagsValid =
+    Number.isInteger(minBagsParsed) && minBagsParsed >= 1;
+  const maxBagsPossible: number | null = maxBagCountValid
+    ? maxBagCountParsed
+    : null;
+  const minBagsOverCeiling =
+    maxBagsPossible !== null && minBagsValid && minBagsParsed > maxBagsPossible;
+  const minBagsKgPreview =
+    bagSizeKgValid && minBagsValid ? bagSizeKgParsed * minBagsParsed : 0;
+  // The tier editor still inputs kg thresholds (see TierRow comment). Bound
+  // them by the derived totals so the seller can't enter values outside the
+  // lot's bag-derived envelope.
+  const minQty = bagSizeKgValid ? bagSizeKgParsed : 0;
+  const maxQty = totalQtyKg;
 
   if (initialLoading) {
     return (
@@ -412,42 +514,79 @@ export default function EditLotPage({
                 <h3 className="text-lg font-semibold text-foreground">
                   Pricing & Quantity
                 </h3>
-                <p className="text-xs font-medium text-foreground">
-                  Inputs in this section use {unit.toUpperCase()} and ${`/`}{unit}.
+                <p className="text-sm text-muted-foreground">
+                  Bag-shape inputs drive the lot. We derive kg totals when
+                  you save.
                 </p>
+                <p className="text-xs font-medium text-foreground">
+                  Price is entered as ${`/`}{unit}.
+                </p>
+
+                {requiresBackfill && (
+                  <div
+                    role="alert"
+                    className="flex items-start gap-3 rounded-lg border border-amber-500/50 bg-amber-50 p-3 dark:bg-amber-950/20"
+                  >
+                    <Package className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-foreground">
+                        Backfill required
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        This is a legacy lot with no bag config. Run the
+                        backfill flow before editing bag fields.{" "}
+                        <Link
+                          href={`/dashboard/seller/lots/${id}/backfill-bag-config`}
+                          className="font-medium text-foreground underline underline-offset-2"
+                        >
+                          Go to backfill
+                        </Link>
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 <div className="grid gap-4 sm:grid-cols-3">
                   <div className="grid gap-2">
-                    <Label htmlFor="min_commitment_kg">
-                      Min Total to Trigger ({unit}) *
-                    </Label>
+                    <Label htmlFor="bag_size_kg">Bag Size (kg) *</Label>
                     <Input
-                      id="min_commitment_kg"
+                      id="bag_size_kg"
                       type="number"
                       required
                       min="1"
-                      step="0.01"
-                      value={form.min_commitment_kg}
-                      onChange={(e) =>
-                        update("min_commitment_kg", e.target.value)
-                      }
+                      max="100"
+                      step="1"
+                      placeholder="69"
+                      value={form.bag_size_kg}
+                      onChange={(e) => update("bag_size_kg", e.target.value)}
+                      disabled={requiresBackfill}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Bag size in kg. Most green coffee ships 60–69kg bags.
+                    </p>
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="total_quantity_kg">
-                      Max Available ({unit}) *
-                    </Label>
+                    <Label htmlFor="max_bag_count">Max Bags Available *</Label>
                     <Input
-                      id="total_quantity_kg"
+                      id="max_bag_count"
                       type="number"
                       required
                       min="1"
-                      step="0.01"
-                      value={form.total_quantity_kg}
-                      onChange={(e) =>
-                        update("total_quantity_kg", e.target.value)
-                      }
+                      step="1"
+                      placeholder="15"
+                      value={form.max_bag_count}
+                      onChange={(e) => update("max_bag_count", e.target.value)}
+                      disabled={requiresBackfill}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      How many bags total can you ship? We&apos;ll multiply
+                      by your bag size to figure out the lot&apos;s max kg.
+                    </p>
+                    {bagSizeKgValid && maxBagCountValid && (
+                      <p className="text-xs font-semibold text-foreground">
+                        ≈ {totalQtyKg.toLocaleString()}kg total
+                      </p>
+                    )}
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="price_per_kg">Base Price ($/{unit}) *</Label>
@@ -463,6 +602,44 @@ export default function EditLotPage({
                     <p className="text-xs text-muted-foreground">
                       This is the amount you receive. Buyers see {basePrice > 0 ? `$${buyerBasePrice.toFixed(2)}/${unit}` : "your price plus 10%"}.
                     </p>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="grid gap-2">
+                    <Label htmlFor="min_bags_to_succeed">
+                      Minimum Bags to Succeed *
+                    </Label>
+                    <Input
+                      id="min_bags_to_succeed"
+                      type="number"
+                      required
+                      min="1"
+                      max={maxBagsPossible ?? undefined}
+                      step="1"
+                      placeholder="1"
+                      value={form.min_bags_to_succeed}
+                      onChange={(e) =>
+                        update("min_bags_to_succeed", e.target.value)
+                      }
+                      disabled={requiresBackfill}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      How few bags will you ship if the campaign doesn&apos;t
+                      fill all of them? Default: 1.
+                    </p>
+                    {bagSizeKgValid && minBagsValid && (
+                      <p className="text-xs font-semibold text-foreground">
+                        ≈ {minBagsKgPreview.toLocaleString()}kg to settle
+                      </p>
+                    )}
+                    {minBagsOverCeiling && maxBagsPossible !== null && (
+                      <p className="text-xs font-medium text-destructive">
+                        Only {maxBagsPossible.toLocaleString()} bag
+                        {maxBagsPossible === 1 ? "" : "s"} available — set min
+                        bags to {maxBagsPossible.toLocaleString()} or fewer.
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -516,9 +693,9 @@ export default function EditLotPage({
                         Base Tier (minimum)
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {minQty > 0
-                          ? `${minQty.toLocaleString()} ${unit}`
-                          : "Set minimum above"}
+                        {minBagsValid
+                          ? `${minBagsParsed.toLocaleString()} bag${minBagsParsed === 1 ? "" : "s"}`
+                          : "Set min bags above"}
                       </p>
                     </div>
                     <p className="text-lg font-bold text-foreground">

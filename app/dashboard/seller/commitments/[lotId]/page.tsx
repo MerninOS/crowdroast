@@ -111,11 +111,27 @@ export default async function SellerLotCommitmentsPage({
 
   const hub = (campaign?.hub as unknown) as { id: string; name: string } | null;
 
+  // Bag-aware status: "Guaranteed" when completed_bags >= min_bags_to_succeed.
+  // Legacy lots keep the kg threshold check.
+  const lotBagSizeKg =
+    lot.bag_size_kg != null && Number(lot.bag_size_kg) > 0
+      ? Number(lot.bag_size_kg)
+      : null;
+  const isLotBagAware = lotBagSizeKg !== null;
+  const completedBagsForStatus = isLotBagAware
+    ? Math.floor(Number(lot.committed_quantity_kg) / lotBagSizeKg)
+    : 0;
+  const minBagsForStatus = Number(lot.min_bags_to_succeed || 0);
+
   let statusLabel: "Open / At Risk" | "Open / Guaranteed" | "Successful" | null = null;
   if (campaign) {
     if (campaign.status === "settled") {
       statusLabel = "Successful";
-    } else if (Number(lot.committed_quantity_kg) >= Number(lot.min_commitment_kg)) {
+    } else if (
+      isLotBagAware
+        ? completedBagsForStatus >= minBagsForStatus
+        : Number(lot.committed_quantity_kg) >= Number(lot.min_commitment_kg)
+    ) {
       statusLabel = "Open / Guaranteed";
     } else {
       statusLabel = "Open / At Risk";

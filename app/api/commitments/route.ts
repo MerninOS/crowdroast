@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   createPaymentCheckoutSession,
   createSetupCheckoutSession,
@@ -316,7 +317,13 @@ export async function POST(request: Request) {
       { status: 201 }
     );
   } catch (checkoutError) {
-    await supabase
+    // Use admin client here: migration #44's trigger blocks
+    // authenticated-role UPDATEs that set payment_error to a non-null
+    // value (B1 mitigation). This is a legitimate server-side error
+    // recording, so service-role is the right context. The .eq("id",
+    // data.id) keeps the scope tight to the row we just inserted.
+    const adminClient = createAdminClient();
+    await adminClient
       .from("commitments")
       .update({
         payment_status: "charge_failed",

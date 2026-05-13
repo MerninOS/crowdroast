@@ -147,8 +147,35 @@ export default async function BrowsePage() {
                         }
                       }
 
-                      const triggerPct =
-                        lot.min_commitment_kg > 0
+                      // Bag-aware lots: progress is measured in completed
+                      // bags toward `min_bags_to_succeed`. Legacy lots keep
+                      // their kg-based trigger math. The `bagSizeKg` cast
+                      // narrows on the `isBagAware` check, so referencing
+                      // the bag fields below stays type-safe.
+                      const bagSizeKg =
+                        lot.bag_size_kg != null && lot.bag_size_kg > 0
+                          ? Number(lot.bag_size_kg)
+                          : null;
+                      const minBagsToSucceed = Number(
+                        lot.min_bags_to_succeed || 0
+                      );
+                      const isBagAware = bagSizeKg !== null;
+                      const completedBags = isBagAware
+                        ? Math.floor(lot.committed_quantity_kg / bagSizeKg)
+                        : 0;
+                      const maxBags = isBagAware
+                        ? Math.floor(lot.total_quantity_kg / bagSizeKg)
+                        : 0;
+                      const triggerPct = isBagAware
+                        ? minBagsToSucceed > 0
+                          ? Math.min(
+                              100,
+                              Math.round(
+                                (completedBags / minBagsToSucceed) * 100
+                              )
+                            )
+                          : 0
+                        : lot.min_commitment_kg > 0
                           ? Math.min(
                               100,
                               Math.round(
@@ -158,8 +185,9 @@ export default async function BrowsePage() {
                               )
                             )
                           : 0;
-                      const isTriggered =
-                        lot.committed_quantity_kg >= lot.min_commitment_kg;
+                      const isTriggered = isBagAware
+                        ? completedBags >= minBagsToSucceed
+                        : lot.committed_quantity_kg >= lot.min_commitment_kg;
 
                       const hasDeadline = !!lot.campaign_deadline;
                       const deadlineDate = hasDeadline
@@ -226,7 +254,8 @@ export default async function BrowsePage() {
                                   )}
                               </div>
 
-                              {/* Trigger progress */}
+                              {/* Trigger progress — bag-aware lots show bag
+                                  counts; legacy lots keep kg weights. */}
                               <div>
                                 <div className="flex justify-between text-xs text-[#7A6A50] mb-1.5 font-body font-bold uppercase tracking-wide">
                                   <span>
@@ -235,11 +264,23 @@ export default async function BrowsePage() {
                                       : `${triggerPct}% to trigger`}
                                   </span>
                                   <span>
-                                    <UnitWeightText
-                                      kg={lot.committed_quantity_kg}
-                                    />{" "}
-                                    /{" "}
-                                    <UnitWeightText kg={lot.min_commitment_kg} />
+                                    {isBagAware ? (
+                                      <>
+                                        {completedBags} /{" "}
+                                        {minBagsToSucceed} bag
+                                        {minBagsToSucceed === 1 ? "" : "s"}
+                                      </>
+                                    ) : (
+                                      <>
+                                        <UnitWeightText
+                                          kg={lot.committed_quantity_kg}
+                                        />{" "}
+                                        /{" "}
+                                        <UnitWeightText
+                                          kg={lot.min_commitment_kg}
+                                        />
+                                      </>
+                                    )}
                                   </span>
                                 </div>
                                 <div className="h-2 w-full bg-fog border-2 border-espresso rounded-full overflow-hidden">

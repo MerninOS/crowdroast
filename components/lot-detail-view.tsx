@@ -110,8 +110,25 @@ export function LotDetailView({
     (t) => t.min_quantity_kg > lot.committed_quantity_kg
   );
 
-  const triggerPercent =
-    lot.min_commitment_kg > 0
+  // Bag-aware progress: for lots with bag_size_kg set, the trigger metric
+  // is "completed bags toward min_bags_to_succeed". Legacy lots keep the
+  // kg-based math against min_commitment_kg.
+  const bagSizeKg =
+    lot.bag_size_kg != null && lot.bag_size_kg > 0 ? Number(lot.bag_size_kg) : null;
+  const isBagAware = bagSizeKg !== null;
+  const minBagsToSucceed = Number(lot.min_bags_to_succeed || 0);
+  const completedBags = isBagAware
+    ? Math.floor(lot.committed_quantity_kg / bagSizeKg)
+    : 0;
+  const maxBags = isBagAware
+    ? Math.floor(lot.total_quantity_kg / bagSizeKg)
+    : 0;
+
+  const triggerPercent = isBagAware
+    ? minBagsToSucceed > 0
+      ? Math.min(100, Math.round((completedBags / minBagsToSucceed) * 100))
+      : 0
+    : lot.min_commitment_kg > 0
       ? Math.min(
           100,
           Math.round(
@@ -124,7 +141,9 @@ export function LotDetailView({
       ? Math.round((lot.committed_quantity_kg / lot.total_quantity_kg) * 100)
       : 0;
 
-  const isTriggered = lot.committed_quantity_kg >= lot.min_commitment_kg;
+  const isTriggered = isBagAware
+    ? completedBags >= minBagsToSucceed
+    : lot.committed_quantity_kg >= lot.min_commitment_kg;
   const remaining = lot.total_quantity_kg - lot.committed_quantity_kg;
   const isOwner = userId === lot.seller_id;
   const canCommit =
@@ -633,35 +652,63 @@ export function LotDetailView({
                   className={`h-3 ${isTriggered ? "[&>div]:bg-accent" : ""}`}
                 />
                 <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-                  <span>
-                    {formatUnitWeight(lot.committed_quantity_kg, unit)} {unit} committed
-                  </span>
-                  <span>
-                    {formatUnitWeight(lot.min_commitment_kg, unit)} {unit} needed
-                  </span>
+                  {isBagAware ? (
+                    <>
+                      <span>
+                        {completedBags} bag{completedBags === 1 ? "" : "s"} filled
+                      </span>
+                      <span>
+                        {minBagsToSucceed} bag{minBagsToSucceed === 1 ? "" : "s"} to settle
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span>
+                        {formatUnitWeight(lot.committed_quantity_kg, unit)} {unit} committed
+                      </span>
+                      <span>
+                        {formatUnitWeight(lot.min_commitment_kg, unit)} {unit} needed
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
 
-              {!isTriggered && (
-                <p className="text-xs text-muted-foreground bg-muted/50 rounded-lg p-3">
-                  This sale only triggers if{" "}
-                  {formatUnitWeight(lot.min_commitment_kg, unit)} {unit} total is committed
-                  by the deadline. Still need{" "}
-                  <span className="font-semibold text-foreground">
-                    {formatUnitWeight(
-                      lot.min_commitment_kg - lot.committed_quantity_kg,
-                      unit
-                    )}{" "}
-                    {unit}
-                  </span>{" "}
-                  more.
-                </p>
-              )}
+              {!isTriggered &&
+                (isBagAware ? (
+                  <p className="text-xs text-muted-foreground bg-muted/50 rounded-lg p-3">
+                    This campaign settles once{" "}
+                    <span className="font-semibold text-foreground">
+                      {minBagsToSucceed} bag{minBagsToSucceed === 1 ? "" : "s"}
+                    </span>{" "}
+                    fill. Need{" "}
+                    <span className="font-semibold text-foreground">
+                      {Math.max(0, minBagsToSucceed - completedBags)} more bag
+                      {minBagsToSucceed - completedBags === 1 ? "" : "s"}
+                    </span>{" "}
+                    to lock it in.
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground bg-muted/50 rounded-lg p-3">
+                    This sale only triggers if{" "}
+                    {formatUnitWeight(lot.min_commitment_kg, unit)} {unit} total is committed
+                    by the deadline. Still need{" "}
+                    <span className="font-semibold text-foreground">
+                      {formatUnitWeight(
+                        lot.min_commitment_kg - lot.committed_quantity_kg,
+                        unit
+                      )}{" "}
+                      {unit}
+                    </span>{" "}
+                    more.
+                  </p>
+                ))}
 
               {isTriggered && (
                 <p className="text-xs bg-accent/10 text-accent-foreground rounded-lg p-3 font-medium">
-                  Minimum reached! This sale is confirmed. Keep committing to
-                  unlock lower pricing tiers.
+                  {isBagAware
+                    ? "Minimum bags reached! This campaign will settle. Keep going to unlock lower pricing tiers."
+                    : "Minimum reached! This sale is confirmed. Keep committing to unlock lower pricing tiers."}
                 </p>
               )}
 

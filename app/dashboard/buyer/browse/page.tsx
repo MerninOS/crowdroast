@@ -130,8 +130,29 @@ export default async function BuyerBrowsePage() {
               )}
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {group.lots.map((lot: any) => {
-                  const triggerPct =
-                    lot.min_commitment_kg > 0
+                  // Bag-aware lots: progress is measured in completed bags
+                  // toward `min_bags_to_succeed`. Legacy lots stay kg-based.
+                  const bagSizeKg =
+                    lot.bag_size_kg != null && lot.bag_size_kg > 0
+                      ? Number(lot.bag_size_kg)
+                      : null;
+                  const minBagsToSucceed = Number(
+                    lot.min_bags_to_succeed || 0
+                  );
+                  const isBagAware = bagSizeKg !== null;
+                  const completedBags = isBagAware
+                    ? Math.floor(lot.committed_quantity_kg / bagSizeKg)
+                    : 0;
+                  const triggerPct = isBagAware
+                    ? minBagsToSucceed > 0
+                      ? Math.min(
+                          100,
+                          Math.round(
+                            (completedBags / minBagsToSucceed) * 100
+                          )
+                        )
+                      : 0
+                    : lot.min_commitment_kg > 0
                       ? Math.min(
                           100,
                           Math.round(
@@ -141,8 +162,9 @@ export default async function BuyerBrowsePage() {
                           )
                         )
                       : 0;
-                  const isTriggered =
-                    lot.committed_quantity_kg >= lot.min_commitment_kg;
+                  const isTriggered = isBagAware
+                    ? completedBags >= minBagsToSucceed
+                    : lot.committed_quantity_kg >= lot.min_commitment_kg;
                   const tiers = lot.pricing_tiers || [];
                   const lowestPrice =
                     tiers.length > 0
@@ -239,7 +261,8 @@ export default async function BuyerBrowsePage() {
                               )}
                           </div>
 
-                          {/* Trigger progress */}
+                          {/* Trigger progress — bag-aware lots show bag
+                              counts; legacy lots keep kg weights. */}
                           <div>
                             <div className="flex items-center justify-between text-xs mb-1.5">
                               <span className="text-muted-foreground">
@@ -248,8 +271,22 @@ export default async function BuyerBrowsePage() {
                                   : `${triggerPct}% to trigger`}
                               </span>
                               <span className="text-muted-foreground">
-                                <UnitWeightText kg={lot.committed_quantity_kg} /> /{" "}
-                                <UnitWeightText kg={lot.min_commitment_kg} />
+                                {isBagAware ? (
+                                  <>
+                                    {completedBags} / {minBagsToSucceed} bag
+                                    {minBagsToSucceed === 1 ? "" : "s"}
+                                  </>
+                                ) : (
+                                  <>
+                                    <UnitWeightText
+                                      kg={lot.committed_quantity_kg}
+                                    />{" "}
+                                    /{" "}
+                                    <UnitWeightText
+                                      kg={lot.min_commitment_kg}
+                                    />
+                                  </>
+                                )}
                               </span>
                             </div>
                             <Progress

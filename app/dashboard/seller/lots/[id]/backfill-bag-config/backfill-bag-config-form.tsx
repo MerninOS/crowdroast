@@ -331,6 +331,18 @@ export function BackfillBagConfigForm({
                 <p className="text-xs text-muted-foreground">
                   How big is each bag? Most green coffee ships in 60–69kg bags.
                 </p>
+                {/* Bag-mental-model hint: once bag size parses cleanly, show
+                    the max_bag_count that emerges from the lot's existing
+                    total_quantity_kg. Mirrors the create/edit form's "≈ Xkg
+                    total" preview but inverted — kg total is fixed here, so
+                    the seller sees their bag count instead. */}
+                {bagSizeValid && maxBagsPossible !== null && (
+                  <p className="text-xs font-semibold text-foreground">
+                    ≈ {maxBagsPossible.toLocaleString()} bag
+                    {maxBagsPossible === 1 ? "" : "s"} from your{" "}
+                    {Math.round(totalQuantityKg).toLocaleString()}kg lot
+                  </p>
+                )}
                 {fieldErrors.bag_size_kg && (
                   <p className="text-xs font-medium text-destructive">
                     {fieldErrors.bag_size_kg}
