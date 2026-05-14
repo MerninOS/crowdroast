@@ -82,8 +82,126 @@ function anyPickedUp(group: CommitmentGroup): boolean {
   return group.commitments.some((c) => c.picked_up_at != null);
 }
 
+// -------------------------------------------------------------------------
+// Effective payment state — bag-aware vs legacy
+// -------------------------------------------------------------------------
+// Bag-aware commitments (migration #38 onward) leave the commitment-level
+// `payment_status` parked at `'setup_complete'` forever. The real
+// charge state lives in `commitment_bag_charges` rows, one per bag.
+// Every consumer that used to read `commitment.payment_status === 'charge_succeeded'`
+// or `'charge_failed'` will silently get the wrong answer for bag-aware
+// commitments. These helpers wrap that derivation in one place so both
+// the bucket-classifier (`hasChargeFailed`) and the portfolio-stat math
+// agree on the effective state.
+
+export type EffectiveChargeState =
+  | "succeeded"        // bag-aware: every bag row is `charged`. Legacy: `charge_succeeded`.
+  | "failed"           // bag-aware: at least one bag row is `payment_failed`. Legacy: `charge_failed`.
+  | "in_flight"        // bag-aware: bag rows exist but none failed yet AND not all charged.
+  | "pre_settlement";  // no bag rows yet, no legacy success/fail signal (setup_complete, pending_setup, cancelled, …).
+
+/**
+ * Resolve a commitment's effective charge state by looking at its bag rows
+ * first, falling back to the legacy commitment-level field. A `payment_failed`
+ * bag short-circuits to `failed` so a partial failure surfaces in
+ * needsAttention immediately — buyers shouldn't have to wait for the
+ * remaining bags to finish the retry ladder.
+ */
+export function effectiveChargeState(
+  commitment: Pick<Commitment, "payment_status">,
+  bagCharges: BagChargeRow[] | undefined
+): EffectiveChargeState {
+  if (bagCharges && bagCharges.length > 0) {
+    if (bagCharges.some((b) => b.payment_status === "payment_failed")) {
+      return "failed";
+    }
+    if (bagCharges.every((b) => b.payment_status === "charged")) {
+      return "succeeded";
+    }
+    return "in_flight";
+  }
+  if (commitment.payment_status === "charge_succeeded") return "succeeded";
+  if (commitment.payment_status === "charge_failed") return "failed";
+  return "pre_settlement";
+}
+
+/**
+ * Cents the buyer actually paid for this commitment. Sums the `charged`
+ * bag rows for bag-aware commits; for legacy commits returns the
+ * commitment-level `charge_amount_cents` (which Stripe updates on refunds,
+ * so this is already net spend) when the row is in a terminal-success
+ * state — `0` otherwise.
+ */
+export function effectiveChargedCents(
+  commitment: Pick<Commitment, "payment_status" | "charge_amount_cents">,
+  bagCharges: BagChargeRow[] | undefined
+): number {
+  if (bagCharges && bagCharges.length > 0) {
+    return bagCharges
+      .filter((b) => b.payment_status === "charged")
+      .reduce((acc, b) => acc + (b.amount_cents || 0), 0);
+  }
+  return commitment.payment_status === "charge_succeeded"
+    ? Number(commitment.charge_amount_cents ?? 0)
+    : 0;
+}
+
+/**
+ * Kg the buyer secured for this commitment — the unit-side analog of
+ * `effectiveChargedCents`. For bag-aware commits sums the kg of `charged`
+ * bag rows so an in-flight commit's "Landing Soon" weight only reflects
+ * the bags whose money has actually moved. Legacy commits return the
+ * commitment's `quantity_kg` when the row is in terminal-success state.
+ */
+export function effectiveChargedKg(
+  commitment: Pick<Commitment, "payment_status" | "quantity_kg">,
+  bagCharges: BagChargeRow[] | undefined
+): number {
+  if (bagCharges && bagCharges.length > 0) {
+    return bagCharges
+      .filter((b) => b.payment_status === "charged")
+      .reduce((acc, b) => acc + (b.kg || 0), 0);
+  }
+  return commitment.payment_status === "charge_succeeded"
+    ? Number(commitment.quantity_kg || 0)
+    : 0;
+}
+
+/**
+ * Most-recent "money moved" timestamp for this commitment, in ms since
+ * epoch — used by YTD spend to decide which calendar year to attribute the
+ * spend to. Returns `null` when the commitment hasn't been charged at all
+ * (no charged bag rows AND no legacy `charged_at`), in which case the
+ * caller should exclude it from year-bucketing entirely.
+ */
+export function effectiveChargedAtMs(
+  commitment: Pick<Commitment, "payment_status" | "charged_at">,
+  bagCharges: BagChargeRow[] | undefined
+): number | null {
+  if (bagCharges && bagCharges.length > 0) {
+    const charged = bagCharges.filter((b) => b.payment_status === "charged");
+    if (charged.length === 0) return null;
+    // updated_at is the closest available proxy for the worker's
+    // moment-of-charge — the same write flipped payment_status to 'charged'
+    // and bumped updated_at via the trigger. Max across the bag rows
+    // attributes the commitment to the year of its LAST successful bag.
+    return charged.reduce(
+      (acc, b) => Math.max(acc, new Date(b.updated_at).getTime()),
+      0
+    );
+  }
+  if (commitment.payment_status === "charge_succeeded" && commitment.charged_at) {
+    return new Date(commitment.charged_at).getTime();
+  }
+  return null;
+}
+
 function hasChargeFailed(group: CommitmentGroup): boolean {
-  return group.commitments.some((c) => c.payment_status === "charge_failed");
+  return group.commitments.some(
+    (c) =>
+      effectiveChargeState(c, group.bagChargesByCommitmentId?.[c.id]) ===
+      "failed"
+  );
 }
 
 /**
@@ -186,10 +304,18 @@ export interface PortfolioStats {
  * Derive the portfolio strip values from grouped commitments.
  *
  * Math contract (spec § C5):
- * - Live Exposure = Σ qty × commit_price × (1 + platform fee) over RAISING groups, excluding charge_failed commitments
- * - Landing Soon = Σ secured_kg over funds_held + in_transit + at_hub
+ * - Live Exposure = Σ qty × commit_price × (1 + platform fee) over RAISING groups, excluding terminally-failed commitments
+ * - Landing Soon = Σ kg actually charged over funds_held + in_transit + at_hub
  * - Saved via Tiers = Σ max(0, (committed_avg − final_price) × secured_kg) over settled groups
- * - YTD Spend = Σ (paid − refunded) per commitment charged this calendar year, excluding charge_failed
+ * - YTD Spend = Σ (paid − refunded) per commitment whose money moved this calendar year, excluding terminally-failed
+ *
+ * Bag-aware vs legacy: every per-commitment read goes through the
+ * `effective*` helpers above, which sum `commitment_bag_charges` rows
+ * when present and fall back to the legacy commitment-level columns
+ * otherwise. Without that, every bag-aware lot would show $0 in
+ * Landing Soon / Saved via Tiers / YTD Spend because the legacy
+ * `payment_status` stays at `'setup_complete'` and `charge_amount_cents`
+ * stays NULL for those commitments.
  */
 export function derivePortfolioStats(
   groups: CommitmentGroup[],
@@ -202,25 +328,41 @@ export function derivePortfolioStats(
     return (
       sum +
       g.commitments
-        .filter((c) => c.payment_status !== "charge_failed" && c.status !== "cancelled")
-        .reduce((acc, c) => acc + Number(c.quantity_kg) * addPlatformFee(Number(c.price_per_kg)), 0)
+        .filter((c) => {
+          if (c.status === "cancelled") return false;
+          // Drop commits whose effective state is already terminal-failed
+          // (covers legacy `charge_failed` AND bag-aware "any bag failed").
+          const state = effectiveChargeState(
+            c,
+            g.bagChargesByCommitmentId?.[c.id]
+          );
+          return state !== "failed";
+        })
+        .reduce(
+          (acc, c) =>
+            acc + Number(c.quantity_kg) * addPlatformFee(Number(c.price_per_kg)),
+          0
+        )
     );
   }, 0);
 
   const landingKg = buckets.inMotion.reduce((sum, g) => {
     return (
       sum +
-      g.commitments
-        .filter((c) => c.payment_status === "charge_succeeded")
-        .reduce((acc, c) => acc + Number(c.quantity_kg), 0)
+      g.commitments.reduce((acc, c) => {
+        // For bag-aware commits sums the kg of `charged` rows only —
+        // partial successes contribute only the bags whose money moved.
+        return acc + effectiveChargedKg(c, g.bagChargesByCommitmentId?.[c.id]);
+      }, 0)
     );
   }, 0);
 
   // Saved via Tiers — for each successfully-charged commitment, compare what
   // the buyer would have paid at the lot's BASE price (lot.price_per_kg, with
-  // platform fee) against what they actually paid (charge_amount_cents, which
-  // is already net of any tier-unlock refunds Stripe processed).
-  // Excludes: raising (no charge yet), cancelled, charge_failed, refunded.
+  // platform fee) against what they actually paid. For bag-aware commits the
+  // "actually paid" leg sums charged-bag amount_cents; the "would have paid"
+  // leg uses the kg actually charged so we compare apples to apples (a
+  // partially-failed commit shouldn't claim savings on the dropped bags).
   const savedVsBase = groups.reduce((sum, g) => {
     const basePrice = g.lot ? Number(g.lot.price_per_kg) : 0;
     if (basePrice <= 0) return sum;
@@ -228,12 +370,20 @@ export function derivePortfolioStats(
     return (
       sum +
       g.commitments.reduce((acc, c) => {
-        if (c.payment_status !== "charge_succeeded") return acc;
         if (c.status === "cancelled") return acc;
-        const qty = Number(c.quantity_kg || 0);
+        const bags = g.bagChargesByCommitmentId?.[c.id];
+        const state = effectiveChargeState(c, bags);
+        if (state !== "succeeded" && state !== "in_flight") return acc;
+        const chargedKg = effectiveChargedKg(c, bags);
+        if (chargedKg <= 0) return acc;
+        const chargedCents = effectiveChargedCents(c, bags);
         const actualPaid =
-          c.charge_amount_cents != null ? c.charge_amount_cents / 100 : Number(c.total_price || 0);
-        const wouldHavePaid = baseWithFee * qty;
+          bags && bags.length > 0
+            ? chargedCents / 100
+            : c.charge_amount_cents != null
+              ? c.charge_amount_cents / 100
+              : Number(c.total_price || 0);
+        const wouldHavePaid = baseWithFee * chargedKg;
         return acc + Math.max(0, wouldHavePaid - actualPaid);
       }, 0)
     );
@@ -243,13 +393,21 @@ export function derivePortfolioStats(
     return (
       sum +
       g.commitments.reduce((acc, c) => {
-        if (c.payment_status !== "charge_succeeded") return acc;
-        if (!c.charged_at) return acc;
-        if (new Date(c.charged_at).getTime() < ytStart) return acc;
-        // `charge_amount_cents` is already net of refunds (Stripe updates it
-        // on partial/full refund), so summing it gives net YTD spend without
-        // additional refund subtraction.
-        const paid = c.charge_amount_cents != null ? c.charge_amount_cents / 100 : Number(c.total_price || 0);
+        const bags = g.bagChargesByCommitmentId?.[c.id];
+        const chargedAtMs = effectiveChargedAtMs(c, bags);
+        if (chargedAtMs == null) return acc;
+        if (chargedAtMs < ytStart) return acc;
+        // For bag-aware commits sum amount_cents across `charged` rows;
+        // for legacy fall through to the commitment-level field. Both
+        // are already net of refunds (Stripe updates the underlying
+        // value on partial/full refund).
+        const chargedCents = effectiveChargedCents(c, bags);
+        const paid =
+          bags && bags.length > 0
+            ? chargedCents / 100
+            : c.charge_amount_cents != null
+              ? c.charge_amount_cents / 100
+              : Number(c.total_price || 0);
         return acc + paid;
       }, 0)
     );

@@ -25,6 +25,15 @@ export interface BagChargeRow {
     | "charged"
     | "retry_scheduled"
     | "payment_failed";
+  /**
+   * Auto-maintained by the DB trigger. The buyer-side display doesn't render
+   * it, but bucket-by-lifecycle's YTD-spend math reads it as the timestamp
+   * proxy for "when did this bag's money move" (the charge worker writes the
+   * row when it flips `payment_status` to `'charged'`, and updated_at trips
+   * with the same write). The legacy commitment-level `charged_at` column
+   * stays NULL for bag-aware commits, so there's no cleaner signal.
+   */
+  updated_at: string;
 }
 
 export interface BagBreakdownProps {
