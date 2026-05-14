@@ -231,7 +231,7 @@ export default async function BuyerCommitmentsPage({
     const { data: bagCharges } = await supabase
       .from("commitment_bag_charges")
       .select(
-        "id, commitment_id, bag_number, kg, amount_cents, payment_status"
+        "id, commitment_id, bag_number, kg, amount_cents, payment_status, updated_at"
       )
       .in("commitment_id", commitmentIds)
       .order("bag_number", { ascending: true });

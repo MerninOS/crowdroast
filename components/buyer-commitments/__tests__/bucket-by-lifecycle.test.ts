@@ -15,8 +15,12 @@ import {
   bucketByLifecycle,
   derivePortfolioStats,
   stageOfGroup,
+  effectiveChargeState,
+  effectiveChargedCents,
+  effectiveChargedKg,
   type CommitmentGroup,
 } from "../bucket-by-lifecycle";
+import type { BagChargeRow } from "../commitment-drawer/bag-breakdown";
 import type { Commitment, Lot } from "@/lib/types";
 
 const NOOP_FEE = (p: number) => p;
@@ -441,5 +445,297 @@ describe("derivePortfolioStats", () => {
     });
     const s = derivePortfolioStats([g], tenPctFee);
     expect(s.savedVsBase).toBeCloseTo(505, 2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bag-aware lifecycle helpers (migration #38 onward)
+// ---------------------------------------------------------------------------
+// Bag-aware commitments leave commitment.payment_status parked at
+// 'setup_complete'; the real charge state lives in commitment_bag_charges.
+// Without these helpers, hasChargeFailed + derivePortfolioStats would silently
+// return wrong-for-bag-aware values (every bag-aware lot → $0 portfolio stats,
+// no surfacing of failed bags in needsAttention).
+
+let bcId = 0;
+const mkBag = (over: Partial<BagChargeRow> = {}): BagChargeRow => {
+  bcId += 1;
+  return {
+    id: `bc-${bcId}`,
+    commitment_id: "c-bag-1",
+    bag_number: bcId,
+    kg: 29,
+    amount_cents: 73351, // $733.51 — mirrors a real bag charge from Sour Grape
+    payment_status: "charged",
+    updated_at: new Date().toISOString(),
+    ...over,
+  };
+};
+
+describe("effectiveChargeState — bag-aware derivation", () => {
+  it("treats a commit with no bag rows as legacy (uses commitment.payment_status)", () => {
+    expect(
+      effectiveChargeState({ payment_status: "charge_succeeded" }, undefined)
+    ).toBe("succeeded");
+    expect(
+      effectiveChargeState({ payment_status: "charge_failed" }, [])
+    ).toBe("failed");
+    expect(
+      effectiveChargeState({ payment_status: "setup_complete" }, undefined)
+    ).toBe("pre_settlement");
+  });
+
+  it("returns succeeded when every bag is charged", () => {
+    expect(
+      effectiveChargeState({ payment_status: "setup_complete" }, [
+        mkBag({ payment_status: "charged" }),
+        mkBag({ payment_status: "charged" }),
+      ])
+    ).toBe("succeeded");
+  });
+
+  it("returns failed the moment any single bag is payment_failed (even with charged siblings)", () => {
+    expect(
+      effectiveChargeState({ payment_status: "setup_complete" }, [
+        mkBag({ payment_status: "charged" }),
+        mkBag({ payment_status: "payment_failed" }),
+      ])
+    ).toBe("failed");
+  });
+
+  it("returns in_flight when bags exist but none failed and not all charged yet", () => {
+    expect(
+      effectiveChargeState({ payment_status: "setup_complete" }, [
+        mkBag({ payment_status: "charged" }),
+        mkBag({ payment_status: "awaiting_charge" }),
+      ])
+    ).toBe("in_flight");
+    expect(
+      effectiveChargeState({ payment_status: "setup_complete" }, [
+        mkBag({ payment_status: "retry_scheduled" }),
+      ])
+    ).toBe("in_flight");
+  });
+});
+
+describe("effectiveChargedCents / effectiveChargedKg", () => {
+  it("sums only the charged bag rows for bag-aware commits", () => {
+    const commit = { payment_status: "setup_complete" as const, charge_amount_cents: null, quantity_kg: 58 };
+    const bags = [
+      mkBag({ kg: 29, amount_cents: 73351, payment_status: "charged" }),
+      mkBag({ kg: 29, amount_cents: 73352, payment_status: "payment_failed" }),
+    ];
+    expect(effectiveChargedCents(commit, bags)).toBe(73351);
+    expect(effectiveChargedKg(commit, bags)).toBe(29);
+  });
+
+  it("falls back to commitment-level fields for legacy commits", () => {
+    expect(
+      effectiveChargedCents(
+        { payment_status: "charge_succeeded", charge_amount_cents: 142000 },
+        undefined
+      )
+    ).toBe(142000);
+    expect(
+      effectiveChargedKg(
+        { payment_status: "charge_succeeded", quantity_kg: 100 },
+        undefined
+      )
+    ).toBe(100);
+  });
+
+  it("returns 0 for legacy commits that aren't terminal-success", () => {
+    expect(
+      effectiveChargedCents(
+        { payment_status: "charge_failed", charge_amount_cents: 999 },
+        undefined
+      )
+    ).toBe(0);
+    expect(
+      effectiveChargedKg(
+        { payment_status: "setup_complete", quantity_kg: 50 },
+        undefined
+      )
+    ).toBe(0);
+  });
+});
+
+describe("bucketByLifecycle — bag-aware needsAttention", () => {
+  it("surfaces a bag-aware commit with any failed bag in needsAttention (even though commitment.payment_status is still setup_complete)", () => {
+    const bagAwareFailed = mkGroup({
+      groupKey: "g-bf", lotId: "lot-bf", campaignId: "g-bf",
+      lot: mkLot({ id: "lot-bf", settlement_status: "settled" }),
+      commitments: [
+        mkCommit({
+          id: "c-bag-failed",
+          payment_status: "setup_complete",
+          charge_amount_cents: null,
+          charged_at: null,
+        }),
+      ],
+      bagChargesByCommitmentId: {
+        "c-bag-failed": [
+          mkBag({ commitment_id: "c-bag-failed", payment_status: "charged" }),
+          mkBag({ commitment_id: "c-bag-failed", payment_status: "payment_failed" }),
+        ],
+      },
+    });
+    const out = bucketByLifecycle([bagAwareFailed]);
+    expect(out.needsAttention.map((g) => g.lotId)).toEqual(["lot-bf"]);
+  });
+
+  it("does NOT surface a bag-aware commit whose bags are still in-flight (no failures yet)", () => {
+    const inFlight = mkGroup({
+      groupKey: "g-if", lotId: "lot-if", campaignId: "g-if",
+      lot: mkLot({ id: "lot-if", settlement_status: "settled" }),
+      commitments: [mkCommit({ id: "c-if", payment_status: "setup_complete", charge_amount_cents: null })],
+      bagChargesByCommitmentId: {
+        "c-if": [
+          mkBag({ commitment_id: "c-if", payment_status: "charged" }),
+          mkBag({ commitment_id: "c-if", payment_status: "awaiting_charge" }),
+        ],
+      },
+    });
+    const out = bucketByLifecycle([inFlight]);
+    expect(out.needsAttention).toEqual([]);
+  });
+});
+
+describe("derivePortfolioStats — bag-aware paths", () => {
+  it("counts charged-bag kg toward landingKg for a bag-aware in-motion group (regression: legacy filter returned 0)", () => {
+    const inFlight = mkGroup({
+      groupKey: "gbi", lotId: "lot-bi", campaignId: "gbi",
+      lot: mkLot({ id: "lot-bi", settlement_status: "settled" }),
+      shipment: { status: "in_transit", carrier: null, tracking_number: null, shipped_at: null, delivered_at: null, hub: null },
+      commitments: [
+        mkCommit({ id: "c-bi", payment_status: "setup_complete", charge_amount_cents: null, quantity_kg: 58 }),
+      ],
+      bagChargesByCommitmentId: {
+        "c-bi": [
+          mkBag({ commitment_id: "c-bi", kg: 29, payment_status: "charged" }),
+          mkBag({ commitment_id: "c-bi", kg: 29, payment_status: "charged" }),
+        ],
+      },
+    });
+    const s = derivePortfolioStats([inFlight], NOOP_FEE);
+    expect(s.landingKg).toBe(58);
+  });
+
+  it("only credits the charged bags' kg when some bags have failed", () => {
+    // Spec C5: Landing Soon reflects what the buyer has actually secured —
+    // the failed bag is gone, so it shouldn't sit in Landing Soon.
+    const partial = mkGroup({
+      groupKey: "gbp", lotId: "lot-bp", campaignId: "gbp",
+      lot: mkLot({ id: "lot-bp", settlement_status: "settled" }),
+      shipment: { status: "in_transit", carrier: null, tracking_number: null, shipped_at: null, delivered_at: null, hub: null },
+      commitments: [
+        mkCommit({ id: "c-bp", payment_status: "setup_complete", charge_amount_cents: null, quantity_kg: 58 }),
+      ],
+      bagChargesByCommitmentId: {
+        "c-bp": [
+          mkBag({ commitment_id: "c-bp", kg: 29, payment_status: "charged" }),
+          mkBag({ commitment_id: "c-bp", kg: 29, payment_status: "payment_failed" }),
+        ],
+      },
+    });
+    const s = derivePortfolioStats([partial], NOOP_FEE);
+    expect(s.landingKg).toBe(29);
+  });
+
+  it("sums charged-bag amount_cents into ytdSpend using bag updated_at as the year bucket (regression: legacy filter returned 0)", () => {
+    const now = new Date();
+    const thisYearBagTs = new Date(now.getFullYear(), 1, 1).toISOString();
+    const lastYearBagTs = new Date(now.getFullYear() - 1, 11, 1).toISOString();
+
+    const g = mkGroup({
+      groupKey: "gy", lotId: "lot-y", campaignId: "gy",
+      lot: mkLot({ id: "lot-y", settlement_status: "settled" }),
+      commitments: [
+        mkCommit({ id: "c-y", payment_status: "setup_complete", charge_amount_cents: null, charged_at: null }),
+      ],
+      bagChargesByCommitmentId: {
+        "c-y": [
+          mkBag({ commitment_id: "c-y", amount_cents: 50000, payment_status: "charged", updated_at: thisYearBagTs }),
+          mkBag({ commitment_id: "c-y", amount_cents: 99999, payment_status: "charged", updated_at: lastYearBagTs }),
+        ],
+      },
+    });
+    const s = derivePortfolioStats([g], NOOP_FEE);
+    // Both bags are summed, but the MAX(updated_at) decides the year — that
+    // max lands in the current year, so the whole net spend counts. (The
+    // bag-level partial-year split isn't part of the spec; per-commitment
+    // year attribution is sufficient because settlement runs in a tight
+    // window, not split across years.)
+    expect(s.ytdSpend).toBeCloseTo((50000 + 99999) / 100, 2);
+  });
+
+  it("excludes failed-bag amount_cents from ytdSpend (partial-failure commits only credit charged bags)", () => {
+    const now = new Date();
+    const ts = new Date(now.getFullYear(), 1, 1).toISOString();
+    const g = mkGroup({
+      lot: mkLot({ settlement_status: "settled" }),
+      commitments: [
+        mkCommit({ id: "c-pf", payment_status: "setup_complete", charge_amount_cents: null, charged_at: null }),
+      ],
+      bagChargesByCommitmentId: {
+        "c-pf": [
+          mkBag({ commitment_id: "c-pf", amount_cents: 100000, payment_status: "charged", updated_at: ts }),
+          mkBag({ commitment_id: "c-pf", amount_cents: 100000, payment_status: "payment_failed", updated_at: ts }),
+        ],
+      },
+    });
+    const s = derivePortfolioStats([g], NOOP_FEE);
+    expect(s.ytdSpend).toBeCloseTo(1000, 2);
+  });
+
+  it("computes savedVsBase using kg actually charged so a partial-failure commit doesn't claim savings on dropped bags", () => {
+    // Base price $10/kg. Buyer paid $733.51 net for the 29kg bag that actually
+    // charged (the other 29kg bag failed). Would-have-paid at base = 10 × 29 = $290.
+    // Actual paid = $733.51. So savedVsBase = max(0, 290 - 733.51) = 0.
+    // (i.e. the buyer paid ABOVE base on the charged kg — that's a "loss" we
+    // clamp at zero, not negative savings.)
+    const g = mkGroup({
+      lot: mkLot({ settlement_status: "settled", price_per_kg: 10 }),
+      commitments: [
+        mkCommit({
+          id: "c-sv",
+          payment_status: "setup_complete",
+          charge_amount_cents: null,
+          quantity_kg: 58,
+        }),
+      ],
+      bagChargesByCommitmentId: {
+        "c-sv": [
+          mkBag({ commitment_id: "c-sv", kg: 29, amount_cents: 73351, payment_status: "charged" }),
+          mkBag({ commitment_id: "c-sv", kg: 29, amount_cents: 73352, payment_status: "payment_failed" }),
+        ],
+      },
+    });
+    const s = derivePortfolioStats([g], NOOP_FEE);
+    expect(s.savedVsBase).toBe(0);
+  });
+
+  it("computes savedVsBase from actual-paid bag amount when a tier unlock reduced the buyer's bag price below the lot's base", () => {
+    // Base $15/kg → would-have-paid for 58kg = $870. Buyer actually paid two
+    // bags at $400 each → $800. Savings = $70.
+    const g = mkGroup({
+      lot: mkLot({ settlement_status: "settled", price_per_kg: 15 }),
+      commitments: [
+        mkCommit({
+          id: "c-sv2",
+          payment_status: "setup_complete",
+          charge_amount_cents: null,
+          quantity_kg: 58,
+        }),
+      ],
+      bagChargesByCommitmentId: {
+        "c-sv2": [
+          mkBag({ commitment_id: "c-sv2", kg: 29, amount_cents: 40000, payment_status: "charged" }),
+          mkBag({ commitment_id: "c-sv2", kg: 29, amount_cents: 40000, payment_status: "charged" }),
+        ],
+      },
+    });
+    const s = derivePortfolioStats([g], NOOP_FEE);
+    expect(s.savedVsBase).toBeCloseTo(70, 2);
   });
 });
