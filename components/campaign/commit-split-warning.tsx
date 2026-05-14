@@ -243,7 +243,7 @@ export function CommitSplitWarning({
           opacity: 0.95,
         }}
       >
-        Pull a friend in to top off the bag and your kg lock in.
+        Pull a friend in to top off the bag and your {unit} lock in.
       </p>
     </section>
   );

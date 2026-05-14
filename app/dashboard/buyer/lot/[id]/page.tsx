@@ -83,6 +83,13 @@ export default async function BuyerLotDetailPage({
     .eq("status", "active")
     .single();
 
+  // Show commitments where the buyer has completed the Stripe step (card saved
+  // or already charged). In the bag-aware flow `stripe_payment_intent_id`
+  // stays NULL until per-bag settlement, so filtering on it would hide every
+  // valid commit. Instead, gate on the `payment_status` lifecycle the webhook
+  // owns: `setup_complete` (card saved, bag-aware path) or `charge_succeeded`
+  // (legacy charge-on-commit path). Drop `pending_setup`, `cancelled`, and
+  // `charge_failed`.
   const { data: commitments } = activeCampaign
     ? await supabase
         .from("commitments")
@@ -91,7 +98,7 @@ export default async function BuyerLotDetailPage({
         )
         .eq("campaign_id", activeCampaign.id)
         .neq("status", "cancelled")
-        .not("stripe_payment_intent_id", "is", null)
+        .in("payment_status", ["setup_complete", "charge_succeeded"])
         .order("created_at", { ascending: true })
     : { data: [] };
 
@@ -134,6 +141,7 @@ export default async function BuyerLotDetailPage({
       pricingTiers={(pricingTiers as unknown as PricingTier[]) || []}
       commitments={(viewerCommitments as unknown as Commitment[]) || []}
       socialProof={socialProof}
+      campaignDeadline={activeCampaign?.deadline ?? null}
     />
   );
 }

@@ -9,7 +9,8 @@ import { formatUnitWeight } from '@/lib/units'
 import { Marquee } from '@merninos/ui'
 import { LotGallery } from './LotGallery'
 import { Countdown } from './Countdown'
-import { TierLadder, type CampaignTier } from './TierLadder'
+import { BagGridProgress } from './BagGridProgress'
+import { type CampaignTier } from './TierLadder'
 import { InvitePoke } from './InvitePoke'
 import { InviteBanner } from './InviteBanner'
 import { InviteFab } from './InviteFab'
@@ -34,6 +35,10 @@ interface CampaignPageProps {
    *  than re-querying client-side. */
   commitments?: Commitment[]
   socialProof?: CampaignSocialProof
+  /** ISO timestamp of the active campaign's deadline. The page falls back to
+   *  the lot's commitment_deadline if no active campaign exists (e.g. when a
+   *  buyer is viewing a lot outside a hub context). */
+  campaignDeadline?: string | null
   backHref?: string
   backLabel?: string
 }
@@ -188,6 +193,7 @@ function AuthenticatedView({
   pricingTiers = [],
   commitments = [],
   socialProof,
+  campaignDeadline,
   backHref,
   backLabel,
 }: CampaignPageProps & { userId: string }) {
@@ -215,7 +221,6 @@ function AuthenticatedView({
 
   const bagSizeKg =
     lot.bag_size_kg != null && lot.bag_size_kg > 0 ? Number(lot.bag_size_kg) : null
-  const minBagsToSucceed = Number(lot.min_bags_to_succeed ?? 0)
 
   const biddersIn = socialProof?.recentCommitCount ?? 0
 
@@ -328,7 +333,9 @@ function AuthenticatedView({
                   >
                     Closes in
                   </div>
-                  <Countdown deadline={lot.commitment_deadline} />
+                  <Countdown
+                    deadline={campaignDeadline ?? lot.commitment_deadline}
+                  />
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div
@@ -378,21 +385,37 @@ function AuthenticatedView({
         </div>
       </section>
 
-      {/* TIER LADDER */}
+      {/* BAG GRID — replaces the legacy TierLadder. Leads with bag count and
+          total weight so the buyer can see exactly how many bags they (and
+          other roasters) still need to commit to to unlock the next price. */}
       <section className="cp-section" style={{ padding: '8px 24px 40px' }}>
         <div style={{ maxWidth: 1280, margin: '0 auto' }}>
-          <TierLadder
-            tiers={tiers}
+          <BagGridProgress
+            bagSizeKg={lot.bag_size_kg ?? 0}
+            totalBags={
+              lot.bag_size_kg && lot.bag_size_kg > 0
+                ? Math.round(lot.total_quantity_kg / lot.bag_size_kg)
+                : 0
+            }
+            filledBags={
+              lot.bag_size_kg && lot.bag_size_kg > 0
+                ? Math.floor(committedKg / lot.bag_size_kg)
+                : 0
+            }
+            inProgressPct={
+              lot.bag_size_kg && lot.bag_size_kg > 0
+                ? ((committedKg % lot.bag_size_kg) / lot.bag_size_kg) * 100
+                : 0
+            }
             committedKg={committedKg}
-            stretchKg={stretchKg}
-            bagSizeKg={bagSizeKg}
-            minBagsToSucceed={minBagsToSucceed}
-            hype="rowdy"
+            totalKg={lot.total_quantity_kg}
+            basePricePerKg={lot.price_per_kg}
+            pricingTiers={pricingTiers}
           >
-            <div style={{ marginTop: 18, maxWidth: 520 }}>
+            <div style={{ flex: '1 1 320px', minWidth: 0 }}>
               <InvitePoke kgToNext={kgToNext} onOpen={openModal} />
             </div>
-          </TierLadder>
+          </BagGridProgress>
         </div>
       </section>
 

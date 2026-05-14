@@ -56,19 +56,21 @@ describe('CampaignPage — brand-system parity (criterion 9)', () => {
     expect(heading!.style.fontFamily).toBe('var(--font-display)')
   })
 
-  it('tier section uses an espresso border >= 3px', async () => {
+  it('progress section uses an espresso border >= 3px', async () => {
     const { container } = await renderCampaignPage()
-    const tier = await waitFor(() =>
-      container.querySelector('[data-section="tier"]')
+    const progress = await waitFor(() =>
+      container.querySelector('[data-section="bag-grid"]')
     )
-    const tierEl = tier as HTMLElement
-    // The TierLadder card uses border: 4px solid var(--color-espresso).
-    expect(tierEl.style.border).toMatch(/[3-9]px solid var\(--color-espresso\)/)
+    const progressEl = progress as HTMLElement
+    // BagGridProgress uses border: 4px solid var(--color-espresso).
+    expect(progressEl.style.border).toMatch(
+      /[3-9]px solid var\(--color-espresso\)/
+    )
   })
 
   it('cards use flat shadow tokens (no soft blur)', async () => {
     const { container } = await renderCampaignPage()
-    await waitFor(() => container.querySelector('[data-section="tier"]'))
+    await waitFor(() => container.querySelector('[data-section="bag-grid"]'))
 
     // Pull every element with an inline box-shadow and confirm the
     // shadow string never has a non-zero third value (blur radius).

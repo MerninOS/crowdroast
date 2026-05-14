@@ -84,12 +84,15 @@ export async function GET(
     return NextResponse.json({ error: "Lot not found" }, { status: 404 });
   }
 
-  // Fetch pricing tiers
+  // Fetch pricing tiers. Order by `min_bags` (post-cutover threshold) with a
+  // `min_quantity_kg` fallback so legacy rows still surface in ascending
+  // order. Either column may be NULL on any given row.
   const { data: tiers } = await supabase
     .from("pricing_tiers")
     .select("*")
     .eq("lot_id", id)
-    .order("min_quantity_kg", { ascending: true });
+    .order("min_bags", { ascending: true, nullsFirst: false })
+    .order("min_quantity_kg", { ascending: true, nullsFirst: false });
 
   // The edit-lock UI mirrors the PATCH guard: a lot is editable unless a
   // campaign is currently active. Historical commitments don't lock it.
@@ -272,14 +275,25 @@ export async function PATCH(
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Replace pricing tiers: delete old ones, insert new ones
+  // Replace pricing tiers: delete old ones, insert new ones.
+  //
+  // Tier rows now key off `min_bags` (post-cutover shape) — bag count is the
+  // canonical threshold for bag-aware settlement. Legacy callers that still
+  // send `min_quantity_kg` keep working: we accept whichever field is
+  // populated and persist `min_bags` directly. `min_quantity_kg` is left NULL
+  // on every new row (migration #37 relaxed the NOT NULL constraint).
   await supabase.from("pricing_tiers").delete().eq("lot_id", id);
 
   if (pricing_tiers && pricing_tiers.length > 0) {
     const tierRows = pricing_tiers.map(
-      (t: { min_quantity_kg: number; price_per_kg: number }) => ({
+      (t: {
+        min_bags?: number | null;
+        min_quantity_kg?: number | null;
+        price_per_kg: number;
+      }) => ({
         lot_id: id,
-        min_quantity_kg: t.min_quantity_kg,
+        min_bags: typeof t.min_bags === "number" ? t.min_bags : null,
+        min_quantity_kg: null as number | null,
         price_per_kg: t.price_per_kg,
       })
     );
