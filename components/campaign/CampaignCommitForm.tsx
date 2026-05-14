@@ -116,7 +116,10 @@ export function CampaignCommitForm({
   const router = useRouter()
   const { unit } = useUnitPreference()
 
-  const maxDisplay = Math.floor(toDisplayWeight(maxKg, unit))
+  // maxKg is the kg remaining on the lot; round the display max down to one
+  // decimal so we don't expose a fractional cap the buyer can't actually
+  // commit to (e.g. 19.999 lb left — show 19.9 not 20).
+  const maxDisplay = Math.floor(toDisplayWeight(maxKg, unit) * 10) / 10
   const isBagAware = bagSizeKg !== null && bagSizeKg > 0
   // Current bag's remaining kg — the kg needed to lock the open bag. When
   // totalCommittedKg lands exactly on a bag boundary (or is zero), the
@@ -142,12 +145,13 @@ export function CampaignCommitForm({
   const [committed, setCommitted] = React.useState(false)
 
   // When the unit toggle flips mid-session, convert qty so the buyer
-  // doesn't see "88 lb" suddenly become "88 kg".
+  // doesn't see "88 lb" suddenly become "88 kg". Round to one decimal to
+  // match the input's allowed precision.
   const prevUnitRef = React.useRef(unit)
   React.useEffect(() => {
     if (prevUnitRef.current !== unit) {
       const asKg = fromDisplayWeight(qty, prevUnitRef.current)
-      setQty(Math.round(toDisplayWeight(asKg, unit)))
+      setQty(Math.round(toDisplayWeight(asKg, unit) * 10) / 10)
       prevUnitRef.current = unit
     }
   }, [unit, qty])
@@ -158,7 +162,7 @@ export function CampaignCommitForm({
   const displayPricePerUnit = toDisplayPricePerUnit(buyerPricePerKg, unit)
 
   const validate = (): boolean => {
-    if (qty <= 0) {
+    if (!Number.isFinite(qty) || qty <= 0) {
       toast.error(`Quantity must be greater than 0`)
       return false
     }
@@ -265,7 +269,9 @@ export function CampaignCommitForm({
       >
         <button
           type="button"
-          onClick={() => setQty(Math.max(1, qty - step))}
+          onClick={() =>
+            setQty(Math.max(0.1, Math.round((qty - step) * 10) / 10))
+          }
           aria-label="Decrease quantity"
           style={{
             width: 42,
@@ -283,14 +289,14 @@ export function CampaignCommitForm({
         </button>
         <input
           type="number"
-          inputMode="numeric"
+          inputMode="decimal"
           value={qty}
-          min={1}
+          min={0.1}
           max={maxDisplay}
-          step={1}
+          step={0.1}
           aria-label={`Quantity in ${unit === 'kg' ? 'kilograms' : 'pounds'}`}
           onChange={(e) => {
-            const next = Number.parseInt(e.target.value, 10)
+            const next = Number.parseFloat(e.target.value)
             setQty(Number.isFinite(next) ? next : 0)
           }}
           style={{
@@ -321,7 +327,9 @@ export function CampaignCommitForm({
         </span>
         <button
           type="button"
-          onClick={() => setQty(Math.min(maxDisplay, qty + step))}
+          onClick={() =>
+            setQty(Math.min(maxDisplay, Math.round((qty + step) * 10) / 10))
+          }
           aria-label="Increase quantity"
           style={{
             width: 42,
@@ -535,14 +543,17 @@ export function CampaignCommitForm({
           : "Refund in full if the campaign doesn't hit its minimum. No fees."}
       </div>
 
-      {/* Confirm dialog (preserves CommitmentForm's safety net) */}
+      {/* Confirm dialog — bag-aware: we save the card now and charge per
+          completed bag when the campaign closes. The buyer is NOT charged at
+          commit time. */}
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Confirm Commitment</DialogTitle>
+            <DialogTitle>Lock in your commit</DialogTitle>
             <DialogDescription>
-              Your card is charged immediately when you commit. Funds are held
-              until the lot deadline.
+              We&apos;ll save your card now — nothing is charged today. When the
+              campaign closes, you&apos;ll be charged for every bag your commit
+              helps fill. Unfilled bags refund automatically.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 text-sm">
@@ -550,13 +561,13 @@ export function CampaignCommitForm({
               Quantity: <span className="font-medium">{qty} {unit}</span>
             </p>
             <p>
-              Price at commitment:{' '}
+              Locked-in price:{' '}
               <span className="font-medium">
                 ${displayPricePerUnit.toFixed(2)}/{unit}
               </span>
             </p>
             <p>
-              Charged now:{' '}
+              Max you&apos;ll be charged at close:{' '}
               <span className="font-medium">${total.toFixed(2)}</span>
             </p>
           </div>
@@ -570,7 +581,7 @@ export function CampaignCommitForm({
               Cancel
             </ShadButton>
             <ShadButton type="button" onClick={submit} disabled={isLoading}>
-              {isLoading ? 'Processing…' : 'Confirm and Charge'}
+              {isLoading ? 'Saving card…' : 'Save card & lock in'}
             </ShadButton>
           </DialogFooter>
         </DialogContent>

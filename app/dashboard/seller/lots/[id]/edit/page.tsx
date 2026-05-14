@@ -24,19 +24,15 @@ import { LotImageUploader } from "@/components/lot-image-uploader";
 import { useUnitPreference } from "@/components/unit-provider";
 import {
   fromDisplayPricePerUnit,
-  fromDisplayWeight,
   toDisplayPricePerUnit,
-  toDisplayWeight,
 } from "@/lib/units";
 import { addPlatformFee } from "@/lib/pricing";
 
 interface TierRow {
-  // Edit-form tiers still ship the legacy `min_quantity_kg` shape because
-  // the PATCH `/api/lots/[id]` route writes back to that column (it does
-  // not yet accept `min_bags` for general edits — only the dedicated
-  // backfill branch does). Keeping the shape unchanged means this refactor
-  // touches the UX without breaking the API contract.
-  min_quantity_kg: string;
+  // Bag-count threshold (integer ≥ 1). The PATCH route now writes this
+  // directly to `pricing_tiers.min_bags`. Legacy rows that only have
+  // `min_quantity_kg` are converted at load time using the current bag size.
+  min_bags: string;
   price_per_kg: string;
 }
 
@@ -157,10 +153,26 @@ export default function EditLotPage({
 
       setTiers(
         (data.pricing_tiers || []).map(
-          (t: { min_quantity_kg: number; price_per_kg: number }) => ({
-            min_quantity_kg: toDisplayWeight(t.min_quantity_kg, unit).toString(),
-            price_per_kg: toDisplayPricePerUnit(t.price_per_kg, unit).toString(),
-          })
+          (t: {
+            min_bags: number | null;
+            min_quantity_kg: number | null;
+            price_per_kg: number;
+          }) => {
+            // Prefer `min_bags` (post-cutover rows). For legacy rows that only
+            // have `min_quantity_kg`, derive bag count from the loaded bag
+            // size. If bag size is unknown (legacy lot pre-backfill) we leave
+            // the row's `min_bags` blank — the seller has to set it explicitly.
+            const minBags =
+              typeof t.min_bags === "number" && t.min_bags >= 1
+                ? t.min_bags
+                : bagSizeFromDb && typeof t.min_quantity_kg === "number"
+                  ? Math.max(1, Math.round(t.min_quantity_kg / bagSizeFromDb))
+                  : null;
+            return {
+              min_bags: minBags !== null ? String(minBags) : "",
+              price_per_kg: toDisplayPricePerUnit(t.price_per_kg, unit).toString(),
+            };
+          }
         )
       );
       setInitialLoading(false);
@@ -172,7 +184,7 @@ export default function EditLotPage({
     setForm((prev) => ({ ...prev, [key]: value }));
 
   const addTier = () => {
-    setTiers((prev) => [...prev, { min_quantity_kg: "", price_per_kg: "" }]);
+    setTiers((prev) => [...prev, { min_bags: "", price_per_kg: "" }]);
   };
 
   const updateTier = (idx: number, key: keyof TierRow, value: string) => {
@@ -217,29 +229,30 @@ export default function EditLotPage({
     // validator's `min_commitment_kg <= bag_size_kg` rule.
     const minTotal = bagSizeForSubmit;
 
-    // Validate tiers — still kg-shaped because the PATCH route writes the
-    // legacy `min_quantity_kg` column for tier rows. (See TierRow comment.)
+    // Validate tiers — bag-count thresholds. Each row needs a positive
+    // integer `min_bags`, a price lower than the base price, and the full
+    // set must be strictly ascending (no duplicates). Mirrors create-lot-form.
+    const parsedMinBags: number[] = [];
     for (let i = 0; i < tiers.length; i++) {
-      const enteredTierQty = Number.parseFloat(tiers[i].min_quantity_kg);
+      const enteredTierBags = Number.parseInt(tiers[i].min_bags, 10);
       const enteredTierPrice = Number.parseFloat(tiers[i].price_per_kg);
-      const tierQty = fromDisplayWeight(enteredTierQty, unit);
       const tierPrice = fromDisplayPricePerUnit(enteredTierPrice, unit);
-      if (!tierQty || !tierPrice) {
-        toast.error(`Tier ${i + 1}: quantity and price are required`);
-        setIsLoading(false);
-        return;
-      }
-      if (tierQty <= minTotal) {
+      if (!Number.isInteger(enteredTierBags) || enteredTierBags < 1) {
         toast.error(
-          `Tier ${i + 1}: quantity (${enteredTierQty} ${unit}) must be above the minimum trigger`
+          `Tier ${i + 1}: min bags must be a whole number of 1 or more`
         );
         setIsLoading(false);
         return;
       }
-      if (tierQty > maxTotal) {
+      if (enteredTierBags > maxBagCountForSubmit) {
         toast.error(
-          `Tier ${i + 1}: quantity (${enteredTierQty} ${unit}) cannot exceed the maximum`
+          `Tier ${i + 1}: min bags (${enteredTierBags}) cannot exceed max bags (${maxBagCountForSubmit})`
         );
+        setIsLoading(false);
+        return;
+      }
+      if (!tierPrice) {
+        toast.error(`Tier ${i + 1}: price is required`);
         setIsLoading(false);
         return;
       }
@@ -250,10 +263,28 @@ export default function EditLotPage({
         setIsLoading(false);
         return;
       }
+      parsedMinBags.push(enteredTierBags);
+    }
+    for (let i = 1; i < parsedMinBags.length; i++) {
+      if (parsedMinBags[i] === parsedMinBags[i - 1]) {
+        toast.error(
+          `Tier ${i + 1}: min bags (${parsedMinBags[i]}) duplicates Tier ${i}`
+        );
+        setIsLoading(false);
+        return;
+      }
+      if (parsedMinBags[i] < parsedMinBags[i - 1]) {
+        toast.error(
+          `Tier ${i + 1}: min bags must be greater than Tier ${i} (${parsedMinBags[i - 1]})`
+        );
+        setIsLoading(false);
+        return;
+      }
     }
 
-    // Payload keeps the legacy kg field names — the PATCH route hasn't
-    // changed shape — but the values are derived from the bag inputs.
+    // Tier rows submit `min_bags` (integer ≥ 1) and a seller-side price in
+    // kg. PATCH writes `pricing_tiers.min_bags` directly and sets
+    // `min_quantity_kg = NULL`, mirroring the POST contract.
     const res = await fetch(`/api/lots/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -281,7 +312,7 @@ export default function EditLotPage({
           : [],
         images: [headerImageUrl, ...supportingImages].filter(Boolean),
         pricing_tiers: tiers.map((t) => ({
-          min_quantity_kg: fromDisplayWeight(Number.parseFloat(t.min_quantity_kg), unit),
+          min_bags: Number.parseInt(t.min_bags, 10),
           price_per_kg: fromDisplayPricePerUnit(Number.parseFloat(t.price_per_kg), unit),
         })),
       }),
@@ -302,10 +333,7 @@ export default function EditLotPage({
   const basePrice = Number.parseFloat(form.price_per_kg) || 0;
   const buyerBasePrice = addPlatformFee(basePrice);
 
-  // Bag-shape derived values for live previews. The tier editor still needs
-  // kg min/max bounds for its inputs, so we derive `minQty` (one bag) and
-  // `maxQty` (full lot kg) from the bag fields without re-introducing the
-  // kg-first mental model in the seller UI.
+  // Bag-shape derived values for live previews.
   const bagSizeKgParsed = Number.parseInt(form.bag_size_kg, 10);
   const bagSizeKgValid =
     Number.isInteger(bagSizeKgParsed) && bagSizeKgParsed >= 1;
@@ -326,11 +354,6 @@ export default function EditLotPage({
     maxBagsPossible !== null && minBagsValid && minBagsParsed > maxBagsPossible;
   const minBagsKgPreview =
     bagSizeKgValid && minBagsValid ? bagSizeKgParsed * minBagsParsed : 0;
-  // The tier editor still inputs kg thresholds (see TierRow comment). Bound
-  // them by the derived totals so the seller can't enter values outside the
-  // lot's bag-derived envelope.
-  const minQty = bagSizeKgValid ? bagSizeKgParsed : 0;
-  const maxQty = totalQtyKg;
 
   if (initialLoading) {
     return (
@@ -671,7 +694,8 @@ export default function EditLotPage({
                       Volume Discount Tiers
                     </h3>
                     <p className="text-sm text-muted-foreground">
-                      Lower the price per {unit} at higher total quantities.
+                      Lower the price per {unit} once the campaign reaches a
+                      bag count.
                     </p>
                   </div>
                   <Button
@@ -707,62 +731,76 @@ export default function EditLotPage({
                   </p>
                 </div>
 
-                {tiers.map((tier, idx) => (
-                  <div key={idx} className="rounded-lg border p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium text-foreground">
-                        Tier {idx + 1}
-                      </p>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeTier(idx)}
-                        className="text-destructive hover:text-destructive"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div className="grid gap-2">
-                        <Label>When total reaches ({unit})</Label>
-                        <Input
-                          type="number"
-                          min={minQty + 1}
-                          max={maxQty}
-                          step="0.01"
-                          value={tier.min_quantity_kg}
-                          onChange={(e) =>
-                            updateTier(idx, "min_quantity_kg", e.target.value)
-                          }
-                        />
+                {tiers.map((tier, idx) => {
+                  const tierBagsNum = Number.parseInt(tier.min_bags, 10);
+                  const tierBagsValid =
+                    Number.isInteger(tierBagsNum) && tierBagsNum >= 1;
+                  const tierKgPreview =
+                    bagSizeKgValid && tierBagsValid
+                      ? bagSizeKgParsed * tierBagsNum
+                      : 0;
+                  return (
+                    <div key={idx} className="rounded-lg border p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium text-foreground">
+                          Tier {idx + 1}
+                        </p>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeTier(idx)}
+                          className="text-destructive hover:text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
-                      <div className="grid gap-2">
-                        <Label>Price per {unit} ($)</Label>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          max={
-                            basePrice > 0 ? basePrice - 0.01 : undefined
-                          }
-                          value={tier.price_per_kg}
-                          onChange={(e) =>
-                            updateTier(idx, "price_per_kg", e.target.value)
-                          }
-                        />
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="grid gap-2">
+                          <Label>Unlocks at (bags)</Label>
+                          <Input
+                            type="number"
+                            min={2}
+                            max={maxBagsPossible ?? undefined}
+                            step="1"
+                            value={tier.min_bags}
+                            onChange={(e) =>
+                              updateTier(idx, "min_bags", e.target.value)
+                            }
+                          />
+                          {tierBagsValid && bagSizeKgValid && (
+                            <p className="text-xs text-muted-foreground">
+                              ≈ {tierKgPreview.toLocaleString()}kg total
+                            </p>
+                          )}
+                        </div>
+                        <div className="grid gap-2">
+                          <Label>Price per {unit} ($)</Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max={
+                              basePrice > 0 ? basePrice - 0.01 : undefined
+                            }
+                            value={tier.price_per_kg}
+                            onChange={(e) =>
+                              updateTier(idx, "price_per_kg", e.target.value)
+                            }
+                          />
+                        </div>
                       </div>
+                      {tier.min_bags && tier.price_per_kg && (
+                        <p className="text-xs text-muted-foreground">
+                          At this tier, you receive $
+                          {Number.parseFloat(tier.price_per_kg).toFixed(2)}/{unit}{" "}
+                          and buyers pay $
+                          {addPlatformFee(Number.parseFloat(tier.price_per_kg)).toFixed(2)}/{unit}.
+                        </p>
+                      )}
                     </div>
-                    {tier.min_quantity_kg && tier.price_per_kg && (
-                      <p className="text-xs text-muted-foreground">
-                        At this tier, you receive $
-                        {Number.parseFloat(tier.price_per_kg).toFixed(2)}/{unit}
-                        and buyers pay $
-                        {addPlatformFee(Number.parseFloat(tier.price_per_kg)).toFixed(2)}/{unit}.
-                      </p>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
 
                 {tiers.length === 0 && (
                   <p className="text-sm text-muted-foreground italic">
