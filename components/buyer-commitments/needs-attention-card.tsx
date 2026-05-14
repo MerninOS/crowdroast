@@ -1,20 +1,38 @@
-import Link from "next/link";
-import { Button } from "@merninos/ui";
 import { UnitWeightText } from "@/components/unit-value";
-import type { CommitmentGroup } from "./bucket-by-lifecycle";
+import { effectiveChargeState, deriveNeedsAttentionDisplay, type CommitmentGroup } from "./bucket-by-lifecycle";
+import { UpdatePaymentButton } from "./update-payment-button";
 
 export interface NeedsAttentionCardProps {
   group: CommitmentGroup;
 }
 
 /**
- * Surfaces a commitment whose payment has failed (`payment_status = 'charge_failed'`).
+ * Surfaces a commitment whose payment has failed.
+ *
+ * "Failed" is read via `deriveNeedsAttentionDisplay`, which considers both
+ * legacy `commitment.payment_status === 'charge_failed'` AND bag-aware
+ * `commitment_bag_charges.payment_status === 'payment_failed'`. Without
+ * that derivation a bag-aware commit with every bag dead would render as
+ * `0 kg · Charge failed — retrying` because the legacy commitment-level
+ * field stays parked at `setup_complete`.
+ *
  * Excluded from cycle math; the user's only action is to fix payment.
  */
 export function NeedsAttentionCard({ group }: NeedsAttentionCardProps) {
-  const failed = group.commitments.filter((c) => c.payment_status === "charge_failed");
-  const failedKg = failed.reduce((s, c) => s + Number(c.quantity_kg || 0), 0);
-  const reason = failed.find((c) => c.payment_error)?.payment_error || "Charge failed — retrying";
+  const { failedKg, reason } = deriveNeedsAttentionDisplay(group);
+
+  // The card-update flow has to target one commitment id (Stripe Checkout
+  // sessions are 1:1 with a commitment). When the group has multiple
+  // failed commits — rare; would require the same buyer to commit twice
+  // on the same campaign — pick the first failed one and let the button
+  // restart that. The buyer can repeat the action for any remaining
+  // failed commits on subsequent dashboard visits.
+  const failedCommitId =
+    group.commitments.find(
+      (c) =>
+        effectiveChargeState(c, group.bagChargesByCommitmentId?.[c.id]) ===
+        "failed"
+    )?.id ?? null;
 
   return (
     <div
@@ -37,13 +55,7 @@ export function NeedsAttentionCard({ group }: NeedsAttentionCardProps) {
           </div>
         </div>
       </div>
-      <Button asChild size="sm" variant="default" className="self-stretch sm:self-auto">
-        <Link
-          href={`/dashboard/buyer/lot/${group.lotId}${group.hubId ? `?hub=${group.hubId}` : ""}`}
-        >
-          Update payment →
-        </Link>
-      </Button>
+      {failedCommitId ? <UpdatePaymentButton commitmentId={failedCommitId} /> : null}
     </div>
   );
 }

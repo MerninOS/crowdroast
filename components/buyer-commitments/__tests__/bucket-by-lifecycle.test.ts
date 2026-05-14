@@ -18,6 +18,7 @@ import {
   effectiveChargeState,
   effectiveChargedCents,
   effectiveChargedKg,
+  deriveNeedsAttentionDisplay,
   type CommitmentGroup,
 } from "../bucket-by-lifecycle";
 import type { BagChargeRow } from "../commitment-drawer/bag-breakdown";
@@ -737,5 +738,93 @@ describe("derivePortfolioStats — bag-aware paths", () => {
     });
     const s = derivePortfolioStats([g], NOOP_FEE);
     expect(s.savedVsBase).toBeCloseTo(70, 2);
+  });
+});
+
+describe("deriveNeedsAttentionDisplay", () => {
+  it("returns hasAny=false for a group with no failed commits", () => {
+    const g = mkGroup({ commitments: [mkCommit({ payment_status: "charge_succeeded" })] });
+    const d = deriveNeedsAttentionDisplay(g);
+    expect(d.hasAny).toBe(false);
+    expect(d.failedKg).toBe(0);
+  });
+
+  it("legacy: sums quantity_kg and surfaces payment_error", () => {
+    const g = mkGroup({
+      commitments: [
+        mkCommit({
+          payment_status: "charge_failed",
+          quantity_kg: 50,
+          payment_error: "Your card was declined.",
+        }),
+      ],
+    });
+    const d = deriveNeedsAttentionDisplay(g);
+    expect(d.hasAny).toBe(true);
+    expect(d.failedKg).toBe(50);
+    expect(d.reason).toBe("Your card was declined.");
+  });
+
+  it("legacy: falls back to generic message when payment_error is null", () => {
+    const g = mkGroup({
+      commitments: [mkCommit({ payment_status: "charge_failed", quantity_kg: 25, payment_error: null })],
+    });
+    const d = deriveNeedsAttentionDisplay(g);
+    expect(d.reason).toBe("Your card was declined");
+  });
+
+  it("bag-aware: counts only the failed bags' kg toward failedKg (regression: legacy code returned 0)", () => {
+    const g = mkGroup({
+      commitments: [
+        mkCommit({
+          id: "c-bx",
+          payment_status: "setup_complete",
+          quantity_kg: 58,
+          charge_amount_cents: null,
+        }),
+      ],
+      bagChargesByCommitmentId: {
+        "c-bx": [
+          mkBag({ commitment_id: "c-bx", kg: 29, payment_status: "charged" }),
+          mkBag({ commitment_id: "c-bx", kg: 29, payment_status: "payment_failed" }),
+        ],
+      },
+    });
+    const d = deriveNeedsAttentionDisplay(g);
+    expect(d.hasAny).toBe(true);
+    expect(d.failedKg).toBe(29);
+    expect(d.reason).toBe("Your card couldn't be charged for 1 of 2 bags");
+  });
+
+  it("bag-aware: 'any of the bags' phrasing when every bag failed", () => {
+    const g = mkGroup({
+      commitments: [
+        mkCommit({ id: "c-by", payment_status: "setup_complete", quantity_kg: 58 }),
+      ],
+      bagChargesByCommitmentId: {
+        "c-by": [
+          mkBag({ commitment_id: "c-by", kg: 29, payment_status: "payment_failed" }),
+          mkBag({ commitment_id: "c-by", kg: 29, payment_status: "payment_failed" }),
+        ],
+      },
+    });
+    const d = deriveNeedsAttentionDisplay(g);
+    expect(d.failedKg).toBe(58);
+    expect(d.reason).toBe("Your card couldn't be charged for any of the bags");
+  });
+
+  it("bag-aware in-flight commits (no failures yet) are NOT surfaced", () => {
+    const g = mkGroup({
+      commitments: [mkCommit({ id: "c-bz", payment_status: "setup_complete" })],
+      bagChargesByCommitmentId: {
+        "c-bz": [
+          mkBag({ commitment_id: "c-bz", payment_status: "charged" }),
+          mkBag({ commitment_id: "c-bz", payment_status: "awaiting_charge" }),
+        ],
+      },
+    });
+    const d = deriveNeedsAttentionDisplay(g);
+    expect(d.hasAny).toBe(false);
+    expect(d.failedKg).toBe(0);
   });
 });
