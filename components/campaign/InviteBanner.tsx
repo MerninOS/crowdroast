@@ -7,8 +7,13 @@ import { formatUnitWeight } from '@/lib/units'
 import { REFERRAL_CREDIT_AMOUNT_CENTS } from '@/lib/referrals/settle-attribution'
 
 interface InviteBannerProps {
-  /** Quantity remaining to the next tier, in kg. */
+  /** Quantity remaining to the next tier, in kg. Used for legacy weight-based lots. */
   kgToNext: number
+  /**
+   * Bags remaining to the next tier. Non-null for bag-aware lots, in which
+   * case the headline switches to "X bags to drop the price".
+   */
+  bagsToNext?: number | null
   /** Name of the next tier — used in the headline/body. */
   nextTierName: string
   /** Whether the next tier is the stretch goal — flips body copy. */
@@ -22,6 +27,7 @@ interface InviteBannerProps {
 // and hardcoded city/hub → useInviteData substitutions.
 export function InviteBanner({
   kgToNext,
+  bagsToNext,
   nextTierName,
   nextIsStretch,
   onOpen,
@@ -33,7 +39,11 @@ export function InviteBanner({
   const credit = REFERRAL_CREDIT_AMOUNT_CENTS / 100
   const city = data.hubCity ?? null
   const hubName = data.hubName
-  const displayQty = formatUnitWeight(kgToNext, unit, 0)
+  const isBagAware = bagsToNext !== null && bagsToNext !== undefined
+  const remaining = isBagAware ? bagsToNext! : kgToNext
+  const remainingLabel = isBagAware
+    ? `${remaining.toLocaleString()} bag${remaining === 1 ? '' : 's'}`
+    : `${formatUnitWeight(kgToNext, unit, 0)} ${unit}`
 
   return (
     <div
@@ -135,7 +145,7 @@ export function InviteBanner({
               margin: 0,
             }}
           >
-            {kgToNext > 0 ? (
+            {remaining > 0 ? (
               <>
                 Bring your{' '}
                 {city && (
@@ -145,7 +155,7 @@ export function InviteBanner({
                 )}
                 roast crew.
                 <br />
-                {displayQty} {unit} to drop the price.
+                {remainingLabel} to drop the price.
               </>
             ) : nextIsStretch ? (
               <>

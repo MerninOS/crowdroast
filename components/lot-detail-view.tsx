@@ -37,6 +37,7 @@ import { useBagAssignment } from "@/hooks/use-bag-assignment";
 import { useUnitPreference } from "@/components/unit-provider";
 import { formatUnitPrice, formatUnitWeight } from "@/lib/units";
 import { addPlatformFee } from "@/lib/pricing";
+import { getTierProgress, type ResolvedTier } from "@/lib/tier-progress";
 
 interface LotDetailProps {
   lot: Lot;
@@ -75,54 +76,56 @@ export function LotDetailView({
   backLabel,
 }: LotDetailProps) {
   const { unit } = useUnitPreference();
-  const sortedTiers = [...pricingTiers].sort(
-    (a, b) => a.min_quantity_kg - b.min_quantity_kg
-  );
 
-  // Build full tier list: base + discount tiers
-  const allTiers = [
+  // Tier resolution: shared bag-aware helper. Bag-aware lots key on
+  // `min_bags`; legacy lots fall back to `min_quantity_kg`. Display labels
+  // below branch on `isBagAware` to surface bags or weight as appropriate.
+  const progress = getTierProgress(
     {
-      min_quantity_kg: lot.min_commitment_kg,
+      committed_quantity_kg: lot.committed_quantity_kg,
       price_per_kg: lot.price_per_kg,
-      label: "Minimum (trigger)",
+      bag_size_kg: lot.bag_size_kg ?? null,
     },
-    ...sortedTiers.map((t) => ({
-      min_quantity_kg: t.min_quantity_kg,
-      price_per_kg: t.price_per_kg,
-      label: `${formatUnitWeight(t.min_quantity_kg, unit)} ${unit}`,
-    })),
-  ];
-
-  // Current active price based on committed quantity
-  const getActivePrice = (committedQty: number) => {
-    let price = lot.price_per_kg;
-    for (const tier of [...sortedTiers].reverse()) {
-      if (committedQty >= tier.min_quantity_kg) {
-        price = tier.price_per_kg;
-        break;
-      }
-    }
-    return price;
-  };
-
-  const activePrice = getActivePrice(lot.committed_quantity_kg);
-  const nextTier = sortedTiers.find(
-    (t) => t.min_quantity_kg > lot.committed_quantity_kg
+    pricingTiers
   );
-
-  // Bag-aware progress: for lots with bag_size_kg set, the trigger metric
-  // is "completed bags toward min_bags_to_succeed". Legacy lots keep the
-  // kg-based math against min_commitment_kg.
-  const bagSizeKg =
-    lot.bag_size_kg != null && lot.bag_size_kg > 0 ? Number(lot.bag_size_kg) : null;
-  const isBagAware = bagSizeKg !== null;
+  const isBagAware = progress.isBagAware;
+  const bagSizeKg = progress.bagSize;
+  const completedBags = progress.completedBags;
   const minBagsToSucceed = Number(lot.min_bags_to_succeed || 0);
-  const completedBags = isBagAware
-    ? Math.floor(lot.committed_quantity_kg / bagSizeKg)
-    : 0;
-  const maxBags = isBagAware
+  const maxBags = isBagAware && bagSizeKg
     ? Math.floor(lot.total_quantity_kg / bagSizeKg)
     : 0;
+  const activePrice = progress.currentPricePerKg;
+  const nextTier = progress.nextTier;
+  const bagsToNext = progress.bagsToNext;
+  const sortedTiers = progress.sortedTiers;
+
+  // Build full tier list: base trigger + discount tiers. The threshold label
+  // shows bags for bag-aware lots and kg for legacy lots.
+  type TierRow = ResolvedTier & { label: string; isTrigger: boolean };
+  const triggerThresholdKg = isBagAware && bagSizeKg && minBagsToSucceed > 0
+    ? minBagsToSucceed * bagSizeKg
+    : lot.min_commitment_kg;
+  const triggerMinBags = isBagAware ? minBagsToSucceed : null;
+  const allTiers: TierRow[] = [
+    {
+      min_bags: triggerMinBags,
+      threshold_kg: triggerThresholdKg,
+      price_per_kg: lot.price_per_kg,
+      label: "Minimum (trigger)",
+      isTrigger: true,
+    },
+    ...sortedTiers.map<TierRow>((t) => ({
+      min_bags: t.min_bags,
+      threshold_kg: t.threshold_kg,
+      price_per_kg: t.price_per_kg,
+      label:
+        isBagAware && t.min_bags !== null
+          ? `${t.min_bags} bag${t.min_bags === 1 ? "" : "s"}`
+          : `${formatUnitWeight(t.threshold_kg, unit)} ${unit}`,
+      isTrigger: false,
+    })),
+  ];
 
   const triggerPercent = isBagAware
     ? minBagsToSucceed > 0
@@ -344,11 +347,17 @@ export function LotDetailView({
                     {" "}
                     Only{" "}
                     <span className="font-semibold text-foreground">
-                      {formatUnitWeight(
-                        nextTier.min_quantity_kg - lot.committed_quantity_kg,
-                        unit
-                      )}{" "}
-                      {unit}
+                      {isBagAware ? (
+                        <>{bagsToNext} bag{bagsToNext === 1 ? "" : "s"}</>
+                      ) : (
+                        <>
+                          {formatUnitWeight(
+                            nextTier.threshold_kg - lot.committed_quantity_kg,
+                            unit
+                          )}{" "}
+                          {unit}
+                        </>
+                      )}
                     </span>{" "}
                     more needed to unlock{" "}
                     {formatUnitPrice(addPlatformFee(nextTier.price_per_kg), unit, lot.currency || "USD")}/{unit}!
@@ -359,16 +368,22 @@ export function LotDetailView({
             <CardContent>
               <div className="space-y-3">
                 {allTiers.map((tier, idx) => {
-                  const isActive =
-                    tier.price_per_kg === activePrice &&
-                    lot.committed_quantity_kg >= tier.min_quantity_kg;
+                  // Reached-state: bag-aware lots compare bag count against
+                  // the tier's min_bags; legacy lots compare kg.
                   const isReached =
-                    lot.committed_quantity_kg >= tier.min_quantity_kg;
-                  const isNext =
-                    !isReached &&
-                    (idx === 0 ||
-                      lot.committed_quantity_kg >=
-                        allTiers[idx - 1].min_quantity_kg);
+                    isBagAware && tier.min_bags !== null
+                      ? completedBags >= tier.min_bags
+                      : lot.committed_quantity_kg >= tier.threshold_kg;
+                  const isActive =
+                    tier.price_per_kg === activePrice && isReached;
+                  const prevTier = allTiers[idx - 1];
+                  const prevReached =
+                    !prevTier
+                      ? true
+                      : isBagAware && prevTier.min_bags !== null
+                        ? completedBags >= prevTier.min_bags
+                        : lot.committed_quantity_kg >= prevTier.threshold_kg;
+                  const isNext = !isReached && (idx === 0 || prevReached);
                   const savings =
                     idx > 0
                       ? (
@@ -377,6 +392,10 @@ export function LotDetailView({
                           100
                         ).toFixed(0)
                       : null;
+                  const thresholdLabel =
+                    isBagAware && tier.min_bags !== null
+                      ? `${tier.min_bags} bag${tier.min_bags === 1 ? "" : "s"}`
+                      : `${formatUnitWeight(tier.threshold_kg, unit)} ${unit}`;
 
                   return (
                     <div
@@ -409,7 +428,7 @@ export function LotDetailView({
                           <p
                             className={`text-sm font-medium ${isActive ? "text-primary" : "text-foreground"}`}
                           >
-                            {formatUnitWeight(tier.min_quantity_kg, unit)} {unit}
+                            {thresholdLabel}
                           </p>
                           <p className="text-xs text-muted-foreground">
                             {tier.label}
@@ -434,7 +453,9 @@ export function LotDetailView({
                 })}
               </div>
 
-              {/* Tier progress visualization */}
+              {/* Tier progress visualization — markers use threshold_kg from
+                  the helper, which is min_bags * bag_size for bag-aware lots
+                  and min_quantity_kg for legacy lots. */}
               {sortedTiers.length > 0 && (
                 <div className="mt-4">
                   <div className="relative h-2 rounded-full bg-muted overflow-hidden">
@@ -442,13 +463,14 @@ export function LotDetailView({
                       className="absolute inset-y-0 left-0 rounded-full bg-primary transition-all"
                       style={{ width: `${capacityPercent}%` }}
                     />
-                    {/* Tier markers */}
                     {sortedTiers.map((tier) => {
                       const markerPct =
-                        (tier.min_quantity_kg / lot.total_quantity_kg) * 100;
+                        lot.total_quantity_kg > 0
+                          ? (tier.threshold_kg / lot.total_quantity_kg) * 100
+                          : 0;
                       return (
                         <div
-                          key={tier.id}
+                          key={`marker-${tier.min_bags ?? tier.threshold_kg}`}
                           className="absolute top-0 h-full w-0.5 bg-foreground/30"
                           style={{ left: `${markerPct}%` }}
                         />
@@ -456,8 +478,17 @@ export function LotDetailView({
                     })}
                   </div>
                   <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
-                    <span>0 {unit}</span>
-                    <span>{formatUnitWeight(lot.total_quantity_kg, unit)} {unit}</span>
+                    {isBagAware ? (
+                      <>
+                        <span>0 bags</span>
+                        <span>{maxBags.toLocaleString()} bags</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>0 {unit}</span>
+                        <span>{formatUnitWeight(lot.total_quantity_kg, unit)} {unit}</span>
+                      </>
+                    )}
                   </div>
                 </div>
               )}

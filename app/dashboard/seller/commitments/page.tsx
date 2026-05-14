@@ -1,22 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { SellerCommitmentsClient, type LotCampaignCard } from "@/components/seller-commitments-client";
-
-function getCurrentLotPrice(
-  lot: { committed_quantity_kg: number; price_per_kg: number },
-  tiers: { min_quantity_kg: number; price_per_kg: number }[]
-): number {
-  const basePrice = Number(lot.price_per_kg || 0);
-  if (tiers.length === 0) return basePrice;
-  const committedQty = Number(lot.committed_quantity_kg || 0);
-  const sortedDesc = [...tiers].sort(
-    (a, b) => Number(b.min_quantity_kg) - Number(a.min_quantity_kg)
-  );
-  for (const tier of sortedDesc) {
-    if (committedQty >= Number(tier.min_quantity_kg)) return Number(tier.price_per_kg);
-  }
-  return basePrice;
-}
+import { getTierProgress } from "@/lib/tier-progress";
 
 export default async function SellerCommitmentsPage() {
   const supabase = await createClient();
@@ -58,9 +43,8 @@ export default async function SellerCommitmentsPage() {
         : Promise.resolve({ data: [] }),
       supabase
         .from("pricing_tiers")
-        .select("lot_id, min_quantity_kg, price_per_kg")
-        .in("lot_id", lotIds)
-        .order("min_quantity_kg", { ascending: true }),
+        .select("lot_id, min_bags, min_quantity_kg, price_per_kg")
+        .in("lot_id", lotIds),
     ]);
 
     const commitmentsByCampaignId: Record<string, { quantity_kg: number }[]> = {};
@@ -70,10 +54,17 @@ export default async function SellerCommitmentsPage() {
       commitmentsByCampaignId[c.campaign_id].push(c);
     }
 
-    const tiersByLotId: Record<string, { min_quantity_kg: number; price_per_kg: number }[]> = {};
+    const tiersByLotId: Record<
+      string,
+      { min_bags: number | null; min_quantity_kg: number | null; price_per_kg: number }[]
+    > = {};
     for (const t of pricingTiers || []) {
       if (!tiersByLotId[t.lot_id]) tiersByLotId[t.lot_id] = [];
-      tiersByLotId[t.lot_id].push(t);
+      tiersByLotId[t.lot_id].push({
+        min_bags: t.min_bags ?? null,
+        min_quantity_kg: t.min_quantity_kg === null ? null : Number(t.min_quantity_kg),
+        price_per_kg: Number(t.price_per_kg),
+      });
     }
 
     // One card per campaign (one active/settled campaign per lot at a time)
@@ -90,7 +81,14 @@ export default async function SellerCommitmentsPage() {
       );
 
       const tiers = tiersByLotId[lot.id] || [];
-      const currentPricePerKg = getCurrentLotPrice(lot, tiers);
+      const currentPricePerKg = getTierProgress(
+        {
+          committed_quantity_kg: Number(lot.committed_quantity_kg || 0),
+          price_per_kg: Number(lot.price_per_kg || 0),
+          bag_size_kg: lot.bag_size_kg ?? null,
+        },
+        tiers
+      ).currentPricePerKg;
 
       const hub = (campaign.hub as unknown) as { id: string; name: string } | null;
 

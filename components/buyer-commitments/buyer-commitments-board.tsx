@@ -11,7 +11,10 @@ import type { PricingTier } from "@/lib/types";
 
 export interface BuyerCommitmentsBoardProps {
   buckets: BucketedGroups;
-  tiersByLotId: Record<string, Pick<PricingTier, "min_quantity_kg" | "price_per_kg">[]>;
+  tiersByLotId: Record<
+    string,
+    Pick<PricingTier, "min_bags" | "min_quantity_kg" | "price_per_kg">[]
+  >;
   landingKg: number;
   ytdSpend: number;
   /**
@@ -93,10 +96,10 @@ export function BuyerCommitmentsBoard({
   const openGroup = findGroup(openGroupKey);
   const openTiers = openGroup
     ? (tiersByLotId[openGroup.lotId] || []).map((t) => ({
-        id: `${openGroup.lotId}-${t.min_quantity_kg}`,
+        id: `${openGroup.lotId}-${t.min_bags ?? t.min_quantity_kg ?? "?"}`,
         lot_id: openGroup.lotId,
-        min_quantity_kg: t.min_quantity_kg,
-        min_bags: null,
+        min_quantity_kg: t.min_quantity_kg ?? null,
+        min_bags: t.min_bags ?? null,
         price_per_kg: t.price_per_kg,
         created_at: "",
       }))

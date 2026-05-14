@@ -9,12 +9,21 @@ import { addPlatformFee } from "@/lib/pricing";
 import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
 import { useUnitPreference } from "@/components/unit-provider";
 import { formatUnitPrice, toDisplayWeight } from "@/lib/units";
+import { getTierProgress } from "@/lib/tier-progress";
 import type { CommitmentGroup } from "./bucket-by-lifecycle";
 
 export interface RaisingLotCardProps {
   group: CommitmentGroup;
-  /** Sorted ascending by min_quantity_kg from the page query. */
-  pricingTiers: { min_quantity_kg: number; price_per_kg: number }[];
+  /**
+   * Pricing tiers fetched for this lot. Bag-aware tiers carry a non-null
+   * `min_bags`; legacy tiers carry only `min_quantity_kg`. The card resolves
+   * both modes via `getTierProgress`.
+   */
+  pricingTiers: {
+    min_bags: number | null;
+    min_quantity_kg: number | null;
+    price_per_kg: number;
+  }[];
   /** Fired when the buyer wants to open the per-lot drawer. */
   onSelect?: () => void;
   /** Forwarded to the chevron button so the parent can return focus on close. */
@@ -58,18 +67,27 @@ export function RaisingLotCard({ group, pricingTiers, onSelect, triggerRef }: Ra
   const lotCommittedKg = Number(lot?.committed_quantity_kg || 0);
   const committedKg = lotCommittedKg > 0 ? lotCommittedKg : myKg;
   const targetKg = Number(lot?.total_quantity_kg || 0);
-  const tierMaxes = pricingTiers.map((t) => Number(t.min_quantity_kg));
+  const progress = getTierProgress(
+    {
+      committed_quantity_kg: committedKg,
+      price_per_kg: Number(lot?.price_per_kg || 0),
+      bag_size_kg: lot?.bag_size_kg ?? null,
+    },
+    pricingTiers
+  );
+  const tierMaxes = progress.sortedTiers.map((t) => t.threshold_kg);
   const maxKg = Math.max(targetKg, ...tierMaxes, committedKg, 1);
   const committedDisplay = toDisplayWeight(committedKg, unit);
   const maxBarUnits = toDisplayWeight(maxKg, unit);
-  const ticks: TierBarTick[] = pricingTiers
-    .filter((t) => Number(t.min_quantity_kg) > 0)
+  const ticks: TierBarTick[] = progress.sortedTiers
+    .filter((t) => t.threshold_kg > 0)
     .map((t) => ({
-      position: toDisplayWeight(Number(t.min_quantity_kg), unit),
-      sub: `${formatUnitPrice(addPlatformFee(Number(t.price_per_kg)), unit, "USD")}/${unit}`,
+      position: toDisplayWeight(t.threshold_kg, unit),
+      sub: `${formatUnitPrice(addPlatformFee(t.price_per_kg), unit, "USD")}/${unit}`,
     }));
 
-  const nextTier = pricingTiers.find((t) => Number(t.min_quantity_kg) > committedKg);
+  const nextTier = progress.nextTier;
+  const bagsToNext = progress.bagsToNext;
   const deadline = group.campaign?.deadline ?? lot?.commitment_deadline ?? null;
   const { label: countdownLabel, goingFast } = fmtCountdown(deadline, now);
   const photoUrl = lot?.images?.[0] || null;
@@ -145,9 +163,17 @@ export function RaisingLotCard({ group, pricingTiers, onSelect, triggerRef }: Ra
               <span className="font-extrabold tracking-[0.06em]">NEXT TIER</span>
               <span className="opacity-70">·</span>
               <span>
-                <UnitWeightText kg={Number(nextTier.min_quantity_kg) - committedKg} maximumFractionDigits={0} /> to{" "}
+                {progress.isBagAware ? (
+                  <>
+                    {bagsToNext} bag{bagsToNext === 1 ? "" : "s"} to{" "}
+                  </>
+                ) : (
+                  <>
+                    <UnitWeightText kg={nextTier.threshold_kg - committedKg} maximumFractionDigits={0} /> to{" "}
+                  </>
+                )}
                 <b>
-                  <UnitPriceText pricePerKg={Number(nextTier.price_per_kg)} currency="usd" includePlatformFee />
+                  <UnitPriceText pricePerKg={nextTier.price_per_kg} currency="usd" includePlatformFee />
                 </b>
               </span>
             </>

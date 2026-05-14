@@ -4,13 +4,21 @@ import Link from "next/link";
 import { Button } from "@merninos/ui";
 import { addPlatformFee } from "@/lib/pricing";
 import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
+import { getTierProgress } from "@/lib/tier-progress";
 import { ContributionsTable } from "./contributions-table";
 import type { CommitmentGroup } from "../bucket-by-lifecycle";
 
 export interface RaisingDrawerBodyProps {
   group: CommitmentGroup;
-  /** Sorted ascending by min_quantity_kg from the page query. */
-  tiers: { min_quantity_kg: number; price_per_kg: number }[];
+  /**
+   * Pricing tiers fetched for this lot. Bag-aware tiers carry a non-null
+   * `min_bags`; legacy tiers carry only `min_quantity_kg`.
+   */
+  tiers: {
+    min_bags: number | null;
+    min_quantity_kg: number | null;
+    price_per_kg: number;
+  }[];
 }
 
 const fmtMoney = (n: number) =>
@@ -51,17 +59,18 @@ export function RaisingDrawerBody({ group, tiers }: RaisingDrawerBodyProps) {
 
   // The current tier is the highest one whose threshold has been met. If
   // none yet, fall back to the lot's base price (which is what the buyer
-  // is currently committed at).
-  const sortedTiers = [...tiers].sort(
-    (a, b) => Number(a.min_quantity_kg) - Number(b.min_quantity_kg)
+  // is currently committed at). `getTierProgress` handles bag-aware and
+  // legacy tiers uniformly.
+  const progress = getTierProgress(
+    {
+      committed_quantity_kg: campaignTotal,
+      price_per_kg: Number(lot?.price_per_kg || 0),
+      bag_size_kg: lot?.bag_size_kg ?? null,
+    },
+    tiers
   );
-  const unlockedTiers = sortedTiers.filter(
-    (t) => campaignTotal >= Number(t.min_quantity_kg)
-  );
-  const currentTier = unlockedTiers[unlockedTiers.length - 1] ?? null;
-  const currentBuyerPrice = addPlatformFee(
-    Number(currentTier?.price_per_kg ?? lot?.price_per_kg ?? 0)
-  );
+  const sortedTiers = progress.sortedTiers;
+  const currentBuyerPrice = addPlatformFee(progress.currentPricePerKg);
 
   const deadline = group.campaign?.deadline ?? lot?.commitment_deadline ?? null;
   const commitMoreHref = `/dashboard/buyer/lot/${group.lotId}${
@@ -158,17 +167,19 @@ export function RaisingDrawerBody({ group, tiers }: RaisingDrawerBodyProps) {
           </div>
           <div className="flex flex-col gap-1.5">
             {sortedTiers.map((t) => {
-              const tierThreshold = Number(t.min_quantity_kg);
-              const tierBuyerPrice = addPlatformFee(Number(t.price_per_kg));
-              const tierSellerPrice = Number(t.price_per_kg);
-              const unlocked = campaignTotal >= tierThreshold;
+              const tierThreshold = t.threshold_kg;
+              const tierBuyerPrice = addPlatformFee(t.price_per_kg);
+              const tierSellerPrice = t.price_per_kg;
+              const unlocked = progress.isBagAware && t.min_bags !== null
+                ? progress.completedBags >= t.min_bags
+                : campaignTotal >= tierThreshold;
               const personalDelta = unlocked
                 ? 0
                 : Math.max(0, (currentBuyerPrice - tierBuyerPrice) * myKg);
               return (
                 <div
-                  key={tierThreshold}
-                  data-testid={`raising-tier-${tierThreshold}`}
+                  key={`${t.min_bags ?? "kg"}-${tierThreshold}`}
+                  data-testid={`raising-tier-${t.min_bags ?? tierThreshold}`}
                   data-unlocked={unlocked ? "true" : "false"}
                   className={`flex items-center justify-between gap-3 rounded-md border-2 px-3 py-2 ${
                     unlocked
@@ -178,7 +189,11 @@ export function RaisingDrawerBody({ group, tiers }: RaisingDrawerBodyProps) {
                 >
                   <div className="flex items-center gap-3">
                     <span className="font-headline text-sm font-extrabold tabular-nums text-espresso">
-                      <UnitWeightText kg={tierThreshold} maximumFractionDigits={0} />
+                      {progress.isBagAware && t.min_bags !== null ? (
+                        <>{t.min_bags} bag{t.min_bags === 1 ? "" : "s"}</>
+                      ) : (
+                        <UnitWeightText kg={tierThreshold} maximumFractionDigits={0} />
+                      )}
                     </span>
                     <span className="font-body text-sm text-espresso/70 tabular-nums">
                       <UnitPriceText
@@ -198,7 +213,7 @@ export function RaisingDrawerBody({ group, tiers }: RaisingDrawerBodyProps) {
                         {personalDelta > 0 && myKg > 0 && (
                           <span
                             className="font-body text-xs font-bold text-tomato tabular-nums"
-                            data-testid={`raising-tier-delta-${tierThreshold}`}
+                            data-testid={`raising-tier-delta-${t.min_bags ?? tierThreshold}`}
                           >
                             +{fmtMoney(personalDelta)} if reached
                           </span>

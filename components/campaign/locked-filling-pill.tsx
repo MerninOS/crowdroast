@@ -136,7 +136,7 @@ export function LockedFillingPill({
           values are zero — keeps the buyer dashboard layout stable. */}
       {!hasLocked && !hasFilling && (
         <span
-          aria-label="No kg pledged"
+          aria-label="Nothing pledged yet"
           style={{
             display: "inline-flex",
             alignItems: "center",

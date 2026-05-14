@@ -128,9 +128,9 @@ describe("RaisingDrawerBody", () => {
       <RaisingDrawerBody
         group={makeGroup()}
         tiers={[
-          { min_quantity_kg: 500, price_per_kg: 10 },
-          { min_quantity_kg: 1000, price_per_kg: 9 },
-          { min_quantity_kg: 2000, price_per_kg: 8 },
+          { min_bags: null, min_quantity_kg: 500, price_per_kg: 10 },
+          { min_bags: null, min_quantity_kg: 1000, price_per_kg: 9 },
+          { min_bags: null, min_quantity_kg: 2000, price_per_kg: 8 },
         ]}
       />
     );
@@ -172,9 +172,9 @@ describe("RaisingDrawerBody", () => {
           commitments: [makeCommit({ quantity_kg: 50 })],
         })}
         tiers={[
-          { min_quantity_kg: 500, price_per_kg: 10 },
-          { min_quantity_kg: 1000, price_per_kg: 9 },
-          { min_quantity_kg: 2000, price_per_kg: 8 },
+          { min_bags: null, min_quantity_kg: 500, price_per_kg: 10 },
+          { min_bags: null, min_quantity_kg: 1000, price_per_kg: 9 },
+          { min_bags: null, min_quantity_kg: 2000, price_per_kg: 8 },
         ]}
       />
     );

@@ -1,5 +1,6 @@
 import { addPlatformFee } from "@/lib/pricing";
 import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
+import { getTierProgress } from "@/lib/tier-progress";
 import { ContributionsTable } from "./contributions-table";
 import { BagBreakdown } from "./bag-breakdown";
 import { refundDollarsFor } from "./refund-amount";
@@ -12,7 +13,15 @@ export interface ClosedDrawerBodyProps {
    * "refund" — minimum_not_met. Lead with refund total, suppress savings/CTA.
    */
   mode: "value" | "refund";
-  tiers?: { min_quantity_kg: number; price_per_kg: number }[];
+  /**
+   * Pricing tiers fetched for this lot. Bag-aware tiers carry a non-null
+   * `min_bags`; legacy tiers carry only `min_quantity_kg`.
+   */
+  tiers?: {
+    min_bags: number | null;
+    min_quantity_kg: number | null;
+    price_per_kg: number;
+  }[];
 }
 
 const fmtMoney = (n: number) =>
@@ -95,17 +104,20 @@ export function ClosedDrawerBody({
   const saved = Math.max(0, baselinePaid - paid);
 
   // Find which tier the campaign settled at — the highest one whose threshold
-  // was met by the final committed quantity.
+  // was met by the final committed quantity. `getTierProgress` mirrors the
+  // bag-aware settlement rule for display.
   const finalCommitted = Number(lot?.committed_quantity_kg || 0);
-  const sortedTiers = [...tiers].sort(
-    (a, b) => Number(a.min_quantity_kg) - Number(b.min_quantity_kg)
+  const settledProgress = getTierProgress(
+    {
+      committed_quantity_kg: finalCommitted,
+      price_per_kg: Number(lot?.price_per_kg || 0),
+      bag_size_kg: lot?.bag_size_kg ?? null,
+    },
+    tiers
   );
-  const unlockedTiers = sortedTiers.filter(
-    (t) => finalCommitted >= Number(t.min_quantity_kg)
-  );
-  const settledTier = unlockedTiers[unlockedTiers.length - 1] ?? null;
+  const settledTier = settledProgress.currentTier;
   const finalBuyerPrice = settledTier
-    ? addPlatformFee(Number(settledTier.price_per_kg))
+    ? addPlatformFee(settledTier.price_per_kg)
     : null;
 
   return (
@@ -155,15 +167,19 @@ export function ClosedDrawerBody({
             data-testid="closed-tier-threshold"
           >
             <span className="font-bold tabular-nums">
-              <UnitWeightText
-                kg={Number(settledTier.min_quantity_kg)}
-                maximumFractionDigits={0}
-              />
+              {settledProgress.isBagAware && settledTier.min_bags !== null ? (
+                <>{settledTier.min_bags} bag{settledTier.min_bags === 1 ? "" : "s"}</>
+              ) : (
+                <UnitWeightText
+                  kg={settledTier.threshold_kg}
+                  maximumFractionDigits={0}
+                />
+              )}
             </span>{" "}
             tier · final price{" "}
             <span className="font-bold tabular-nums">
               <UnitPriceText
-                pricePerKg={Number(settledTier.price_per_kg)}
+                pricePerKg={settledTier.price_per_kg}
                 currency="USD"
                 includePlatformFee
               />
