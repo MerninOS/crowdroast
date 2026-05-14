@@ -283,15 +283,44 @@ export async function POST(request: Request) {
       if (setupIntent.metadata?.commitment_id) {
         const admin = createAdminClient();
 
+        // Mirror the defensive shape used by checkout.session.completed
+        // (mode=setup): never write `stripe_payment_method_id` as NULL.
+        // Stripe webhook ordering is not guaranteed, and a `setup_intent.
+        // succeeded` event with a missing `payment_method` would otherwise
+        // clobber a PM id already written by the sibling
+        // checkout.session.completed handler. The settlement gate at
+        // lib/charge-worker.ts:274 reads PM presence as the
+        // ready-to-charge signal — losing it strands the commitment in
+        // `setup_complete` with no card.
+        const updatePayload: Record<string, unknown> = {
+          payment_status: "setup_complete",
+          stripe_setup_intent_id: setupIntent.id,
+        };
+        if (setupIntent.customer) {
+          updatePayload.stripe_customer_id = setupIntent.customer;
+        }
+        if (setupIntent.payment_method) {
+          updatePayload.stripe_payment_method_id = setupIntent.payment_method;
+        }
         await admin
           .from("commitments")
-          .update({
-            payment_status: "setup_complete",
-            stripe_setup_intent_id: setupIntent.id,
-            stripe_payment_method_id: setupIntent.payment_method || null,
-            stripe_customer_id: setupIntent.customer || null,
-          })
+          .update(updatePayload)
           .eq("id", setupIntent.metadata.commitment_id);
+
+        // Defensive: if Stripe handed us a succeeded setup_intent with no
+        // payment_method AND the row doesn't already have one (sibling
+        // handler hasn't run / won't run), surface it via payment_error so
+        // the worker treats this row as not-ready-to-charge instead of
+        // marking the eventual bag charge as terminal `missing_payment_method`.
+        if (!setupIntent.payment_method) {
+          await admin
+            .from("commitments")
+            .update({
+              payment_error: "Couldn't retrieve payment method after setup",
+            })
+            .eq("id", setupIntent.metadata.commitment_id)
+            .is("stripe_payment_method_id", null);
+        }
       }
     }
 
