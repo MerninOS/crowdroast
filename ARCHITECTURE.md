@@ -136,24 +136,48 @@ supporting tables:
 
 ## Payment & Settlement System
 
-### Commitment Flow
+> **One thing to internalize before reading the rest:** for bag-aware lots
+> (every current lot — anything with a non-null `bag_size_kg`), the buyer's
+> card is NOT charged at commit time. Commit time only **saves the card via
+> a SetupIntent**. Actual money movement happens later, **per bag**, via a
+> daily cron worker that issues one off-session PaymentIntent per
+> `commitment_bag_charges` row. Payouts to the seller + hub fire only after
+> all of a bag's sibling rows reach a terminal state. Legacy payment-mode
+> commits (immediate charge at commit time) still exist as a fallback path
+> in the codebase but no new lot hits them.
+
+### Commitment Flow (bag-aware, setup-mode)
 
 ```
-1. Buyer selects lot + quantity
+1. Buyer selects lot + quantity on the campaign page
         │
         ▼
 2. POST /api/commitments
-   - Calculate price with 10% platform markup
-   - Create Stripe Customer (if new)
-   - Create Checkout Session (setup mode → save payment method)
+   - Resolve campaign + active seller price tier
+   - Reuse or create Stripe Customer
+   - Insert commitment row with payment_status='pending_setup'
+   - Mint Stripe Checkout Session (mode='setup')
         │
         ▼
-3. Buyer completes Stripe Checkout
+3. Buyer redirects to Stripe-hosted setup; attaches card
         │
         ▼
-4. Stripe fires webhook → /api/stripe/webhook
-   - checkout.session.completed → mark payment_status = 'setup_complete'
-   - Store stripe_payment_method_id on commitment
+4. Stripe fires webhooks → /api/stripe/webhook
+   - checkout.session.completed (mode=setup):
+       • write stripe_payment_method_id + stripe_customer_id
+       • flip payment_status → 'setup_complete'
+       • run probeCardAuth (AC12): tiny auth+void to verify the card
+         will clear at settlement. On failure, stamp payment_error +
+         send the buyer the "card auth failed" email.
+   - setup_intent.succeeded (fires in parallel):
+       • same writes, defensive idempotent (never clobbers PM with null,
+         per PR #86)
+   - setup_intent.setup_failed (failure leg):
+       • cancel the commit so the lot trigger drops the quantity
+        │
+        ▼
+   Commitment now in 'setup_complete' with card on file. No money has
+   moved yet. The next event is settlement at the campaign deadline.
 ```
 
 ### Settlement Flow (Post-Deadline Cron Job)
@@ -162,31 +186,182 @@ supporting tables:
 POST /api/payments/settle-deadlines  (authenticated via CRON_SECRET)
         │
         ▼
-Fetch all lots where:
-  commitment_deadline ≤ now
-  settlement_status = 'pending'
+For each campaign past its deadline (status='active'):
         │
-        ├─── minimum NOT met ────────────────────────────────────┐
-        │                                                         │
-        │    Refund all charge_succeeded commitments             │
-        │    Cancel all commitments                               │
-        │    Mark lot: settlement_status = 'minimum_not_met'     │
-        │                                                         │
-        └─── minimum MET ─────────────────────────────────────────┤
-                                                                  │
-             Apply volume tier discounts (if better tier reached) │
-             Compute splits:                                       │
-               Seller  = base price × quantity                    │
-               Hub     = 2% of gross amount (HUB_SHARE_BPS=200)  │
-               Platform = gross - seller - hub                    │
-                                                                  │
-             Create Stripe Transfers:                             │
-               → Seller Connect Account                           │
-               → Hub Connect Account                              │
-               → Platform Connect Account                         │
-                                                                  │
-             If price decreased (tier discount): issue refund     │
-             Mark lot: settlement_status = 'settled'              │
+        ├─── min_bags_to_succeed NOT met ─────────────────────────┐
+        │                                                          │
+        │    Cancel every still-pending commitment                │
+        │    Mark campaign: status='failed'                        │
+        │    Buyers' cards were never charged → no refunds needed │
+        │    Send AC10 "campaign didn't make it" email             │
+        │                                                          │
+        └─── min_bags_to_succeed MET ──────────────────────────────┤
+                                                                   │
+             Determine per-bag pricing via lib/settle-bag-pricing  │
+             (active tier × bag_size_kg × bags filled).            │
+                                                                   │
+             Drop ORPHAN commits that never finished setup         │
+             (PR #82's filter — these aren't valid buyers).        │
+                                                                   │
+             Allocate bags across confirmed commits.               │
+             For each (commitment, bag_number) write one row to   │
+             `commitment_bag_charges`:                              │
+               - amount_cents (buyer-side gross, w/ platform fee)  │
+               - kg                                                 │
+               - stripe_idempotency_key                            │
+                   = "charge:campaign:CC:commitment:MM:bag:N"      │
+               - payment_status = 'awaiting_charge'                │
+                                                                   │
+             Mark campaign: status='settled', settled_at=now()     │
+                                                                   │
+             >>> NO Stripe call fires here. <<<                    │
+             >>> The charge worker handles money.    <<<           │
+```
+
+### Charge Worker Flow (Daily Cron — `/api/cron/process-bag-charges`)
+
+```
+Vercel cron at 02:00 UTC, authenticated via CRON_SECRET.
+        │
+        ▼
+SELECT commitment_bag_charges
+WHERE payment_status IN ('awaiting_charge','retry_scheduled','charging')
+  AND (next_attempt_at IS NULL OR next_attempt_at <= now())
+ORDER BY next_attempt_at NULLS FIRST
+LIMIT 100;
+        │
+        ▼
+For each row (sequential — Stripe latency is the bottleneck):
+        │
+        1. Claim lease (UPDATE payment_status → 'charging', set a
+           5-minute lease expiration). A crashed worker is reclaimed
+           by the next tick once the lease window expires.
+        │
+        2. Gate checks:
+           • commitment.payment_error set → markPaymentFailed
+             reason='auth_probe_failed'
+           • commitment.stripe_payment_method_id NULL → markPaymentFailed
+             reason='missing_payment_method'
+        │
+        3. createAndConfirmPaymentIntent (off-session, deterministic
+           idempotency_key from the row).
+        │
+        4a. Stripe succeeds:
+            - Flip row → 'charged', store stripe_payment_intent_id
+            - Side-effect: transferOutBagIfReady (see below)
+            - Side-effect: sendSettlementEmailIfReady (see below)
+        4b. Stripe declines (transient — rate limit, network):
+            - Set next_attempt_at += 1h; payment_status='retry_scheduled'
+        4c. Stripe declines (real — card declined, etc.):
+            - Increment attempt_count
+            - On attempts 1→2: send AC13 "your card declined" email
+              (idempotent via payment_update_email_sent_at stamp)
+            - Reschedule per the AC13 ladder:
+                attempt 1 → +12h
+                attempt 2 → +48h
+                attempt 3 → terminal 'payment_failed'
+              (Vercel Hobby caps cron at daily so actual wall-clock
+              gaps are ~24h / ~48h, see route.ts comment.)
+```
+
+### Transfer-Out (Money to Seller + Hub)
+
+```
+Fires from inside the charge worker as a fire-and-forget side-effect
+on every successful charge OR every terminal payment_failed.
+        │
+        ▼
+transferOutBagIfReady(supabase, { commitmentId, bagNumber }):
+        │
+        1. Is every sibling row for THIS (lot, bag_number) terminal?
+           ('charged' or 'payment_failed')
+           NO → return 'not_ready' (no-op; next worker tick re-evaluates)
+        │
+        2. Idempotency guard: SELECT bag_transfers WHERE (lot_id,bag_number)
+           Found → 'already_transferred'
+        │
+        3. Compute split (lib/payments/settlement-logic.js → computeSplit):
+           Sum buyer-side cents over `charged` rows only — failed bags
+           contributed no money and are excluded.
+                seller_amount   = sum( round(amount / (1 + PLATFORM_FEE_RATE)) )
+                hub_amount      = floor(total × HUB_SHARE_BPS / 10000)
+                platform_keeps  = total − seller − hub
+        │
+        4. If total > 0:
+              Stripe Transfer → seller Connect account
+              Stripe Transfer → hub Connect account
+           Else (every bag failed):
+              Skip Stripe; write a zero-amount marker row anyway so the
+              bag isn't re-evaluated every tick.
+        │
+        5. INSERT bag_transfers (lot_id, hub_id, bag_number, …)
+           Note: hub_id is NOT NULL (PR #85 fix) — pulled from
+           campaign.hub_id with commitment.hub_id fallback for
+           pre-campaigns rows.
+```
+
+### Settlement Email Trigger
+
+```
+Fires from inside the charge worker as a fire-and-forget side-effect.
+        │
+        ▼
+sendSettlementEmailIfReady(supabase, commitmentId):
+        │
+        1. Are all `commitment_bag_charges` rows for THIS commitment terminal?
+           NO → return 'not_ready'
+        │
+        2. Claim the row (UPDATE settlement_email_sent_at = now()
+           WHERE commitment_id = ? AND settlement_email_sent_at IS NULL
+           RETURNING id). The claim is the dedup primitive — duplicate
+           webhook deliveries / concurrent worker ticks see 0 rows
+           returned and skip the email.
+        │
+        3. Compose + send the AC10 settlement summary email with the
+           charged-vs-dropped bag breakdown.
+```
+
+### Card-Update Flow (PR #88)
+
+```
+After the AC13 "Your card declined" email OR the Needs Attention card on
+the buyer dashboard, the buyer can update their card and have failed bag
+charges retried automatically.
+        │
+        ▼
+1. Buyer clicks "Update payment" on NeedsAttentionCard OR the email link.
+        │
+        ▼
+2. POST /api/commitments/[id]/restart-setup
+   - Verify the buyer owns this commit AND the commit has at least one
+     `payment_failed` bag row (or legacy `charge_failed`).
+   - Mint a fresh Stripe Checkout Session (mode='setup'), reusing the
+     existing stripe_customer_id.
+   - Update commit: payment_status='pending_setup', stash new session id,
+     clear payment_error.
+   - Return the Stripe redirect URL.
+        │
+        ▼
+3. Buyer redirects to Stripe, attaches the new card.
+        │
+        ▼
+4. Stripe fires webhooks — same handlers as the initial commit flow PLUS:
+   - rearmFailedBagCharges(supabase, { commitmentId, newSetupIntentId }):
+       For every commitment_bag_charges row with payment_status='payment_failed':
+         • Flip → 'awaiting_charge'
+         • Reset attempt_count = 0, clear failed_reason / next_attempt_at
+         • Rotate stripe_idempotency_key → "retry:<new_seti_id>:bag:<N>"
+           (the old key is locked in Stripe's idempotency cache pointing
+           at the failed PaymentIntent; reusing it would replay the
+           decline).
+         • Clear payment_update_email_sent_at so a fresh failure can
+           re-send the email.
+   - Gated on probe.ok (CS path) / payment_method present (SI path) —
+     a declined new card cannot unlock retries.
+        │
+        ▼
+5. Next charge worker tick picks up the awaiting_charge rows and tries
+   to charge them with the new card.
 ```
 
 ### Pricing Model
@@ -213,13 +388,29 @@ Buyer's card ──► Platform Stripe Account
 
 ## Background Jobs
 
-### Settlement Cron (`/api/payments/settle-deadlines`)
-- **Auth:** Bearer token or `x-cron-secret` header matching `CRON_SECRET`
-- **Idempotency:** Stripe idempotency keys (`commitment-charge-{id}`, `transfer-seller-{id}`, etc.)
-- **Debug Mode:** `?debug=1` for dry-run output
-- **Failure Handling:**
-  - Missing seller Connect account → lot marked `settlement_status = 'failed'`
-  - Stripe API error → remains `pending` for retry on next run
+Three crons run in sequence each night. The 1-hour offsets between them are intentional — they let each step's writes propagate before the next reads them.
+
+### Settle-Deadlines Cron (`/api/payments/settle-deadlines`)
+- **Schedule:** 00:00 UTC daily (`vercel.json`).
+- **Auth:** Bearer token or `x-cron-secret` header matching `CRON_SECRET`.
+- **What it does:** Looks at every campaign whose deadline has passed. If the campaign hit `min_bags_to_succeed`, it writes the per-bag `commitment_bag_charges` rows and flips the campaign to `settled`. If not, cancels all commits and flips the campaign to `failed`.
+- **Idempotency:** `UPSERT (commitment_id, bag_number) ON CONFLICT DO NOTHING` on the bag-charges insert; campaign status flip is naturally idempotent.
+- **Debug Mode:** `?debug=1` for dry-run output.
+- **Does NOT charge any cards.** Hands off to the charge worker by writing rows.
+
+### Lot-Expiry Cron (`/api/payments/lot-expiry`)
+- **Schedule:** 01:00 UTC daily.
+- **Auth:** Same `CRON_SECRET` pattern.
+- **What it does:** Closes out lots whose `expiry_date` has passed without re-listing.
+
+### Charge Worker Cron (`/api/cron/process-bag-charges`)
+- **Schedule:** 02:00 UTC daily (Vercel Hobby cap; would run hourly on Pro).
+- **Auth:** Same `CRON_SECRET` pattern.
+- **What it does:** Picks up due `commitment_bag_charges` rows (`awaiting_charge`, `retry_scheduled`, or stale `charging` leases) and issues one off-session PaymentIntent per row. See "Charge Worker Flow" above for the per-row state machine.
+- **Idempotency:** Each row carries a deterministic `stripe_idempotency_key`. The row is the durable marker; Stripe's idempotency cache is the secondary guard. After restart-setup (#88), the key is rotated to `retry:<seti_id>:bag:<N>` so a fresh card can be retried.
+- **Lease window:** 5 minutes. A crashed mid-Stripe-call worker is reclaimed on the next tick once the lease expires.
+- **Wall-clock cap:** 4 minutes inside a 300-second function budget. Remaining rows roll to the next tick.
+- **Returns:** HTTP **207 Multi-Status** when any row terminated as `payment_failed` (a normal-day signal for monitoring, not an error).
 
 ---
 
@@ -284,9 +475,18 @@ CROWDROAST_STRIPE_CONNECT_ACCOUNT_ID=   # legacy platform account fallback
 | File | Responsibility |
 |------|---------------|
 | [lib/payments/settlement-logic.js](lib/payments/settlement-logic.js) | Core settlement math: tier lookup, splits, refund calculations |
+| [lib/settle-bag-pricing.ts](lib/settle-bag-pricing.ts) | Bag-aware pricing — resolves the active tier × bag_size_kg at settlement time |
 | [lib/pricing.ts](lib/pricing.ts) | Tiered price calculation for display |
+| [lib/tier-progress.ts](lib/tier-progress.ts) | Shared bag-aware "current tier + kg-to-next" helper (buyer/seller/hub UI) |
 | [lib/stripe.ts](lib/stripe.ts) | Stripe API wrappers (charges, transfers, refunds, Connect onboarding) |
+| [lib/charge-worker.ts](lib/charge-worker.ts) | Per-row charge logic for `commitment_bag_charges`. AC13 retry ladder lives here |
+| [lib/bag-transfer-out.ts](lib/bag-transfer-out.ts) | Seller + hub Stripe transfers once every bag-row sibling is terminal |
+| [lib/bag-charge-rearm.ts](lib/bag-charge-rearm.ts) | Re-arms `payment_failed` bag rows after a buyer attaches a new card (PR #88) |
+| [lib/settlement-email-trigger.ts](lib/settlement-email-trigger.ts) | Fires the AC10 settlement summary email once every bag row terminates |
 | [lib/auth/admin.ts](lib/auth/admin.ts) | Admin email verification helpers |
-| [app/api/payments/settle-deadlines/route.ts](app/api/payments/settle-deadlines/route.ts) | Settlement cron orchestrator |
-| [app/api/stripe/webhook/route.ts](app/api/stripe/webhook/route.ts) | Stripe event processing |
-| [app/api/commitments/route.ts](app/api/commitments/route.ts) | Commitment creation + Stripe Checkout |
+| [app/api/payments/settle-deadlines/route.ts](app/api/payments/settle-deadlines/route.ts) | Settlement cron — writes bag-charge rows, does NOT charge cards |
+| [app/api/cron/process-bag-charges/route.ts](app/api/cron/process-bag-charges/route.ts) | Daily charge worker cron — dispatches `processBagCharge` per row |
+| [app/api/stripe/webhook/route.ts](app/api/stripe/webhook/route.ts) | Stripe event processing (setup-mode + payment-mode + decline events) |
+| [app/api/commitments/route.ts](app/api/commitments/route.ts) | Commitment creation + Stripe Checkout (setup-mode for bag-aware lots) |
+| [app/api/commitments/[id]/restart-setup/route.ts](app/api/commitments/[id]/restart-setup/route.ts) | Buyer-initiated card-update flow (PR #88) |
+| [components/buyer-commitments/bucket-by-lifecycle.ts](components/buyer-commitments/bucket-by-lifecycle.ts) | Buyer dashboard bucketing + portfolio stats; bag-aware derivations live here |
