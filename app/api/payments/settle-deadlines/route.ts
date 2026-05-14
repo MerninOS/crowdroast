@@ -355,18 +355,34 @@ async function settleDeadlines(request: Request) {
   const backgroundTasks: Promise<unknown>[] = [];
 
   for (const campaign of dueCampaigns || []) {
-    // Cancel orphans first — commitments where the buyer started checkout but never
-    // got `stripe_payment_intent_id` stamped. Webhooks should already have done this
-    // on `checkout.session.expired`/`payment_intent.payment_failed`; this is the
-    // safety net for races (last-minute commits, missed webhooks). Cancelling fires
-    // the lot trigger so committed_quantity_kg drops to truth before we read it.
+    // Cancel orphans first — commitments where the buyer started checkout
+    // but never reached a "real" payment_status. Webhooks should already have
+    // done this on `checkout.session.expired`/`payment_intent.payment_failed`/
+    // `setup_intent.setup_failed`; this is the safety net for races
+    // (last-minute commits, missed webhooks). Cancelling fires the lot
+    // trigger so committed_quantity_kg drops to truth before we read it.
+    //
+    // The orphan criterion matches the lot trigger (migration #45): a commit
+    // counts as "real" iff its payment_status is one of:
+    //   * 'setup_complete'   — bag-aware: card saved, ready for per-bag
+    //                          charging at settlement
+    //   * 'charge_succeeded' — legacy / completed: payment captured at commit
+    //
+    // Critically, we do NOT key the orphan check off
+    // `stripe_payment_intent_id IS NULL` anymore. Bag-aware commits use
+    // `stripe_setup_intent_id` + `stripe_payment_method_id` and don't have a
+    // payment intent at commit time — that field is only populated later by
+    // the charge worker. Treating "no payment intent" as orphan would cancel
+    // every successful bag-aware commit, flatten committed_quantity_kg to 0,
+    // trip the below-min-bags branch, and prevent commitment_bag_charges from
+    // ever being created.
     let orphansCancelled = 0;
     if (!debug) {
       const { data: orphans } = await admin
         .from("commitments")
         .select("id")
         .eq("campaign_id", campaign.id)
-        .is("stripe_payment_intent_id", null)
+        .not("payment_status", "in", "(setup_complete,charge_succeeded)")
         .neq("status", "cancelled")
         .neq("status", "confirmed");
 
