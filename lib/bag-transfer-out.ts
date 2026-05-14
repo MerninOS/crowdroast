@@ -99,6 +99,14 @@ export interface TransferOutBagDeps {
 interface CommitmentJoin {
   lot_id: string;
   campaign_id: string | null;
+  /**
+   * Commitment-row `hub_id`. Migration #42 added `bag_transfers.hub_id NOT NULL`
+   * and noted that the insert call must populate it. The campaign's hub_id
+   * is the authoritative source (see migration header re: relisted lots),
+   * but commitments are routed at create time and carry their own hub_id
+   * column as a fallback for legacy commitments missing `campaign_id`.
+   */
+  hub_id: string | null;
   lot: {
     id: string;
     seller_id: string;
@@ -109,6 +117,7 @@ interface CommitmentJoin {
   } | null;
   campaign: {
     id: string;
+    hub_id: string | null;
     hub: {
       owner_profile: {
         stripe_connect_account_id: string | null;
@@ -159,7 +168,7 @@ export async function transferOutBagIfReady(
   const { data: commitmentJoin, error: commitmentError } = await supabase
     .from("commitments")
     .select(
-      "lot_id, campaign_id, lot:lot_id(id, seller_id, currency, seller_profile:seller_id(stripe_connect_account_id)), campaign:campaign_id(id, hub:hub_id(owner_profile:owner_id(stripe_connect_account_id)))"
+      "lot_id, campaign_id, hub_id, lot:lot_id(id, seller_id, currency, seller_profile:seller_id(stripe_connect_account_id)), campaign:campaign_id(id, hub_id, hub:hub_id(owner_profile:owner_id(stripe_connect_account_id)))"
     )
     .eq("id", args.commitmentId)
     .single();
@@ -184,6 +193,12 @@ export async function transferOutBagIfReady(
     normalized.lot.seller_profile?.stripe_connect_account_id || null;
   const hubAccountId =
     normalized.campaign?.hub?.owner_profile?.stripe_connect_account_id || null;
+  // Hub id for the ledger row. Prefer the campaign's hub_id so a relisted
+  // lot can't backfill prior-hub transfers under a new hub (migration #42's
+  // M1 fix). Fall back to commitment.hub_id for legacy rows without
+  // campaign_id. Required by `bag_transfers.hub_id NOT NULL`.
+  const hubId =
+    normalized.campaign?.hub_id || normalized.hub_id || null;
   const currency = (normalized.lot.currency || "USD").toLowerCase();
 
   if (!sellerAccountId) {
@@ -191,6 +206,9 @@ export async function transferOutBagIfReady(
   }
   if (!hubAccountId) {
     return { status: "skipped", reason: "hub_missing_connect_account" };
+  }
+  if (!hubId) {
+    return { status: "skipped", reason: "hub_id_unresolved_on_commitment" };
   }
 
   // ---------------------------------------------------------------------
@@ -267,6 +285,7 @@ export async function transferOutBagIfReady(
       .from("bag_transfers")
       .insert({
         lot_id: lotId,
+        hub_id: hubId,
         bag_number: args.bagNumber,
         currency: (currency || "usd").toUpperCase(),
         seller_amount_cents: 0,
@@ -393,6 +412,7 @@ export async function transferOutBagIfReady(
     .from("bag_transfers")
     .insert({
       lot_id: lotId,
+      hub_id: hubId,
       bag_number: args.bagNumber,
       currency: currency.toUpperCase(),
       seller_amount_cents: split.sellerAmount,
@@ -451,6 +471,7 @@ function normalizeCommitmentJoin(raw: unknown): CommitmentJoin {
   return {
     lot_id: (obj.lot_id as string) || "",
     campaign_id: (obj.campaign_id as string | null) || null,
+    hub_id: (obj.hub_id as string | null) || null,
     lot: normalizeLotEmbed(obj.lot),
     campaign: normalizeCampaignEmbed(obj.campaign),
   };
@@ -485,6 +506,9 @@ function normalizeCampaignEmbed(raw: unknown): CommitmentJoin["campaign"] {
     : null;
   return {
     id: String((campaignObj as Record<string, unknown>).id || ""),
+    hub_id:
+      ((campaignObj as Record<string, unknown>).hub_id as string | null) ??
+      null,
     hub: hub
       ? {
           owner_profile: ownerProfile

@@ -94,6 +94,7 @@ function defaultCommitmentJoin(overrides: Record<string, unknown> = {}) {
   return {
     lot_id: "lot-1",
     campaign_id: "camp-1",
+    hub_id: "hub-1",
     lot: {
       id: "lot-1",
       seller_id: "seller-1",
@@ -105,6 +106,7 @@ function defaultCommitmentJoin(overrides: Record<string, unknown> = {}) {
     },
     campaign: {
       id: "camp-1",
+      hub_id: "hub-1",
       hub: {
         owner_profile: { stripe_connect_account_id: "acct_hub_1" },
       },
@@ -270,6 +272,7 @@ describe("transferOutBagIfReady", () => {
     expect(insert).toBeDefined();
     expect(insert?.payload).toMatchObject({
       lot_id: "lot-1",
+      hub_id: "hub-1",
       bag_number: 1,
       currency: "USD",
       seller_amount_cents: 20000,
@@ -404,6 +407,7 @@ describe("transferOutBagIfReady", () => {
     expect(transferMock).not.toHaveBeenCalled();
     expect(insertCaptured[0]?.payload).toMatchObject({
       lot_id: "lot-1",
+      hub_id: "hub-1",
       bag_number: 1,
       seller_amount_cents: 0,
       hub_amount_cents: 0,
@@ -411,5 +415,36 @@ describe("transferOutBagIfReady", () => {
       seller_transfer_id: null,
       hub_transfer_id: null,
     });
+  });
+
+  // ------------------------------------------------------------------
+  // 7. skipped: hub_id unresolved (bag_transfers.hub_id NOT NULL guard)
+  // ------------------------------------------------------------------
+  it("returns 'skipped' when neither campaign.hub_id nor commitment.hub_id is resolvable", async () => {
+    enqueue("commitments", {
+      data: defaultCommitmentJoin({
+        hub_id: null,
+        campaign: {
+          id: "camp-1",
+          hub_id: null,
+          hub: {
+            owner_profile: { stripe_connect_account_id: "acct_hub_1" },
+          },
+        },
+      }),
+      error: null,
+    });
+
+    const transferMock = vi.fn();
+    const result = await transferOutBagIfReady(
+      makeSupabase(),
+      { commitmentId: "commit-1", bagNumber: 1 },
+      makeDeps(transferMock)
+    );
+
+    expect(result.status).toBe("skipped");
+    expect(result.reason).toBe("hub_id_unresolved_on_commitment");
+    expect(transferMock).not.toHaveBeenCalled();
+    expect(insertCaptured).toHaveLength(0);
   });
 });
