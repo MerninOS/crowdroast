@@ -567,4 +567,112 @@ describe("Stripe webhook — failure events cancel commitments", () => {
     // Critically, status must NOT be set to 'cancelled' on the happy path.
     expect(updateCalls[0].payload.status).toBeUndefined();
   });
+
+  // -------------------------------------------------------------------------
+  // setup_intent.succeeded — PM-clobber regression
+  // -------------------------------------------------------------------------
+  // The bug this guards against: a setup_intent.succeeded event with a
+  // missing `payment_method` field used to write
+  // `stripe_payment_method_id: null` unconditionally. Stripe webhook
+  // ordering isn't guaranteed; the sibling checkout.session.completed
+  // handler may have already persisted a real PM. Clobbering it with NULL
+  // strands the commitment in `setup_complete` with no card, and the
+  // settlement charge worker then bails the bag charge with
+  // `missing_payment_method` (lib/charge-worker.ts:274).
+
+  it("setup_intent.succeeded writes payment_method when present", async () => {
+    const res = await POST(
+      makeRequest({
+        id: "evt_si_ok",
+        type: "setup_intent.succeeded",
+        data: {
+          object: {
+            id: "seti_ok",
+            payment_method: "pm_real",
+            customer: "cus_si_ok",
+            metadata: { commitment_id: "commit-si-ok" },
+          },
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    const mainUpdate = updateCalls.find(
+      (c) => c.payload.payment_status === "setup_complete"
+    );
+    expect(mainUpdate).toBeDefined();
+    expect(mainUpdate?.payload).toMatchObject({
+      payment_status: "setup_complete",
+      stripe_setup_intent_id: "seti_ok",
+      stripe_customer_id: "cus_si_ok",
+      stripe_payment_method_id: "pm_real",
+    });
+  });
+
+  it("setup_intent.succeeded does NOT clobber stripe_payment_method_id with null when payment_method is missing", async () => {
+    const res = await POST(
+      makeRequest({
+        id: "evt_si_no_pm",
+        type: "setup_intent.succeeded",
+        data: {
+          object: {
+            id: "seti_no_pm",
+            // payment_method intentionally omitted — simulates the production
+            // payload that produced our Sour Grape Thermal Shock orphan.
+            customer: "cus_si_no_pm",
+            metadata: { commitment_id: "commit-si-no-pm" },
+          },
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    const mainUpdate = updateCalls.find(
+      (c) => c.payload.payment_status === "setup_complete"
+    );
+    expect(mainUpdate).toBeDefined();
+    // The fix: the field must NOT be present in the payload at all (a present
+    // `null` would clobber a real PM written by a sibling webhook).
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        mainUpdate?.payload ?? {},
+        "stripe_payment_method_id"
+      )
+    ).toBe(false);
+  });
+
+  it("setup_intent.succeeded with no payment_method also stamps payment_error (gated on existing-null PM)", async () => {
+    const res = await POST(
+      makeRequest({
+        id: "evt_si_no_pm_err",
+        type: "setup_intent.succeeded",
+        data: {
+          object: {
+            id: "seti_no_pm_err",
+            customer: "cus_x",
+            metadata: { commitment_id: "commit-si-no-pm-err" },
+          },
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    // A second UPDATE should have fired to set payment_error, scoped to
+    // rows where stripe_payment_method_id IS NULL so a sibling handler
+    // that already wrote a real PM isn't clobbered by the error stamp.
+    const errUpdate = updateCalls.find(
+      (c) => c.payload.payment_error === "Couldn't retrieve payment method after setup"
+    );
+    expect(errUpdate).toBeDefined();
+    expect(errUpdate?.filters).toContainEqual({
+      op: "is",
+      col: "stripe_payment_method_id",
+      val: null,
+    });
+    expect(errUpdate?.filters).toContainEqual({
+      op: "eq",
+      col: "id",
+      val: "commit-si-no-pm-err",
+    });
+  });
 });
