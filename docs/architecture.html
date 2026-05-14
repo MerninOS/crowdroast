@@ -1,0 +1,1657 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>How CrowdRoast Works — Interactive Architecture</title>
+<meta name="description" content="An interactive walkthrough of the bag-aware lifecycle, payments, and data model." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cal+Sans&family=Fredoka:wght@500;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+<style>
+/* -------------------------------------------------------------------------
+   Mernin' Design System (excerpted from CLAUDE.md).
+   Single-file static HTML so the doc is viewable straight from the repo
+   without a build step. Adore Cats is loaded best-effort from a couple of
+   plausible paths; if neither resolves we fall back to Fredoka via Google
+   Fonts (CLAUDE.md's documented fallback).
+   ------------------------------------------------------------------------- */
+@font-face {
+  font-family: "Adore Cats";
+  src:
+    url("../public/fonts/Adore%20Cats.otf") format("opentype"),
+    url("../public/fonts/AdoreCats.otf") format("opentype"),
+    url("/fonts/Adore%20Cats.otf") format("opentype");
+  font-display: swap;
+}
+
+:root {
+  --color-tomato: #e8442a;
+  --color-cream: #f5f0d8;
+  --color-espresso: #1c0f05;
+  --color-sun: #f5c842;
+  --color-sky: #5bc8d5;
+  --color-chalk: #fdfaf0;
+  --color-roast: #3b1f0a;
+  --color-honey: #e8913a;
+  --color-matcha: #5a7a3a;
+  --color-fog: #d8d0b8;
+
+  --font-display: "Adore Cats", "Fredoka", cursive;
+  --font-body: "Cal Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --shadow-flat-sm: 3px 3px 0px var(--color-espresso);
+  --shadow-flat-md: 5px 5px 0px var(--color-espresso);
+  --shadow-flat-lg: 8px 8px 0px var(--color-espresso);
+
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-pill: 9999px;
+  --radius-bubble: 40px;
+
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-snap: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--color-cream);
+  color: var(--color-espresso);
+  font-family: var(--font-body);
+  font-size: 17px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: inherit; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+a:hover { color: var(--color-tomato); }
+
+::selection { background: var(--color-sun); color: var(--color-espresso); }
+
+/* ------ Marquee ------ */
+.marquee {
+  background: var(--color-tomato);
+  color: var(--color-cream);
+  border-bottom: 4px solid var(--color-espresso);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 10px 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.marquee-inner {
+  display: inline-flex;
+  gap: 3rem;
+  animation: ticker 32s linear infinite;
+}
+@keyframes ticker {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+/* ------ Hero ------ */
+.hero {
+  background: var(--color-tomato);
+  color: var(--color-cream);
+  padding: 70px 24px 80px;
+  border-bottom: 5px solid var(--color-espresso);
+  position: relative;
+  overflow: hidden;
+}
+.hero-inner { max-width: 1200px; margin: 0 auto; position: relative; z-index: 1; }
+.hero-eyebrow {
+  display: inline-block;
+  background: var(--color-sun);
+  color: var(--color-espresso);
+  border: 3px solid var(--color-espresso);
+  box-shadow: var(--shadow-flat-sm);
+  border-radius: var(--radius-pill);
+  padding: 6px 16px;
+  font-weight: 800;
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin-bottom: 24px;
+}
+.hero h1 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(3rem, 9vw, 6.5rem);
+  line-height: 0.95;
+  margin: 0 0 8px;
+  color: var(--color-cream);
+  text-shadow:
+    3px 3px 0 var(--color-espresso),
+    -2px 3px 0 var(--color-espresso),
+    3px -2px 0 var(--color-espresso),
+    -2px -2px 0 var(--color-espresso),
+    6px 6px 0 var(--color-espresso);
+}
+.hero h1 .stack { display: inline-block; }
+.hero p {
+  font-size: clamp(1rem, 1.5vw, 1.25rem);
+  max-width: 720px;
+  margin: 18px 0 0;
+  font-weight: 500;
+}
+.hero-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 28px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.hero-meta .pill {
+  background: var(--color-espresso);
+  color: var(--color-cream);
+  border: 3px solid var(--color-cream);
+  border-radius: var(--radius-pill);
+  padding: 6px 14px;
+  box-shadow: 3px 3px 0 var(--color-cream);
+}
+
+/* ------ Page layout ------ */
+.shell {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 48px;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 56px 24px 80px;
+}
+@media (max-width: 920px) {
+  .shell { grid-template-columns: 1fr; gap: 24px; padding: 32px 18px 60px; }
+  aside.toc { position: static; max-height: none; }
+}
+
+aside.toc {
+  position: sticky;
+  top: 24px;
+  align-self: start;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.toc-card {
+  background: var(--color-chalk);
+  border: 4px solid var(--color-espresso);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-flat-md);
+  padding: 18px;
+}
+.toc-card h3 {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  margin: 0 0 12px;
+  font-weight: 700;
+}
+.toc-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.toc-list a {
+  display: block;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  font-weight: 700;
+  font-size: 0.92rem;
+  text-decoration: none;
+  border: 2px solid transparent;
+  transition: background var(--ease-snap) 120ms, border-color var(--ease-snap) 120ms;
+}
+.toc-list a:hover { background: var(--color-cream); border-color: var(--color-espresso); }
+.toc-list a.active {
+  background: var(--color-tomato);
+  color: var(--color-cream);
+  border-color: var(--color-espresso);
+  box-shadow: var(--shadow-flat-sm);
+}
+
+/* ------ Section base ------ */
+section.section { margin-bottom: 64px; scroll-margin-top: 16px; }
+section.section h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(2.4rem, 5vw, 3.6rem);
+  line-height: 1;
+  margin: 0 0 6px;
+}
+section.section .lede {
+  font-size: 1.05rem;
+  max-width: 760px;
+  margin: 0 0 28px;
+  color: rgba(28, 15, 5, 0.78);
+}
+section.section h3 {
+  font-family: var(--font-display);
+  font-size: 1.7rem;
+  margin: 28px 0 12px;
+  font-weight: 700;
+}
+
+/* ------ Cards ------ */
+.card {
+  background: var(--color-chalk);
+  border: 4px solid var(--color-espresso);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-flat-md);
+  padding: 22px;
+}
+.card-tomato {
+  background: var(--color-tomato);
+  color: var(--color-cream);
+  border: 4px solid var(--color-espresso);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-flat-md);
+  padding: 22px;
+}
+.card-sun {
+  background: var(--color-sun);
+  color: var(--color-espresso);
+  border: 4px solid var(--color-espresso);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-flat-md);
+  padding: 22px;
+}
+.card-sky {
+  background: var(--color-sky);
+  color: var(--color-espresso);
+  border: 4px solid var(--color-espresso);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-flat-md);
+  padding: 22px;
+}
+.card-row { display: grid; gap: 18px; }
+.card-row.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.card-row.cols-2 { grid-template-columns: repeat(2, 1fr); }
+@media (max-width: 740px) {
+  .card-row.cols-3, .card-row.cols-2 { grid-template-columns: 1fr; }
+}
+.card .card-eyebrow {
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 800;
+  color: var(--color-tomato);
+  margin-bottom: 8px;
+}
+.card-tomato .card-eyebrow, .card-sun .card-eyebrow, .card-sky .card-eyebrow { color: var(--color-espresso); }
+.card h4 {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  margin: 0 0 8px;
+}
+
+/* ------ Tabs ------ */
+.tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.tab {
+  background: var(--color-chalk);
+  color: var(--color-espresso);
+  border: 3px solid var(--color-espresso);
+  border-radius: var(--radius-pill);
+  padding: 8px 18px;
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: var(--shadow-flat-sm);
+  transition: transform 120ms var(--ease-snap), box-shadow 120ms var(--ease-snap);
+}
+.tab:hover { transform: translate(-2px, -2px); box-shadow: var(--shadow-flat-md); }
+.tab.active {
+  background: var(--color-espresso);
+  color: var(--color-cream);
+}
+.tab[data-tone="success"].active { background: var(--color-matcha); border-color: var(--color-espresso); }
+.tab[data-tone="failure"].active { background: var(--color-tomato); color: var(--color-cream); }
+
+.tab-panels > .panel { display: none; }
+.tab-panels > .panel.active { display: block; }
+
+/* ------ Lifecycle timeline ------ */
+.timeline {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+  position: relative;
+  margin-bottom: 22px;
+}
+@media (max-width: 740px) {
+  .timeline { grid-template-columns: 1fr; }
+  .timeline::before { display: none; }
+}
+.timeline::before {
+  content: "";
+  position: absolute;
+  top: 38px;
+  left: 8%;
+  right: 8%;
+  height: 5px;
+  background: var(--color-espresso);
+  border-radius: 4px;
+  z-index: 0;
+}
+.lc-stage {
+  position: relative;
+  z-index: 1;
+  background: var(--color-chalk);
+  border: 4px solid var(--color-espresso);
+  border-radius: var(--radius-md);
+  padding: 14px 12px;
+  text-align: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-flat-sm);
+  font-weight: 700;
+  transition: transform 120ms var(--ease-snap), box-shadow 120ms var(--ease-snap);
+}
+.lc-stage:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: var(--shadow-flat-md);
+}
+.lc-stage.active {
+  background: var(--color-tomato);
+  color: var(--color-cream);
+  transform: translate(-2px, -2px);
+  box-shadow: var(--shadow-flat-md);
+}
+.lc-stage .lc-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid var(--color-espresso);
+  background: var(--color-sun);
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  margin-bottom: 8px;
+  color: var(--color-espresso);
+}
+.lc-stage.active .lc-num { background: var(--color-cream); }
+.lc-stage .lc-label {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.lc-stage .lc-sub {
+  display: block;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.7;
+  margin-top: 2px;
+}
+
+.lc-detail {
+  background: var(--color-chalk);
+  border: 4px solid var(--color-espresso);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-flat-md);
+  padding: 24px;
+}
+.lc-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.lc-detail-header h3 {
+  font-family: var(--font-display);
+  font-size: 1.8rem;
+  margin: 0;
+}
+
+/* ------ Data model entity cards ------ */
+.entities {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+.entity {
+  background: var(--color-chalk);
+  border: 4px solid var(--color-espresso);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-flat-sm);
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: transform 120ms var(--ease-snap), box-shadow 120ms var(--ease-snap);
+}
+.entity:hover { transform: translate(-2px, -2px); box-shadow: var(--shadow-flat-md); }
+.entity .entity-name {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  margin: 0 0 4px;
+}
+.entity .entity-tag {
+  display: inline-block;
+  background: var(--color-sun);
+  color: var(--color-espresso);
+  border: 2px solid var(--color-espresso);
+  border-radius: var(--radius-pill);
+  padding: 2px 10px;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.entity .entity-blurb { font-size: 0.92rem; }
+.entity-fields {
+  display: none;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 2px dashed var(--color-fog);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  white-space: pre-line;
+  color: var(--color-roast);
+}
+.entity.expanded { background: var(--color-sky); }
+.entity.expanded .entity-fields { display: block; }
+
+/* ------ State pill ------ */
+.pill-state {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  font-weight: 700;
+  border: 2px solid var(--color-espresso);
+  border-radius: var(--radius-pill);
+  padding: 2px 10px;
+}
+.pill-state.pending  { background: var(--color-fog); }
+.pill-state.charging { background: var(--color-sun); }
+.pill-state.success  { background: var(--color-matcha); color: var(--color-cream); }
+.pill-state.failed   { background: var(--color-tomato); color: var(--color-cream); }
+.pill-state.retry    { background: var(--color-honey); color: var(--color-cream); }
+
+/* ------ Code blocks ------ */
+pre {
+  background: var(--color-espresso);
+  color: var(--color-cream);
+  border: 3px solid var(--color-espresso);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  margin: 12px 0;
+  box-shadow: var(--shadow-flat-sm);
+}
+code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  background: var(--color-cream);
+  border: 1.5px solid var(--color-fog);
+  padding: 0 5px;
+  border-radius: 4px;
+}
+pre code { background: transparent; border: none; padding: 0; color: inherit; }
+
+/* ------ Clock visual for cron schedule ------ */
+.cron-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+  margin: 18px 0 8px;
+}
+@media (max-width: 740px) { .cron-strip { grid-template-columns: 1fr; } }
+.cron {
+  background: var(--color-chalk);
+  border: 4px solid var(--color-espresso);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-flat-md);
+  padding: 20px;
+  text-align: center;
+}
+.cron .cron-time {
+  display: inline-block;
+  font-family: var(--font-display);
+  font-size: 2.2rem;
+  background: var(--color-sun);
+  color: var(--color-espresso);
+  border: 4px solid var(--color-espresso);
+  border-radius: var(--radius-md);
+  padding: 4px 14px;
+  box-shadow: var(--shadow-flat-sm);
+  margin-bottom: 12px;
+}
+.cron .cron-name { font-family: var(--font-display); font-size: 1.2rem; margin: 0 0 6px; }
+
+/* ------ Money split calculator ------ */
+.splitter {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 24px;
+  align-items: stretch;
+}
+@media (max-width: 740px) { .splitter { grid-template-columns: 1fr; } }
+.splitter-control {
+  background: var(--color-chalk);
+  border: 4px solid var(--color-espresso);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-flat-md);
+  padding: 22px;
+}
+.splitter-control input[type="range"] {
+  width: 100%;
+  accent-color: var(--color-tomato);
+  margin: 18px 0;
+}
+.splitter-control .amount-display {
+  font-family: var(--font-display);
+  font-size: 3rem;
+  line-height: 1;
+  color: var(--color-tomato);
+  text-shadow: 2px 2px 0 var(--color-espresso);
+}
+.split-bar {
+  display: flex;
+  margin: 14px 0 18px;
+  border: 4px solid var(--color-espresso);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  box-shadow: var(--shadow-flat-sm);
+  height: 36px;
+  font-family: var(--font-display);
+  font-size: 1rem;
+}
+.split-bar .seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-espresso);
+  border-right: 3px solid var(--color-espresso);
+  transition: flex-basis 250ms var(--ease-snap);
+}
+.split-bar .seg:last-child { border-right: none; }
+.split-bar .seg-seller { background: var(--color-sky); }
+.split-bar .seg-hub { background: var(--color-sun); }
+.split-bar .seg-platform { background: var(--color-tomato); color: var(--color-cream); }
+.split-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+}
+.split-rows .row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border: 3px solid var(--color-espresso);
+  border-radius: var(--radius-md);
+  background: var(--color-cream);
+}
+.split-rows .row .label { font-family: var(--font-body); font-weight: 700; }
+.split-rows .row.platform { background: var(--color-tomato); color: var(--color-cream); }
+.split-rows .row.seller { background: var(--color-sky); }
+.split-rows .row.hub { background: var(--color-sun); }
+
+/* ------ Failure-mode catalog ------ */
+.fault-grid { display: grid; gap: 14px; }
+.fault {
+  background: var(--color-chalk);
+  border: 4px solid var(--color-espresso);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-flat-sm);
+  padding: 16px 18px;
+}
+.fault .fault-symptom {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  margin: 0 0 6px;
+}
+.fault .fault-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.fault .meta-pill {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  background: var(--color-fog);
+  color: var(--color-espresso);
+  border: 2px solid var(--color-espresso);
+  border-radius: var(--radius-pill);
+  padding: 2px 10px;
+}
+.fault .meta-pill.tomato { background: var(--color-tomato); color: var(--color-cream); }
+.fault .meta-pill.sky { background: var(--color-sky); }
+.fault code { font-size: 0.78rem; }
+
+/* ------ Files table ------ */
+.files {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.92rem;
+  background: var(--color-chalk);
+  border: 4px solid var(--color-espresso);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-flat-md);
+  overflow: hidden;
+}
+.files th, .files td {
+  text-align: left;
+  padding: 12px 14px;
+  border-bottom: 2px solid var(--color-fog);
+}
+.files thead th {
+  background: var(--color-espresso);
+  color: var(--color-cream);
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.files tbody tr:last-child td { border-bottom: none; }
+.files tbody tr:hover { background: var(--color-cream); }
+.files td.path { font-family: var(--font-mono); font-size: 0.84rem; }
+
+/* ------ Footer ------ */
+footer.footer {
+  border-top: 5px solid var(--color-espresso);
+  background: var(--color-espresso);
+  color: var(--color-cream);
+  padding: 32px 24px;
+}
+footer.footer .footer-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 18px;
+  align-items: center;
+}
+@media (max-width: 740px) { footer.footer .footer-inner { grid-template-columns: 1fr; } }
+footer.footer h4 {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  margin: 0 0 6px;
+  color: var(--color-cream);
+}
+footer.footer a { color: var(--color-sun); }
+
+/* ------ Sticker text (used for the big stat ribbon) ------ */
+.sticker {
+  font-family: var(--font-display);
+  color: var(--color-cream);
+  text-shadow:
+    2px 2px 0 var(--color-espresso),
+    -2px 2px 0 var(--color-espresso),
+    2px -2px 0 var(--color-espresso),
+    -2px -2px 0 var(--color-espresso),
+    4px 4px 0 var(--color-espresso);
+}
+
+/* ------ Stat ribbon ------ */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+  margin: 32px 0 0;
+}
+@media (max-width: 740px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+.stat {
+  background: var(--color-espresso);
+  color: var(--color-cream);
+  border: 4px solid var(--color-cream);
+  border-radius: var(--radius-md);
+  padding: 16px 14px;
+  text-align: center;
+  box-shadow: 4px 4px 0 var(--color-cream);
+}
+.stat .stat-num {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 2.2rem;
+  line-height: 1;
+  color: var(--color-sun);
+}
+.stat .stat-label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-top: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  html { scroll-behavior: auto; }
+}
+</style>
+</head>
+<body>
+
+<div class="marquee" aria-hidden="true">
+  <div class="marquee-inner">
+    <span>✦ SAVE THE CARD AT COMMIT</span>
+    <span>✦ CHARGE PER BAG AT SETTLEMENT</span>
+    <span>✦ PAY OUT WHEN EVERY BAG SETTLES</span>
+    <span>✦ THIS IS THE BAG-AWARE LIFECYCLE</span>
+    <span>✦ KEEP THIS PAGE IN SYNC WITH ARCHITECTURE.md</span>
+    <span>✦ SAVE THE CARD AT COMMIT</span>
+    <span>✦ CHARGE PER BAG AT SETTLEMENT</span>
+    <span>✦ PAY OUT WHEN EVERY BAG SETTLES</span>
+    <span>✦ THIS IS THE BAG-AWARE LIFECYCLE</span>
+    <span>✦ KEEP THIS PAGE IN SYNC WITH ARCHITECTURE.md</span>
+  </div>
+</div>
+
+<header class="hero">
+  <div class="hero-inner">
+    <span class="hero-eyebrow">CrowdRoast · Architecture</span>
+    <h1>
+      <span class="stack">How</span><br/>
+      <span class="stack">CrowdRoast</span><br/>
+      <span class="stack">Works</span>
+    </h1>
+    <p>
+      An interactive walkthrough of the bag-aware lifecycle, payment splits, background jobs, and where to look when things break. Companion to <a href="../ARCHITECTURE.md">ARCHITECTURE.md</a> — that's the source of truth, this is the map.
+    </p>
+    <div class="hero-meta">
+      <span class="pill">v1 · 2026</span>
+      <span class="pill">Next.js + Supabase</span>
+      <span class="pill">Stripe Connect</span>
+      <span class="pill">Vercel Cron</span>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="stat-num">5</span><span class="stat-label">Lifecycle stages</span></div>
+      <div class="stat"><span class="stat-num">3</span><span class="stat-label">Cron jobs daily</span></div>
+      <div class="stat"><span class="stat-num">4</span><span class="stat-label">Buyer · Seller · Hub · Platform</span></div>
+      <div class="stat"><span class="stat-num">1×</span><span class="stat-label">PaymentIntent per bag</span></div>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+
+<aside class="toc" aria-label="Table of contents">
+  <div class="toc-card">
+    <h3>On this page</h3>
+    <ul class="toc-list">
+      <li><a href="#big-idea">The big idea</a></li>
+      <li><a href="#roles">Who plays</a></li>
+      <li><a href="#data-model">Data model</a></li>
+      <li><a href="#lifecycle">The lifecycle</a></li>
+      <li><a href="#jobs">Background jobs</a></li>
+      <li><a href="#charge-worker">Charge worker</a></li>
+      <li><a href="#money">Money splits</a></li>
+      <li><a href="#card-update">Card update flow</a></li>
+      <li><a href="#failures">Failure-mode map</a></li>
+      <li><a href="#files">Key files</a></li>
+    </ul>
+  </div>
+</aside>
+
+<main>
+
+<!-- ====================================================================== -->
+<section class="section" id="big-idea">
+  <h2>The big idea</h2>
+  <p class="lede">
+    CrowdRoast is a group-buying marketplace for green coffee. A roaster lists a lot with a deadline, buyers commit kilograms before that deadline, and if the lot hits its minimum, every committed buyer pays the per-bag price tier they unlocked together. <strong>The buyer's card is saved at commit time and charged later, bag by bag.</strong>
+  </p>
+
+  <div class="card-row cols-3">
+    <div class="card">
+      <div class="card-eyebrow">Step 1</div>
+      <h4>Group up</h4>
+      <p>Roasters list a lot with a deadline, a minimum, and one or more <strong>volume tiers</strong> (price per kg drops as bags fill).</p>
+    </div>
+    <div class="card-tomato">
+      <div class="card-eyebrow">Step 2</div>
+      <h4>Commit, don't pay</h4>
+      <p>Buyers redirect to Stripe-hosted setup. We save the card, run an auth probe, then sit on the commit until the campaign deadline.</p>
+    </div>
+    <div class="card-sun">
+      <div class="card-eyebrow">Step 3</div>
+      <h4>Pay per bag</h4>
+      <p>If the campaign hits its minimum, settlement writes one <code>commitment_bag_charges</code> row per bag. A daily cron worker charges each bag individually.</p>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:18px; border-color: var(--color-tomato);">
+    <div class="card-eyebrow">⚠ Internalize this</div>
+    <p style="margin:0;">
+      <strong>Commit time does not charge a card.</strong> It saves one via a SetupIntent. Money moves later, asynchronously, per bag, in the daily charge worker cron. If a buyer's card declines, only the failed bags are affected — successful sibling bags still ship. The legacy "charge-at-commit" payment-mode code path still exists for backwards compatibility but no current lot hits it.
+    </p>
+  </div>
+</section>
+
+<!-- ====================================================================== -->
+<section class="section" id="roles">
+  <h2>Who plays</h2>
+  <p class="lede">Four kinds of actor, three of whom hold money on Stripe Connect.</p>
+
+  <div class="tabs" role="tablist" data-tabs="roles">
+    <button class="tab active" data-tab="buyer" aria-selected="true">Buyer</button>
+    <button class="tab" data-tab="seller">Seller (Roaster)</button>
+    <button class="tab" data-tab="hub">Hub</button>
+    <button class="tab" data-tab="platform">Platform</button>
+  </div>
+
+  <div class="tab-panels" data-panels="roles">
+    <div class="panel active" data-panel="buyer">
+      <div class="card-row cols-2">
+        <div class="card">
+          <div class="card-eyebrow">What they do</div>
+          <p>Browse open campaigns, commit a quantity in kg, attach a card, and (if the campaign hits its minimum) take delivery at their chosen hub.</p>
+        </div>
+        <div class="card">
+          <div class="card-eyebrow">What they own</div>
+          <p>One <code>commitments</code> row per (campaign, buyer). Many <code>commitment_bag_charges</code> rows (one per bag) after settlement. RLS scopes everything to <code>buyer_id = auth.uid()</code>.</p>
+        </div>
+        <div class="card-tomato">
+          <div class="card-eyebrow">Dashboard surfaces</div>
+          <p><strong>Needs attention</strong> (failed bag charges), <strong>Raising</strong> (commits still open), <strong>In motion</strong> (settled & shipping), <strong>Closed</strong> (picked up / minimum not met). Portfolio strip shows live exposure, landing kg, savings, YTD spend.</p>
+        </div>
+        <div class="card">
+          <div class="card-eyebrow">Where it lives</div>
+          <p><code>/dashboard/buyer/*</code> · <code>components/buyer-commitments/*</code> · <code>bucket-by-lifecycle.ts</code> for the bag-aware derivations.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" data-panel="seller">
+      <div class="card-row cols-2">
+        <div class="card">
+          <div class="card-eyebrow">What they do</div>
+          <p>List lots with origin, process, tiers, deadline, minimum, bag size. Manage volume tier discounts. Watch their dashboard for fill rate.</p>
+        </div>
+        <div class="card">
+          <div class="card-eyebrow">What they own</div>
+          <p><code>lots</code>, <code>campaigns</code> (a lot can be re-listed), <code>pricing_tiers</code>, plus a Stripe Connect Express account for payouts.</p>
+        </div>
+        <div class="card-sky">
+          <div class="card-eyebrow">Payout mechanics</div>
+          <p>Receives one Stripe Transfer per bag after every sibling <code>commitment_bag_charges</code> row for that bag is terminal. Amount = sum of charged buyer-side cents ÷ (1 + platform fee), rounded per row.</p>
+        </div>
+        <div class="card">
+          <div class="card-eyebrow">Where it lives</div>
+          <p><code>/dashboard/seller/*</code> · <code>lib/settle-bag-pricing.ts</code> · <code>lib/bag-transfer-out.ts</code> handles the actual transfers.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" data-panel="hub">
+      <div class="card-row cols-2">
+        <div class="card">
+          <div class="card-eyebrow">What they do</div>
+          <p>Physical drop point. Receives the shipment, marks bags picked-up as buyers come by. May host their own catalog of seller lots.</p>
+        </div>
+        <div class="card">
+          <div class="card-eyebrow">What they own</div>
+          <p><code>hubs</code> row + Stripe Connect Express account. Each <code>campaign</code> is bound to one hub. Hub-owned shipments tie buyers to physical handoff.</p>
+        </div>
+        <div class="card-sun">
+          <div class="card-eyebrow">Payout mechanics</div>
+          <p>Earns <strong>2% of gross</strong> (HUB_SHARE_BPS = 200) on every bag that successfully charges. Same per-bag Stripe Transfer cadence as the seller.</p>
+        </div>
+        <div class="card">
+          <div class="card-eyebrow">Where it lives</div>
+          <p><code>/dashboard/hub/*</code> · <code>bag_transfers</code> ledger row carries <code>hub_id</code> NOT NULL so relisted lots can't backfill prior-hub transfers under a new hub.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" data-panel="platform">
+      <div class="card-row cols-2">
+        <div class="card">
+          <div class="card-eyebrow">What it does</div>
+          <p>Runs the marketplace. Markup, hub onboarding, settlement orchestration, retries, refunds, admin tooling.</p>
+        </div>
+        <div class="card">
+          <div class="card-eyebrow">Revenue</div>
+          <p>Gross − seller − hub. Platform applies a <strong>10% markup</strong> to the seller price (<code>PLATFORM_FEE_RATE = 0.10</code>) at commit time. After hub takes 2%, the rest stays with the platform.</p>
+        </div>
+        <div class="card-tomato">
+          <div class="card-eyebrow">Operational surface</div>
+          <p>Three daily crons keep settlement, expiry, and per-bag charges moving. Stripe webhooks update commitment state asynchronously. Auth probe at setup time keeps "bad card surprises" out of settlement.</p>
+        </div>
+        <div class="card">
+          <div class="card-eyebrow">Where it lives</div>
+          <p><code>app/api/payments/*</code> · <code>app/api/cron/process-bag-charges</code> · <code>lib/charge-worker.ts</code> · <code>app/api/stripe/webhook/route.ts</code>.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================================================================== -->
+<section class="section" id="data-model">
+  <h2>Data model</h2>
+  <p class="lede">Click any entity to see the fields that matter for the bag-aware lifecycle. Full schema lives in <code>supabase/migrations</code>.</p>
+
+  <div class="entities" data-entities>
+    <div class="entity" data-entity>
+      <span class="entity-tag">Listing</span>
+      <h4 class="entity-name">lots</h4>
+      <p class="entity-blurb">The thing being sold. One row per physical sub-batch.</p>
+      <div class="entity-fields">id · seller_id · hub_id · title
+price_per_kg · bag_size_kg
+min_commitment_kg · min_bags_to_succeed
+commitment_deadline · settlement_status
+committed_quantity_kg  ← trigger-maintained</div>
+    </div>
+
+    <div class="entity" data-entity>
+      <span class="entity-tag">Campaign</span>
+      <h4 class="entity-name">campaigns</h4>
+      <p class="entity-blurb">One round of buying on a lot. A lot can be re-listed → multiple campaigns.</p>
+      <div class="entity-fields">id · lot_id · hub_id
+status (active | settled | failed | cancelled)
+deadline · settled_at
+min_bags_to_succeed (snapshot at start)</div>
+    </div>
+
+    <div class="entity" data-entity>
+      <span class="entity-tag">Buyer side</span>
+      <h4 class="entity-name">commitments</h4>
+      <p class="entity-blurb">A buyer's "I want N kg" intent. The container for everything that follows.</p>
+      <div class="entity-fields">id · campaign_id · lot_id
+buyer_id · hub_id
+quantity_kg · price_per_kg
+stripe_customer_id · stripe_payment_method_id
+stripe_setup_intent_id · stripe_checkout_session_id
+status (pending | confirmed | cancelled)
+payment_status (pending_setup | setup_complete |
+              charge_succeeded | charge_failed | cancelled)
+payment_error · charged_at  ← legacy fields</div>
+    </div>
+
+    <div class="entity" data-entity>
+      <span class="entity-tag">Bag-aware money</span>
+      <h4 class="entity-name">commitment_bag_charges</h4>
+      <p class="entity-blurb">One row per bag the buyer is paying for. The atomic unit of "money to move."</p>
+      <div class="entity-fields">id · commitment_id · bag_number
+kg · amount_cents
+stripe_payment_intent_id
+stripe_idempotency_key  ← UNIQUE
+payment_status (awaiting_charge | charging |
+              charged | retry_scheduled | payment_failed)
+attempt_count · next_attempt_at · failed_reason
+payment_update_email_sent_at  ← AC13 stamp</div>
+    </div>
+
+    <div class="entity" data-entity>
+      <span class="entity-tag">Payout ledger</span>
+      <h4 class="entity-name">bag_transfers</h4>
+      <p class="entity-blurb">One row per (lot, bag) once all sibling charges terminate.</p>
+      <div class="entity-fields">lot_id + bag_number  ← composite PK
+hub_id  NOT NULL
+seller_amount_cents · hub_amount_cents
+platform_amount_cents
+seller_transfer_id · hub_transfer_id
+transferred_at</div>
+    </div>
+
+    <div class="entity" data-entity>
+      <span class="entity-tag">Pricing</span>
+      <h4 class="entity-name">pricing_tiers</h4>
+      <p class="entity-blurb">Volume discounts. Tier unlocks when total bags committed crosses min_bags.</p>
+      <div class="entity-fields">lot_id · price_per_kg · min_bags
+min_quantity_kg  ← legacy fallback only</div>
+    </div>
+  </div>
+</section>
+
+<!-- ====================================================================== -->
+<section class="section" id="lifecycle">
+  <h2>The lifecycle</h2>
+  <p class="lede">Click a stage to see what happens — including how the system handles failure.</p>
+
+  <div class="timeline" role="tablist" data-tabs="lc">
+    <div class="lc-stage active" data-tab="commit" role="tab"  tabindex="0">
+      <span class="lc-num">1</span>
+      <span class="lc-label">Commit</span>
+      <span class="lc-sub">Save the card</span>
+    </div>
+    <div class="lc-stage" data-tab="settle" role="tab" tabindex="0">
+      <span class="lc-num">2</span>
+      <span class="lc-label">Settle</span>
+      <span class="lc-sub">Write bag rows</span>
+    </div>
+    <div class="lc-stage" data-tab="charge" role="tab" tabindex="0">
+      <span class="lc-num">3</span>
+      <span class="lc-label">Charge</span>
+      <span class="lc-sub">PaymentIntent per bag</span>
+    </div>
+    <div class="lc-stage" data-tab="transfer" role="tab" tabindex="0">
+      <span class="lc-num">4</span>
+      <span class="lc-label">Transfer</span>
+      <span class="lc-sub">Pay seller + hub</span>
+    </div>
+    <div class="lc-stage" data-tab="done" role="tab" tabindex="0">
+      <span class="lc-num">5</span>
+      <span class="lc-label">Ship & Pick Up</span>
+      <span class="lc-sub">Buyer takes delivery</span>
+    </div>
+  </div>
+
+  <div class="lc-detail">
+    <div class="tabs">
+      <button class="tab active" data-tab="happy" data-tone="success" data-tabs="lc-mode">Happy path</button>
+      <button class="tab" data-tab="failure" data-tone="failure" data-tabs="lc-mode">Failure paths</button>
+    </div>
+
+    <div class="tab-panels" data-panels="lc">
+
+      <!-- ---- Stage 1: Commit ---- -->
+      <div class="panel active" data-panel="commit">
+        <div class="lc-detail-header">
+          <h3>1 · Commit — save the card</h3>
+          <span class="pill-state pending">payment_status: pending_setup → setup_complete</span>
+        </div>
+
+        <div class="tab-panels" data-panels="lc-mode">
+          <div class="panel active" data-panel="happy">
+            <ol>
+              <li>Buyer hits <strong>POST /api/commitments</strong> with lot_id, qty, hub_id.</li>
+              <li>Server resolves the active tier, reuses or creates a Stripe Customer, inserts the commitment row with <code>payment_status='pending_setup'</code>.</li>
+              <li>Server mints a Stripe Checkout Session (<code>mode='setup'</code>) and returns its URL.</li>
+              <li>Buyer redirects to Stripe-hosted setup, attaches a card.</li>
+              <li>Stripe fires two webhooks (order not guaranteed):
+                <ul>
+                  <li><code>checkout.session.completed</code> (mode=setup): writes <code>stripe_payment_method_id</code> + <code>stripe_customer_id</code>, flips status to <code>setup_complete</code>, runs an <strong>auth probe</strong> (tiny auth-and-void via <code>probeCardAuth</code>).</li>
+                  <li><code>setup_intent.succeeded</code>: same writes, defensive idempotent (never clobbers PM with null, per PR #86).</li>
+                </ul>
+              </li>
+              <li>Auth probe OK → <code>payment_error = NULL</code> = settle-time ready signal.</li>
+              <li>Commitment now sits at <code>setup_complete</code> with card on file. <strong>No money has moved.</strong></li>
+            </ol>
+          </div>
+
+          <div class="panel" data-panel="failure">
+            <table class="files">
+              <thead><tr><th>Signal</th><th>What happened</th><th>How the system handles it</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><code>setup_intent.setup_failed</code></td>
+                  <td>Buyer's bank declined the SetupIntent itself.</td>
+                  <td>Webhook cancels the commit and the lot trigger drops the quantity from <code>committed_quantity_kg</code>.</td>
+                </tr>
+                <tr>
+                  <td><code>checkout.session.expired</code></td>
+                  <td>Buyer abandoned the hosted page.</td>
+                  <td>Same cancel-the-commit path. Skips already-confirmed rows.</td>
+                </tr>
+                <tr>
+                  <td><code>payment_error</code> set, status still <code>setup_complete</code></td>
+                  <td>AC12 auth probe (tiny auth-and-void) declined.</td>
+                  <td>Buyer is emailed via <code>sendCardAuthFailedEmail</code> (stamped idempotently). Charge worker treats this row as not-ready and never charges it.</td>
+                </tr>
+                <tr>
+                  <td>PM null + no <code>payment_error</code> (regression)</td>
+                  <td><code>setup_intent.succeeded</code> arrived with no <code>payment_method</code> field and clobbered a previously-written PM (pre-PR #86).</td>
+                  <td>Fixed: that handler now only writes PM when truthy and stamps <code>payment_error</code> as a defensive fallback. Existing victims were one-shot rescued via DB hard reset.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---- Stage 2: Settle ---- -->
+      <div class="panel" data-panel="settle">
+        <div class="lc-detail-header">
+          <h3>2 · Settle — write bag rows</h3>
+          <span class="pill-state pending">campaigns.status: active → settled OR failed</span>
+        </div>
+
+        <div class="tab-panels" data-panels="lc-mode">
+          <div class="panel active" data-panel="happy">
+            <p><strong>POST /api/payments/settle-deadlines</strong> runs at <code>00:00 UTC</code>, picks up every campaign whose deadline has passed. The decision tree:</p>
+            <pre><code>for each campaign whose deadline ≤ now AND status='active':
+  if (bags filled) &lt; min_bags_to_succeed:
+    cancel every pending commit on this campaign
+    campaign.status = 'failed'
+    send AC10 "campaign didn't make it" email
+    # no refunds — no charges happened
+  else:
+    resolve active tier (settle-bag-pricing.ts)
+    drop orphan commits (setup never completed) ← PR #82
+    allocate bags across confirmed commits
+
+    for each (commitment, bag_number):
+      INSERT commitment_bag_charges (
+        amount_cents,            # buyer-side gross (incl. platform fee)
+        kg,
+        stripe_idempotency_key,  # deterministic
+        payment_status = 'awaiting_charge'
+      ) ON CONFLICT (commitment_id, bag_number) DO NOTHING
+
+    campaign.status = 'settled', campaign.settled_at = now()
+    # >> NO Stripe call here. Charge worker handles money.</code></pre>
+          </div>
+
+          <div class="panel" data-panel="failure">
+            <ul>
+              <li><strong>Settle-deadlines crashes mid-loop</strong> → cron is re-entrant by design. UPSERT with <code>ON CONFLICT DO NOTHING</code> means a re-run is a no-op for any campaign that already finished settlement. The next tick continues.</li>
+              <li><strong>Orphan commit</strong> (buyer abandoned setup) → PR #82's filter drops these before bag allocation so they can't crash the settlement loop or eat a bag slot.</li>
+              <li><strong>Campaign goes <code>failed</code></strong> → buyer cards were never charged at this point, so no refunds. Old code (before the bag-aware migration) used to charge at commit and had to refund; that branch isn't reachable anymore.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---- Stage 3: Charge ---- -->
+      <div class="panel" data-panel="charge">
+        <div class="lc-detail-header">
+          <h3>3 · Charge — one PaymentIntent per bag</h3>
+          <span class="pill-state charging">awaiting_charge → charging → charged | retry_scheduled | payment_failed</span>
+        </div>
+
+        <div class="tab-panels" data-panels="lc-mode">
+          <div class="panel active" data-panel="happy">
+            <p><strong>GET /api/cron/process-bag-charges</strong> runs at <code>02:00 UTC</code> daily (Hobby tier cap; Pro would run hourly). Picks up to 100 due rows per tick.</p>
+            <pre><code>for each row WHERE payment_status IN ('awaiting_charge','retry_scheduled','charging')
+                  AND (next_attempt_at IS NULL OR next_attempt_at ≤ now):
+
+  1. Claim 5-minute lease (set payment_status='charging' + expiry)
+  2. Gate: payment_error set → markPaymentFailed('auth_probe_failed')
+  3. Gate: stripe_payment_method_id null → markPaymentFailed('missing_payment_method')
+  4. createAndConfirmPaymentIntent(
+       off-session,
+       idempotency_key = row.stripe_idempotency_key
+     )
+  5. Stripe succeeded:
+       row.payment_status = 'charged'
+       transferOutBagIfReady(...)        # see Stage 4
+       sendSettlementEmailIfReady(...)   # AC10 email</code></pre>
+          </div>
+
+          <div class="panel" data-panel="failure">
+            <p>The AC13 retry ladder (math in <code>lib/charge-worker.ts</code>):</p>
+            <table class="files">
+              <thead><tr><th>Attempt</th><th>Outcome</th><th>Next attempt at</th><th>Email</th></tr></thead>
+              <tbody>
+                <tr><td>1</td><td>Decline (real)</td><td><code>now + 12h</code></td><td>—</td></tr>
+                <tr><td>1→2 transition</td><td>—</td><td>—</td><td><strong>AC13 "Your card declined"</strong> (idempotent via <code>payment_update_email_sent_at</code> stamp)</td></tr>
+                <tr><td>2</td><td>Decline (real)</td><td><code>+ 48h</code></td><td>—</td></tr>
+                <tr><td>3</td><td>Decline (real)</td><td>—</td><td>Terminal <code>payment_failed</code></td></tr>
+                <tr><td>Any</td><td>Transient (rate limit, net)</td><td><code>+ 1h</code></td><td>—</td></tr>
+              </tbody>
+            </table>
+            <p><strong>Lease race:</strong> if the function dies mid-Stripe-call, the next tick reclaims after the 5-minute lease expires. Stripe's deterministic idempotency key keeps a rare two-worker race safe — both will get the same intent back.</p>
+            <p><strong>Vercel return code:</strong> 207 (Multi-Status) when any row terminated as <code>payment_failed</code>. That's a normal-day signal for monitoring, not an error.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---- Stage 4: Transfer ---- -->
+      <div class="panel" data-panel="transfer">
+        <div class="lc-detail-header">
+          <h3>4 · Transfer — pay seller + hub</h3>
+          <span class="pill-state success">bag_transfers row inserted, two Stripe Transfers fire</span>
+        </div>
+
+        <div class="tab-panels" data-panels="lc-mode">
+          <div class="panel active" data-panel="happy">
+            <p><code>transferOutBagIfReady</code> fires as a fire-and-forget side-effect from inside the charge worker every time a row terminates.</p>
+            <pre><code>fired from charge-worker after every charged | payment_failed
+
+if any sibling row for (lot, bag_number) is non-terminal:
+  return 'not_ready'   # no-op; next worker tick re-evaluates
+
+if bag_transfers row already exists for (lot, bag_number):
+  return 'already_transferred'
+
+split = computeSplit(rows whose payment_status === 'charged')
+   seller_amount   = sum( round(amount / (1 + PLATFORM_FEE_RATE)) )
+   hub_amount      = floor(total × HUB_SHARE_BPS / 10000)
+   platform_keeps  = total − seller − hub
+
+if total > 0:
+  Stripe Transfer → seller Connect account
+  Stripe Transfer → hub Connect account
+
+INSERT bag_transfers (lot_id, hub_id, bag_number, …)
+  # hub_id NOT NULL (PR #85 fix). Prefers campaign.hub_id;
+  # falls back to commitment.hub_id for legacy rows.</code></pre>
+          </div>
+
+          <div class="panel" data-panel="failure">
+            <ul>
+              <li><strong>Every bag failed</strong> → <code>totalChargedCents = 0</code>. Skip Stripe; write a zero-amount marker row anyway so the bag isn't re-evaluated every tick.</li>
+              <li><strong>Seller has no Stripe Connect account</strong> → skip with <code>seller_missing_connect_account</code>. The bag stays in transfer-pending state pending operator intervention.</li>
+              <li><strong>Hub <code>hub_id</code> resolution fails</strong> → skip with <code>hub_id_unresolved_on_commitment</code>. Pre-PR #85 this would 500 the worker on the NOT NULL constraint.</li>
+              <li><strong>Transfer succeeded but DB insert failed</strong> → next worker tick re-evaluates; Stripe transfers have their own idempotency keys, so the retry doesn't double-pay.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---- Stage 5: Done ---- -->
+      <div class="panel" data-panel="done">
+        <div class="lc-detail-header">
+          <h3>5 · Ship & pick up</h3>
+          <span class="pill-state success">commitments.picked_up_at set</span>
+        </div>
+
+        <div class="tab-panels" data-panels="lc-mode">
+          <div class="panel active" data-panel="happy">
+            <ol>
+              <li>Seller creates a <code>shipments</code> row with tracking.</li>
+              <li>Hub marks <code>shipment.status = 'at_hub'</code> on arrival.</li>
+              <li>Hub marks each buyer's commit as <code>picked_up</code> (sets <code>picked_up_at</code>, optional <code>picked_up_by</code>).</li>
+              <li>Buyer dashboard moves the group from "In motion" → "Closed".</li>
+            </ol>
+            <p>The bucketing logic lives in <code>bucket-by-lifecycle.ts</code>. Stage progression for a settled campaign: <code>funds_held → in_transit → at_hub → picked_up → done</code>.</p>
+          </div>
+
+          <div class="panel" data-panel="failure">
+            <ul>
+              <li><strong>Shipment lost</strong> → operator marks the commitments as needing manual handling. No code path auto-refunds at this layer — the platform decides.</li>
+              <li><strong>Buyer didn't pick up</strong> → no automated escalation. Hub workflow.</li>
+              <li><strong>Refund needed</strong> → admin endpoint issues partial/full refunds via Stripe; <code>charge_amount_cents</code> on the commit is updated to the net value (because Stripe webhook updates it on refund).</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ====================================================================== -->
+<section class="section" id="jobs">
+  <h2>Background jobs</h2>
+  <p class="lede">Three crons run in sequence each night. The 1-hour offsets let each step's writes propagate before the next reads them.</p>
+
+  <div class="cron-strip">
+    <div class="cron">
+      <span class="cron-time">00:00</span>
+      <div class="cron-name">settle-deadlines</div>
+      <p>Picks up every campaign past its deadline. Writes <code>commitment_bag_charges</code> rows OR cancels the campaign. <strong>Doesn't charge cards.</strong></p>
+    </div>
+    <div class="cron">
+      <span class="cron-time">01:00</span>
+      <div class="cron-name">lot-expiry</div>
+      <p>Closes out lots whose <code>expiry_date</code> has passed without re-listing.</p>
+    </div>
+    <div class="cron">
+      <span class="cron-time">02:00</span>
+      <div class="cron-name">process-bag-charges</div>
+      <p>The charge worker. Picks up due <code>commitment_bag_charges</code> rows and dispatches one off-session PaymentIntent per row.</p>
+    </div>
+  </div>
+
+  <p style="margin-top:18px;">All three are protected by the same <code>CRON_SECRET</code> bearer / <code>x-cron-secret</code> header. Vercel Hobby caps cron at daily; Pro can drop the charge worker to hourly and tighten the retry ladder timing.</p>
+</section>
+
+<!-- ====================================================================== -->
+<section class="section" id="charge-worker">
+  <h2>The charge worker, in detail</h2>
+  <p class="lede">If you're debugging a payment failure, this is the file: <code>lib/charge-worker.ts</code>. The per-row state machine:</p>
+
+  <div class="card">
+<pre><code>      ┌─ awaiting_charge ──────┐    (first time the cron picks the row up)
+      │                        │
+      │   ┌─ retry_scheduled ──┤    (decline, next_attempt_at in the future)
+      │   │                    │
+      ▼   ▼                    ▼
+   [ claim lease → charging (5-min window) ]
+                  │
+                  │ gate checks: payment_error set?  → payment_failed (auth_probe_failed)
+                  │              PM/customer null?   → payment_failed (missing_payment_method)
+                  │
+                  ▼
+         createAndConfirmPaymentIntent (off-session, deterministic idempotency_key)
+                  │
+       ┌──────────┼─────────────┬─────────────┐
+       ▼          ▼             ▼             ▼
+    succeeded   transient   real-decline   real-decline (attempt 3)
+       │          │              │              │
+       │      +1h retry    +12h or +48h     payment_failed (terminal)
+       ▼
+    charged
+       │
+       ├── transferOutBagIfReady (fires when all (lot, bag) siblings terminal)
+       └── sendSettlementEmailIfReady (fires when all this commit's rows terminal)</code></pre>
+  </div>
+
+  <div class="card-row cols-2" style="margin-top:18px;">
+    <div class="card-sky">
+      <div class="card-eyebrow">Idempotency keys</div>
+      <p>Original key: <code>charge:campaign:CC:commitment:MM:bag:N</code>. After restart-setup (PR #88), rotated to <code>retry:&lt;new_seti_id&gt;:bag:N</code> so Stripe doesn't replay the cached failure.</p>
+    </div>
+    <div class="card-sun">
+      <div class="card-eyebrow">Why a 207 from this route is normal</div>
+      <p>The route returns <strong>HTTP 207 Multi-Status</strong> whenever any row ended as <code>payment_failed</code> on this tick. Not an error — it's how monitoring distinguishes "all-green tick" from "card-decline tick".</p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================================================================== -->
+<section class="section" id="money">
+  <h2>Money splits</h2>
+  <p class="lede">For every bag the buyer pays for, three parties get a piece. Slide to see the split at different bag prices.</p>
+
+  <div class="splitter">
+    <div class="splitter-control">
+      <div class="card-eyebrow">Buyer pays</div>
+      <div class="amount-display" id="split-amount">$1,000.00</div>
+      <input type="range" id="split-slider" min="50" max="2500" value="1000" step="10" />
+
+      <div class="split-bar">
+        <div class="seg seg-seller" id="seg-seller">Seller</div>
+        <div class="seg seg-hub" id="seg-hub">Hub</div>
+        <div class="seg seg-platform" id="seg-platform">Platform</div>
+      </div>
+
+      <div class="split-rows">
+        <div class="row seller">
+          <span class="label">Seller (Connect)</span>
+          <span id="split-seller">$0</span>
+        </div>
+        <div class="row hub">
+          <span class="label">Hub (Connect)</span>
+          <span id="split-hub">$0</span>
+        </div>
+        <div class="row platform">
+          <span class="label">Platform</span>
+          <span id="split-platform">$0</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card-tomato">
+      <div class="card-eyebrow">The math</div>
+      <p style="margin-top:8px;"><strong>PLATFORM_FEE_RATE = 0.10</strong></p>
+      <p>Buyer-side amount is the seller's tier price × 1.10. To unwind, the seller's share is the buyer cents ÷ 1.10.</p>
+      <pre><code>seller   = round(buyer / 1.10)
+hub      = floor(buyer × 0.02)
+platform = buyer − seller − hub</code></pre>
+      <p style="margin-top:12px;font-size:0.92rem;">Real splits are computed per row in <code>lib/payments/settlement-logic.js</code> and summed across charged bags for a (lot, bag_number) before the transfers fire.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================================================================== -->
+<section class="section" id="card-update">
+  <h2>Card update flow</h2>
+  <p class="lede">When a buyer's bag charges fail, they can replace their card and have the failed bags retried automatically. Shipped in PR #88.</p>
+
+  <div class="card-row cols-2">
+    <div class="card">
+      <div class="card-eyebrow">Trigger surfaces</div>
+      <p>1. The "Update payment" button on the <strong>Needs Attention</strong> card in the buyer dashboard.<br/>2. The AC13 "Your card declined" email's manage URL.<br/>3. The redirect shim at <code>/dashboard/buyer/commitments/[id]</code>.</p>
+    </div>
+    <div class="card-tomato">
+      <div class="card-eyebrow">What it does</div>
+      <p><strong>POST /api/commitments/[id]/restart-setup</strong> mints a fresh Stripe Checkout setup session reusing the existing <code>stripe_customer_id</code>, returns the redirect URL. Webhook re-arm flips <code>payment_failed</code> bag rows back to <code>awaiting_charge</code> with a fresh idempotency key.</p>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:18px;">
+    <div class="card-eyebrow">Sequence</div>
+    <pre><code>1. Buyer clicks "Update payment" → POST /api/commitments/[id]/restart-setup
+2. Route validates: owner check + has at least one payment_failed bag row
+3. Route mints new Checkout Session, updates commit → pending_setup
+4. Buyer redirects to Stripe, attaches new card
+5. Stripe fires both setup-mode webhooks (order not guaranteed)
+6. Both handlers call rearmFailedBagCharges(commitmentId, newSetupIntentId):
+     - flip payment_failed → awaiting_charge
+     - reset attempt_count = 0
+     - clear failed_reason, next_attempt_at, stripe_payment_intent_id
+     - rotate stripe_idempotency_key → "retry:seti_NEW:bag:N"  ← critical
+     - clear payment_update_email_sent_at
+   Gated on probe.ok (CS path) and payment_method present (SI path) so a
+   declined new card can NOT unlock retries.
+7. Next charge worker tick picks up the rows and tries the new card.</code></pre>
+  </div>
+</section>
+
+<!-- ====================================================================== -->
+<section class="section" id="failures">
+  <h2>Failure-mode map</h2>
+  <p class="lede">"I see X, where do I look?" The shortest path from symptom to file.</p>
+
+  <div class="fault-grid">
+    <div class="fault">
+      <div class="fault-meta">
+        <span class="meta-pill tomato">Cron returned 207</span>
+        <span class="meta-pill">expected</span>
+      </div>
+      <div class="fault-symptom">process-bag-charges responded 207 Multi-Status</div>
+      <p>That's the documented signal for "this tick terminated at least one row as <code>payment_failed</code>". Not a bug. Inspect the JSON body's <code>failed_reasons</code> array for per-row decline codes.</p>
+      <p><strong>Look in:</strong> <code>app/api/cron/process-bag-charges/route.ts:127</code></p>
+    </div>
+
+    <div class="fault">
+      <div class="fault-meta">
+        <span class="meta-pill tomato">No payout</span>
+      </div>
+      <div class="fault-symptom">Campaign settled, seller never got paid</div>
+      <p>Walk the chain: are the <code>commitment_bag_charges</code> rows all terminal? If yes but <code>bag_transfers</code> is empty, check <code>transferOutBagIfReady</code> — it's a fire-and-forget side-effect that may have skipped (missing Connect account, hub_id unresolved, every bag failed).</p>
+      <p><strong>Look in:</strong> <code>lib/bag-transfer-out.ts</code> · grep logs for <code>[charge-worker] transferOutBagIfReady skipped</code></p>
+    </div>
+
+    <div class="fault">
+      <div class="fault-meta">
+        <span class="meta-pill sky">Display bug</span>
+      </div>
+      <div class="fault-symptom">Buyer dashboard shows $0 across portfolio strip</div>
+      <p>All four portfolio stats now go through bag-aware <code>effective*</code> helpers (PR #87). If a bag-aware lot reads $0, check that the page is including <code>commitment_bag_charges</code> in the data fetch and passing it via <code>bagChargesByCommitmentId</code>.</p>
+      <p><strong>Look in:</strong> <code>components/buyer-commitments/bucket-by-lifecycle.ts</code> · <code>app/dashboard/buyer/commitments/page.tsx</code></p>
+    </div>
+
+    <div class="fault">
+      <div class="fault-meta">
+        <span class="meta-pill tomato">payment_failed</span>
+      </div>
+      <div class="fault-symptom">Bag charge ended missing_payment_method</div>
+      <p>Commit's <code>stripe_payment_method_id</code> is null but status is <code>setup_complete</code>. Pre-PR #86 this could happen via <code>setup_intent.succeeded</code> clobbering a valid PM. The remediation path is the restart-setup flow.</p>
+      <p><strong>Look in:</strong> <code>lib/charge-worker.ts:274</code> for the gate; <code>app/api/stripe/webhook/route.ts</code> setup-mode handlers for the write semantics.</p>
+    </div>
+
+    <div class="fault">
+      <div class="fault-meta">
+        <span class="meta-pill">Display bug</span>
+      </div>
+      <div class="fault-symptom">Settled lot shows "In Motion" but no money moved</div>
+      <p>Was the buyer's card ever charged? Check <code>commitment_bag_charges.payment_status</code> — if every row is <code>payment_failed</code>, the legacy bucket logic used to leave it in In Motion silently. Fixed in PR #87 by reading bag-aware state via <code>effectiveChargeState</code>.</p>
+      <p><strong>Look in:</strong> <code>bucket-by-lifecycle.ts</code> → <code>hasChargeFailed</code>.</p>
+    </div>
+
+    <div class="fault">
+      <div class="fault-meta">
+        <span class="meta-pill sky">Email</span>
+      </div>
+      <div class="fault-symptom">Buyer never got AC10 settlement summary</div>
+      <p><code>sendSettlementEmailIfReady</code> is gated on every bag row being terminal AND the transfer-out completing. Check <code>commitments.settlement_email_sent_at</code>. If null, check if transfer-out is stuck (see "No payout" above).</p>
+      <p><strong>Look in:</strong> <code>lib/settlement-email-trigger.ts</code></p>
+    </div>
+  </div>
+</section>
+
+<!-- ====================================================================== -->
+<section class="section" id="files">
+  <h2>Key files</h2>
+  <p class="lede">Where the bag-aware lifecycle actually lives in the codebase. Mirrors the table in <a href="../ARCHITECTURE.md">ARCHITECTURE.md</a>.</p>
+
+  <div style="overflow-x:auto;">
+    <table class="files">
+      <thead>
+        <tr><th>File</th><th>What it does</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="path">lib/charge-worker.ts</td><td>Per-row charge logic. AC13 retry ladder lives here.</td></tr>
+        <tr><td class="path">lib/bag-transfer-out.ts</td><td>Seller + hub Stripe transfers once every sibling row is terminal.</td></tr>
+        <tr><td class="path">lib/bag-charge-rearm.ts</td><td>Re-arms <code>payment_failed</code> rows after a fresh card setup (PR #88).</td></tr>
+        <tr><td class="path">lib/settlement-email-trigger.ts</td><td>Fires the AC10 settlement summary email.</td></tr>
+        <tr><td class="path">lib/settle-bag-pricing.ts</td><td>Active tier × bag_size_kg resolution at settlement time.</td></tr>
+        <tr><td class="path">lib/tier-progress.ts</td><td>Shared "current tier + kg-to-next" helper for buyer/seller/hub UI.</td></tr>
+        <tr><td class="path">lib/payments/settlement-logic.js</td><td>Core settlement math: tier lookup, splits, refund calculations.</td></tr>
+        <tr><td class="path">lib/stripe.ts</td><td>Stripe API wrappers (charges, transfers, refunds, Connect onboarding).</td></tr>
+        <tr><td class="path">app/api/commitments/route.ts</td><td>Commitment creation + Stripe Checkout (setup-mode for bag-aware lots).</td></tr>
+        <tr><td class="path">app/api/commitments/[id]/restart-setup/route.ts</td><td>Buyer-initiated card-update flow (PR #88).</td></tr>
+        <tr><td class="path">app/api/payments/settle-deadlines/route.ts</td><td>Settlement cron — writes bag-charge rows, does NOT charge cards.</td></tr>
+        <tr><td class="path">app/api/cron/process-bag-charges/route.ts</td><td>Daily charge worker cron.</td></tr>
+        <tr><td class="path">app/api/stripe/webhook/route.ts</td><td>Stripe event processing (setup-mode + payment-mode + decline events).</td></tr>
+        <tr><td class="path">components/buyer-commitments/bucket-by-lifecycle.ts</td><td>Buyer dashboard bucketing + portfolio stats. Bag-aware derivations.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</main>
+</div>
+
+<footer class="footer">
+  <div class="footer-inner">
+    <div>
+      <h4>Keep this in sync</h4>
+      <p style="margin:0; font-size:0.95rem;">
+        When the bag-aware lifecycle changes — new state, new cron, new edge case — update both this page AND <a href="../ARCHITECTURE.md">ARCHITECTURE.md</a>. The markdown is the source of truth for prose; this page is the map for "where does X live."
+      </p>
+    </div>
+    <div style="text-align:right;">
+      <span class="sticker" style="font-size:1.8rem; display:block;">Roasted with 🤠 in Austin</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+/* -------------------------------------------------------------------------
+   Interactivity:
+   - Tab groups (role tabs, lifecycle stages, happy-vs-failure inside each
+     lifecycle stage)
+   - Data model entity expand
+   - Scroll-spy nav highlighting
+   - Money split calculator
+   Kept dependency-free so the page stays a single static file.
+   ------------------------------------------------------------------------- */
+(function () {
+  "use strict";
+
+  // ---- Tab groups -------------------------------------------------------
+  // A tab group is keyed by data-tabs="<key>" on the container. Panels live
+  // in any descendant with data-panels="<key>"; buttons have data-tab=panel.
+  function setupTabGroup(key, root) {
+    var buttons = (root || document).querySelectorAll('[data-tabs="' + key + '"] .tab, [data-tabs="' + key + '"] .lc-stage');
+    var panelContainers = (root || document).querySelectorAll('[data-panels="' + key + '"]');
+    buttons.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var target = btn.getAttribute('data-tab');
+        buttons.forEach(function (b) {
+          b.classList.toggle('active', b.getAttribute('data-tab') === target);
+          if (b.getAttribute('role') === 'tab') {
+            b.setAttribute('aria-selected', b === btn ? 'true' : 'false');
+          }
+        });
+        panelContainers.forEach(function (container) {
+          var directPanels = container.querySelectorAll(':scope > .panel');
+          directPanels.forEach(function (p) {
+            p.classList.toggle('active', p.getAttribute('data-panel') === target);
+          });
+        });
+      });
+      // Keyboard activation for the lifecycle stages (they're not buttons).
+      btn.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          btn.click();
+        }
+      });
+    });
+  }
+
+  setupTabGroup('roles');
+  setupTabGroup('lc');
+  setupTabGroup('lc-mode');
+
+  // ---- Data model entity expand -----------------------------------------
+  document.querySelectorAll('[data-entity]').forEach(function (el) {
+    el.addEventListener('click', function () { el.classList.toggle('expanded'); });
+  });
+
+  // ---- Scroll-spy nav ---------------------------------------------------
+  var sections = Array.prototype.slice.call(document.querySelectorAll('section.section'));
+  var navLinks = Array.prototype.slice.call(document.querySelectorAll('.toc-list a'));
+  function setActiveNav() {
+    var scrollPos = window.scrollY + 100;
+    var current = sections[0] && sections[0].id;
+    for (var i = 0; i < sections.length; i++) {
+      if (sections[i].offsetTop <= scrollPos) current = sections[i].id;
+    }
+    navLinks.forEach(function (link) {
+      link.classList.toggle('active', link.getAttribute('href') === '#' + current);
+    });
+  }
+  setActiveNav();
+  window.addEventListener('scroll', setActiveNav, { passive: true });
+
+  // ---- Money split calculator -------------------------------------------
+  // Mirrors lib/payments/settlement-logic.js:
+  //   seller   = round(buyer / 1.10)
+  //   hub      = floor(buyer × 0.02)
+  //   platform = buyer − seller − hub
+  var slider = document.getElementById('split-slider');
+  var amountEl = document.getElementById('split-amount');
+  var sellerEl = document.getElementById('split-seller');
+  var hubEl = document.getElementById('split-hub');
+  var platformEl = document.getElementById('split-platform');
+  var segSeller = document.getElementById('seg-seller');
+  var segHub = document.getElementById('seg-hub');
+  var segPlatform = document.getElementById('seg-platform');
+
+  var fmtUsd = function (n) {
+    return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+  };
+
+  function updateSplit() {
+    var dollars = Number(slider.value);
+    var buyerCents = Math.round(dollars * 100);
+    var sellerCents = Math.round(buyerCents / 1.10);
+    var hubCents = Math.floor(buyerCents * 0.02);
+    var platformCents = buyerCents - sellerCents - hubCents;
+    // Defensive clamp — matches computeSplit's "platform_keeps clamped at 0".
+    if (platformCents < 0) {
+      sellerCents += platformCents; // give the rounding slack back to seller
+      platformCents = 0;
+    }
+
+    amountEl.textContent = fmtUsd(buyerCents / 100);
+    sellerEl.textContent = fmtUsd(sellerCents / 100);
+    hubEl.textContent = fmtUsd(hubCents / 100);
+    platformEl.textContent = fmtUsd(platformCents / 100);
+
+    // Update bar segments proportionally.
+    var total = buyerCents || 1;
+    segSeller.style.flexBasis = (100 * sellerCents / total) + '%';
+    segHub.style.flexBasis = (100 * hubCents / total) + '%';
+    segPlatform.style.flexBasis = (100 * platformCents / total) + '%';
+    segSeller.textContent = sellerCents > 5000 ? 'Seller' : '';
+    segHub.textContent = hubCents > 3000 ? 'Hub' : '';
+    segPlatform.textContent = platformCents > 3000 ? 'Platform' : '';
+  }
+  slider.addEventListener('input', updateSplit);
+  updateSplit();
+})();
+</script>
+
+</body>
+</html>

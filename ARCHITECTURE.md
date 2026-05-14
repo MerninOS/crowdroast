@@ -1,5 +1,7 @@
 # CrowdRoast — Application Architecture
 
+> 🎨 **Want the visual map?** Open [`docs/architecture.html`](docs/architecture.html) in a browser for the interactive walkthrough — clickable lifecycle timeline, role tabs, money-split calculator, and a failure-mode → file lookup. This markdown stays the source of truth for prose; that page is the map for "where does X live."
+
 ## Overview
 
 CrowdRoast is a B2B specialty coffee marketplace built around a **group-buying, hub-centric model**:
