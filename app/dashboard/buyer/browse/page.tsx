@@ -6,6 +6,7 @@ import { Progress } from "@/components/ui/progress";
 import { Coffee, TrendingDown, Clock } from "lucide-react";
 import Link from "next/link";
 import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
+import { getTierProgress } from "@/lib/tier-progress";
 
 export default async function BuyerBrowsePage() {
   const supabase = await createClient();
@@ -63,8 +64,7 @@ export default async function BuyerBrowsePage() {
     const { data: allTiers } = await supabase
       .from("pricing_tiers")
       .select("*")
-      .in("lot_id", lotIds)
-      .order("min_quantity_kg", { ascending: true });
+      .in("lot_id", lotIds);
     for (const tier of allTiers || []) {
       if (!tiersMap[tier.lot_id]) tiersMap[tier.lot_id] = [];
       tiersMap[tier.lot_id].push(tier);
@@ -171,18 +171,17 @@ export default async function BuyerBrowsePage() {
                       ? Math.min(...tiers.map((t: any) => t.price_per_kg))
                       : lot.price_per_kg;
 
-                  // Current active price
-                  let currentPrice = lot.price_per_kg;
-                  const sortedDesc = [...tiers].sort(
-                    (a: any, b: any) =>
-                      b.min_quantity_kg - a.min_quantity_kg
-                  );
-                  for (const t of sortedDesc) {
-                    if (lot.committed_quantity_kg >= t.min_quantity_kg) {
-                      currentPrice = t.price_per_kg;
-                      break;
-                    }
-                  }
+                  // Current active price — bag-aware via shared helper.
+                  const currentPrice = getTierProgress(
+                    {
+                      committed_quantity_kg: Number(
+                        lot.committed_quantity_kg
+                      ),
+                      price_per_kg: Number(lot.price_per_kg),
+                      bag_size_kg: lot.bag_size_kg ?? null,
+                    },
+                    tiers
+                  ).currentPricePerKg;
 
                   const hasDeadline = !!lot.campaign_deadline;
                   const deadlineDate = hasDeadline

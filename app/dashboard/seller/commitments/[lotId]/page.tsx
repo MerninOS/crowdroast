@@ -6,22 +6,7 @@ import { Card, CardContent } from "@merninos/ui";
 import { Badge } from "@merninos/ui";
 import { UnitWeightText, UnitPriceText } from "@/components/unit-value";
 import { SellerCampaignPreview } from "@/components/seller-campaign-preview";
-
-function getCurrentLotPrice(
-  lot: { committed_quantity_kg: number; price_per_kg: number },
-  tiers: { min_quantity_kg: number; price_per_kg: number }[]
-): number {
-  const basePrice = Number(lot.price_per_kg || 0);
-  if (tiers.length === 0) return basePrice;
-  const committedQty = Number(lot.committed_quantity_kg || 0);
-  const sortedDesc = [...tiers].sort(
-    (a, b) => Number(b.min_quantity_kg) - Number(a.min_quantity_kg)
-  );
-  for (const tier of sortedDesc) {
-    if (committedQty >= Number(tier.min_quantity_kg)) return Number(tier.price_per_kg);
-  }
-  return basePrice;
-}
+import { getTierProgress } from "@/lib/tier-progress";
 
 const statusBadge: Record<
   "Open / At Risk" | "Open / Guaranteed" | "Successful",
@@ -82,13 +67,23 @@ export default async function SellerLotCommitmentsPage({
       .maybeSingle(),
     supabase
       .from("pricing_tiers")
-      .select("lot_id, min_quantity_kg, price_per_kg")
-      .eq("lot_id", lotId)
-      .order("min_quantity_kg", { ascending: true }),
+      .select("lot_id, min_bags, min_quantity_kg, price_per_kg")
+      .eq("lot_id", lotId),
   ]);
 
   const tiers = pricingTiers || [];
-  const currentPricePerKg = getCurrentLotPrice(lot, tiers);
+  const currentPricePerKg = getTierProgress(
+    {
+      committed_quantity_kg: Number(lot.committed_quantity_kg || 0),
+      price_per_kg: Number(lot.price_per_kg || 0),
+      bag_size_kg: lot.bag_size_kg ?? null,
+    },
+    tiers.map((t) => ({
+      min_bags: t.min_bags ?? null,
+      min_quantity_kg: t.min_quantity_kg === null ? null : Number(t.min_quantity_kg),
+      price_per_kg: Number(t.price_per_kg),
+    }))
+  ).currentPricePerKg;
 
   let commitments: {
     id: string;

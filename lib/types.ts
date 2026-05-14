@@ -239,7 +239,15 @@ export interface Claim {
 export interface PricingTier {
   id: string;
   lot_id: string;
-  min_quantity_kg: number;
+  /**
+   * Legacy weight threshold in kg. Nullable post-migration #37 — bag-aware
+   * tiers store their threshold in `min_bags` and leave this null.
+   */
+  min_quantity_kg: number | null;
+  /**
+   * Bag count threshold. Non-null for bag-aware tiers; null for legacy
+   * unconverted tiers (which still key on `min_quantity_kg`).
+   */
   min_bags: number | null;
   price_per_kg: number;
   created_at: string;

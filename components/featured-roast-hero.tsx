@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Lot, PricingTier } from "@/lib/types";
 import { addPlatformFee } from "@/lib/pricing";
+import { getTierProgress } from "@/lib/tier-progress";
 import { CountdownTimer } from "./countdown-timer";
 import { UnitWeightText } from "./unit-value";
 import { HeroPrice, HeroCommitLabel } from "./hero-price";
@@ -9,25 +10,41 @@ interface FeaturedRoastHeroProps {
   lot: Lot & { campaign_deadline?: string | null } | null;
   campaignId?: string | null;
   hubId?: string | null;
-  tiers?: Pick<PricingTier, "min_quantity_kg" | "price_per_kg">[];
+  tiers?: Pick<PricingTier, "min_bags" | "min_quantity_kg" | "price_per_kg">[];
 }
 
 export function FeaturedRoastHero({ lot, campaignId, hubId, tiers = [] }: FeaturedRoastHeroProps) {
   if (!lot) return null;
 
-  const commitPct =
-    lot.total_quantity_kg > 0
+  // Total-progress denominator: bag-aware lots count completed bags out of
+  // total-quantity bags so the bar matches the unit the campaign settles in.
+  const bagSizeKg = lot.bag_size_kg && lot.bag_size_kg > 0 ? Number(lot.bag_size_kg) : null;
+  const totalBags = bagSizeKg ? Math.floor(Number(lot.total_quantity_kg) / bagSizeKg) : 0;
+  const completedBags = bagSizeKg
+    ? Math.floor(Number(lot.committed_quantity_kg) / bagSizeKg)
+    : 0;
+  const isBagAware = bagSizeKg !== null && tiers.some((t) => t.min_bags !== null);
+  const commitPct = isBagAware
+    ? totalBags > 0
+      ? Math.round((completedBags / totalBags) * 100)
+      : 0
+    : lot.total_quantity_kg > 0
       ? Math.round((lot.committed_quantity_kg / lot.total_quantity_kg) * 100)
       : 0;
 
   // Resolve the live tier price based on how much has been committed.
-  const activeSellerPricePerKg = (() => {
-    const sortedDesc = [...tiers].sort((a, b) => b.min_quantity_kg - a.min_quantity_kg);
-    for (const tier of sortedDesc) {
-      if (lot.committed_quantity_kg >= tier.min_quantity_kg) return tier.price_per_kg;
-    }
-    return lot.price_per_kg;
-  })();
+  const activeSellerPricePerKg = getTierProgress(
+    {
+      committed_quantity_kg: Number(lot.committed_quantity_kg),
+      price_per_kg: Number(lot.price_per_kg),
+      bag_size_kg: bagSizeKg,
+    },
+    tiers.map((t) => ({
+      min_bags: t.min_bags ?? null,
+      min_quantity_kg: t.min_quantity_kg ?? null,
+      price_per_kg: Number(t.price_per_kg),
+    }))
+  ).currentPricePerKg;
 
   const altitudeLabel =
     lot.altitude_min && lot.altitude_max
@@ -331,9 +348,15 @@ export function FeaturedRoastHero({ lot, campaignId, hubId, tiers = [] }: Featur
               <div style={{ marginBottom: 2 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "'Cal Sans', system-ui, sans-serif", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 6, opacity: 0.75, color: "#F5F0D8" }}>
                   <span>
-                    <UnitWeightText kg={lot.committed_quantity_kg} maximumFractionDigits={0} />
-                    {" / "}
-                    <UnitWeightText kg={lot.total_quantity_kg} maximumFractionDigits={0} />
+                    {isBagAware ? (
+                      <>{completedBags.toLocaleString()} / {totalBags.toLocaleString()} bags</>
+                    ) : (
+                      <>
+                        <UnitWeightText kg={lot.committed_quantity_kg} maximumFractionDigits={0} />
+                        {" / "}
+                        <UnitWeightText kg={lot.total_quantity_kg} maximumFractionDigits={0} />
+                      </>
+                    )}
                   </span>
                   <span style={{ color: "#F5C842" }}>{commitPct}%</span>
                 </div>

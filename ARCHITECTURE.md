@@ -197,7 +197,7 @@ Fetch all lots where:
 | Hub | 2% of gross (gross = seller price × 1.10 platform markup) |
 | Platform | Gross − Seller − Hub |
 
-Volume tiers in `pricing_tiers` unlock lower prices per kg as total committed quantity grows.
+Volume tiers in `pricing_tiers` unlock lower prices per kg as the number of completed bags grows. A tier applies when `floor(total_committed_kg / bag_size_kg)` reaches the tier's `min_bags`. The legacy `min_quantity_kg` column is nullable (migrations #36–#37) and only used for unconverted legacy lots; new lots store thresholds in `min_bags`. Buyer, seller, and hub UI resolve "current price" and "X to next tier" through `lib/tier-progress.ts`, which mirrors the bag-aware rule used at settlement (`lib/settle-bag-pricing.ts`).
 
 ### Stripe Connect Architecture
 

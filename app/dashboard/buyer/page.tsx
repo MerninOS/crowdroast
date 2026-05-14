@@ -9,6 +9,7 @@ import { FeaturedRoastHero } from "@/components/featured-roast-hero";
 import { InviteShareCard } from "@/components/referrals/InviteShareCard";
 import { MyReferralsList } from "@/components/referrals/MyReferralsList";
 import { CreditBalanceCard } from "@/components/referrals/CreditBalanceCard";
+import { getTierProgress } from "@/lib/tier-progress";
 
 function getHubName(memberships: any[], hubId: string) {
   const membership = memberships.find((m: any) => m.hub_id === hubId);
@@ -128,9 +129,8 @@ export default async function BuyerOverview({
   if (allLotIds.length > 0) {
     const { data: allTiers } = await supabase
       .from("pricing_tiers")
-      .select("lot_id, min_quantity_kg, price_per_kg")
-      .in("lot_id", allLotIds)
-      .order("min_quantity_kg", { ascending: true });
+      .select("lot_id, min_bags, min_quantity_kg, price_per_kg")
+      .in("lot_id", allLotIds);
 
     for (const tier of allTiers || []) {
       if (!tiersMap[tier.lot_id]) tiersMap[tier.lot_id] = [];
@@ -177,73 +177,78 @@ export default async function BuyerOverview({
     const tiers = tiersMap[lot.id] || [];
     const committed = Number(lot.committed_quantity_kg || 0);
     const minCommitment = Number(lot.min_commitment_kg || 0);
-
-    // Bag-aware lots: surface progress in completed-bag terms so the buyer
-    // sees the same units the campaign settles in. Legacy lots stay kg-based.
-    const bagSizeKg =
-      lot.bag_size_kg != null && Number(lot.bag_size_kg) > 0
-        ? Number(lot.bag_size_kg)
-        : null;
     const minBagsToSucceed = Number(lot.min_bags_to_succeed || 0);
-    const isBagAware = bagSizeKg !== null;
-    const completedBags = isBagAware
-      ? Math.floor(committed / bagSizeKg)
-      : 0;
 
-    const currentPrice = (() => {
-      if (tiers.length === 0) return Number(lot.price_per_kg);
-      const sortedDesc = [...tiers].sort(
-        (a: any, b: any) => b.min_quantity_kg - a.min_quantity_kg
-      );
-      for (const t of sortedDesc) {
-        if (committed >= t.min_quantity_kg) return Number(t.price_per_kg);
-      }
-      return Number(lot.price_per_kg);
-    })();
+    const progress = getTierProgress(
+      {
+        committed_quantity_kg: committed,
+        price_per_kg: Number(lot.price_per_kg),
+        bag_size_kg: lot.bag_size_kg ?? null,
+      },
+      tiers
+    );
+
+    const { isBagAware, bagSize, completedBags, currentPricePerKg, nextTier } = progress;
+    const currentPrice = currentPricePerKg;
 
     const lowestPrice =
       tiers.length > 0
         ? Math.min(...tiers.map((t: any) => Number(t.price_per_kg)))
         : Number(lot.price_per_kg);
 
-    const nextTier = tiers.find((t: any) => committed < t.min_quantity_kg) || null;
+    // Next milestone: for bag-aware lots we phrase progress in bags; legacy
+    // lots stay kg-based. "Trigger campaign" still gates on minCommitment kg
+    // (or min_bags_to_succeed when bag-aware) before any tier unlocks.
+    const triggerBagsRemaining =
+      isBagAware && minBagsToSucceed > 0
+        ? Math.max(0, minBagsToSucceed - completedBags)
+        : null;
+    const triggerNotMet =
+      isBagAware && minBagsToSucceed > 0
+        ? completedBags < minBagsToSucceed
+        : committed < minCommitment;
 
-    const nextMilestone =
-      committed < minCommitment
+    const nextMilestone = triggerNotMet
+      ? {
+          label: "Trigger campaign",
+          targetKg: isBagAware && bagSize ? minBagsToSucceed * bagSize : minCommitment,
+          remainingKg: Math.max(0, minCommitment - committed),
+          remainingBags: triggerBagsRemaining,
+          nextPricePerKg: null as number | null,
+        }
+      : nextTier
         ? {
-            label: "Trigger campaign",
-            targetKg: minCommitment,
-            remainingKg: Math.max(0, minCommitment - committed),
+            label: "Next tier",
+            targetKg: nextTier.threshold_kg,
+            remainingKg: Math.max(0, nextTier.threshold_kg - committed),
             remainingBags:
-              isBagAware && minBagsToSucceed > 0
-                ? Math.max(0, minBagsToSucceed - completedBags)
+              isBagAware && nextTier.min_bags !== null
+                ? Math.max(0, nextTier.min_bags - completedBags)
                 : null,
-            nextPricePerKg: null as number | null,
+            nextPricePerKg: nextTier.price_per_kg,
           }
-        : nextTier
-          ? {
-              label: "Next tier",
-              targetKg: Number(nextTier.min_quantity_kg),
-              remainingKg: Math.max(0, Number(nextTier.min_quantity_kg) - committed),
-              remainingBags: null as number | null,
-              nextPricePerKg: Number(nextTier.price_per_kg),
-            }
-          : {
-              label: "Best tier reached",
-              targetKg: committed,
-              remainingKg: 0,
-              remainingBags: null as number | null,
-              nextPricePerKg: null as number | null,
-            };
+        : {
+            label: "Best tier reached",
+            targetKg: committed,
+            remainingKg: 0,
+            remainingBags: null as number | null,
+            nextPricePerKg: null as number | null,
+          };
 
-    const milestoneTargets = [minCommitment, ...tiers.map((t: any) => Number(t.min_quantity_kg))]
-      .filter((v) => Number.isFinite(v) && v > 0)
-      .sort((a, b) => a - b);
+    // Progress bar scale: bag-aware lots use bag thresholds; legacy use kg.
+    const milestoneTargets = isBagAware
+      ? [minBagsToSucceed, ...progress.sortedTiers.map((t) => t.min_bags ?? 0)]
+          .filter((v) => Number.isFinite(v) && v > 0)
+          .sort((a, b) => a - b)
+      : [minCommitment, ...progress.sortedTiers.map((t) => t.threshold_kg)]
+          .filter((v) => Number.isFinite(v) && v > 0)
+          .sort((a, b) => a - b);
     const uniqueTargets = Array.from(new Set(milestoneTargets));
-    const nextTarget = uniqueTargets.find((target) => committed < target) || null;
+    const currentValue = isBagAware ? completedBags : committed;
+    const nextTarget = uniqueTargets.find((target) => currentValue < target) || null;
     const previousTarget =
       uniqueTargets
-        .filter((target) => target <= committed)
+        .filter((target) => target <= currentValue)
         .sort((a, b) => b - a)[0] || 0;
 
     const progressPct = nextTarget
@@ -251,7 +256,7 @@ export default async function BuyerOverview({
           0,
           Math.min(
             100,
-            Math.round(((committed - previousTarget) / (nextTarget - previousTarget)) * 100)
+            Math.round(((currentValue - previousTarget) / (nextTarget - previousTarget)) * 100)
           )
         )
       : 100;
@@ -265,9 +270,10 @@ export default async function BuyerOverview({
       lowestPrice,
       nextMilestone,
       progressPct,
-      progressTextTarget: nextTarget || previousTarget,
+      progressCurrent: currentValue,
+      progressTarget: nextTarget || previousTarget,
       isBagAware,
-      bagSizeKg,
+      bagSizeKg: bagSize,
       completedBags,
       minBagsToSucceed,
       invested: investedLotIds.has(lot.id),
@@ -550,8 +556,16 @@ export default async function BuyerOverview({
                               Commitment Progress
                             </span>
                             <span style={{ color: "#7A6A50", fontSize: 11 }}>
-                              <UnitWeightText kg={Number(card.lot.committed_quantity_kg)} /> /{" "}
-                              <UnitWeightText kg={Number(card.progressTextTarget)} />
+                              {card.isBagAware ? (
+                                <>
+                                  {card.progressCurrent.toLocaleString()} / {Number(card.progressTarget).toLocaleString()} bags
+                                </>
+                              ) : (
+                                <>
+                                  <UnitWeightText kg={Number(card.lot.committed_quantity_kg)} /> /{" "}
+                                  <UnitWeightText kg={Number(card.progressTarget)} />
+                                </>
+                              )}
                             </span>
                           </div>
                           <div
@@ -604,7 +618,11 @@ export default async function BuyerOverview({
                               </span>
                             )}
                           </p>
-                          {card.nextMilestone.remainingKg > 0 ? (
+                          {card.isBagAware && card.nextMilestone.remainingBags !== null && card.nextMilestone.remainingBags > 0 ? (
+                            <p className="mt-1 text-xs" style={{ color: "#7A6A50" }}>
+                              {card.nextMilestone.remainingBags} bag{card.nextMilestone.remainingBags === 1 ? "" : "s"} needed
+                            </p>
+                          ) : !card.isBagAware && card.nextMilestone.remainingKg > 0 ? (
                             <p className="mt-1 text-xs" style={{ color: "#7A6A50" }}>
                               <UnitWeightText kg={card.nextMilestone.remainingKg} /> needed
                             </p>

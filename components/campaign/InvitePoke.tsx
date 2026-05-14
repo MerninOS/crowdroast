@@ -7,8 +7,13 @@ import { formatUnitWeight } from '@/lib/units'
 import { REFERRAL_CREDIT_AMOUNT_CENTS } from '@/lib/referrals/settle-attribution'
 
 interface InvitePokeProps {
-  /** Quantity remaining to the next tier, in kg. */
+  /** Quantity remaining to the next tier, in kg. Used for legacy weight-based lots. */
   kgToNext: number
+  /**
+   * Bags remaining to the next tier. Non-null for bag-aware lots, in which
+   * case the copy switches to "X bags to next tier" regardless of unit pref.
+   */
+  bagsToNext?: number | null
   onOpen: () => void
 }
 
@@ -16,14 +21,22 @@ interface InvitePokeProps {
 // design/project/campaign/Invite.jsx (InvitePoke). Returns null when the
 // buyer has no hub or while invite data is loading — same render gate
 // as every other CTA on the page.
-export function InvitePoke({ kgToNext, onOpen }: InvitePokeProps) {
+export function InvitePoke({ kgToNext, bagsToNext, onOpen }: InvitePokeProps) {
   const { status, data } = useInviteData()
   const { unit } = useUnitPreference()
   if (status !== 'ready' || !data) return null
 
   const credit = REFERRAL_CREDIT_AMOUNT_CENTS / 100
   const cityCopy = data.hubCity ? `local ${data.hubCity} roasters` : 'local roasters'
-  const displayQty = formatUnitWeight(kgToNext, unit, 0)
+  const isBagAware = bagsToNext !== null && bagsToNext !== undefined
+  const remaining = isBagAware ? bagsToNext! : kgToNext
+  const headline = isBagAware
+    ? remaining > 0
+      ? `${remaining.toLocaleString()} bag${remaining === 1 ? '' : 's'} to next tier`
+      : 'Push the stretch goal'
+    : kgToNext > 0
+      ? `${formatUnitWeight(kgToNext, unit, 0)} ${unit} to next tier`
+      : 'Push the stretch goal'
 
   return (
     <button
@@ -74,7 +87,7 @@ export function InvitePoke({ kgToNext, onOpen }: InvitePokeProps) {
             color: 'var(--color-espresso)',
           }}
         >
-          {kgToNext > 0 ? `${displayQty} ${unit} to next tier` : 'Push the stretch goal'}
+          {headline}
         </div>
         <div
           style={{

@@ -213,6 +213,7 @@ function AuthenticatedView({
     stretchKg,
     committedKg,
     kgToNext,
+    bagsToNext,
     nextTier,
     nextIsStretch,
     activePrice,
@@ -413,7 +414,7 @@ function AuthenticatedView({
             pricingTiers={pricingTiers}
           >
             <div style={{ flex: '1 1 320px', minWidth: 0 }}>
-              <InvitePoke kgToNext={kgToNext} onOpen={openModal} />
+              <InvitePoke kgToNext={kgToNext} bagsToNext={bagsToNext} onOpen={openModal} />
             </div>
           </BagGridProgress>
         </div>
@@ -435,7 +436,7 @@ function AuthenticatedView({
 
       {/* MARQUEE strip */}
       <Marquee
-        items={buildMarqueeItems(socialProof, kgToNext, nextTier.name, unit)}
+        items={buildMarqueeItems(socialProof, kgToNext, bagsToNext, nextTier.name, unit)}
         inverted
         duration={36}
       />
@@ -456,6 +457,7 @@ function AuthenticatedView({
         <div style={{ maxWidth: 1100, margin: '0 auto' }}>
           <InviteBanner
             kgToNext={kgToNext}
+            bagsToNext={bagsToNext}
             nextTierName={nextTier.name}
             nextIsStretch={nextIsStretch}
             onOpen={openModal}
@@ -580,6 +582,13 @@ type TierContext = {
   stretchKg: number
   committedKg: number
   kgToNext: number
+  /**
+   * Bags remaining to the next tier. Non-null only when the lot is bag-aware
+   * (has bag_size_kg). UI copy switches to "X bags to drop the price" then.
+   */
+  bagsToNext: number | null
+  /** True when the lot's bag config is set. Mirrors settlement's bag-aware mode. */
+  isBagAware: boolean
   nextTier: CampaignTier
   nextIsStretch: boolean
   /** Price per kg at the active tier (used by the commit form). */
@@ -671,6 +680,18 @@ function buildTierContext(lot: Lot, pricingTiers: PricingTier[]): TierContext {
   const kgToNext = Math.max(0, kgAtTier(nextTier) - committedKg)
   const nextIsStretch = nextTier.id === stretchTier.id
 
+  // Bag-aware copy switches the marquee / invite messaging to bag units. We
+  // ceil so a partial bag still counts as "1 more bag" to drop the price —
+  // settlement only credits a fully completed bag, so rounding down here
+  // would show 0 bags while the price hasn't actually moved yet.
+  const isBagAware = bagSizeKg !== null
+  const bagsToNext =
+    isBagAware && bagSizeKg !== null && kgToNext > 0
+      ? Math.ceil(kgToNext / bagSizeKg)
+      : isBagAware
+        ? 0
+        : null
+
   // Active price = price of the highest tier whose threshold has been reached.
   const reached = [...tiers].reverse().find((t) => committedKg >= kgAtTier(t)) ?? tiers[0]
   const activePrice = reached.priceKg
@@ -680,6 +701,8 @@ function buildTierContext(lot: Lot, pricingTiers: PricingTier[]): TierContext {
     stretchKg,
     committedKg,
     kgToNext,
+    bagsToNext,
+    isBagAware,
     nextTier,
     nextIsStretch,
     activePrice,
@@ -690,6 +713,7 @@ function buildTierContext(lot: Lot, pricingTiers: PricingTier[]): TierContext {
 function buildMarqueeItems(
   socialProof: CampaignSocialProof | undefined,
   kgToNext: number,
+  bagsToNext: number | null,
   nextTierName: string,
   unit: 'kg' | 'lb'
 ): string[] {
@@ -701,7 +725,11 @@ function buildMarqueeItems(
       )
     }
   }
-  if (kgToNext > 0) {
+  if (bagsToNext !== null) {
+    if (bagsToNext > 0) {
+      out.push(`${bagsToNext.toLocaleString()} bag${bagsToNext === 1 ? '' : 's'} to ${nextTierName}`)
+    }
+  } else if (kgToNext > 0) {
     out.push(`${formatUnitWeight(kgToNext, unit, 0)} ${unit} to ${nextTierName}`)
   }
   out.push('Bring a roaster · drop the price')

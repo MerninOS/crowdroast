@@ -147,8 +147,8 @@ describe("ClosedDrawerBody — value mode", () => {
         group={group}
         mode="value"
         tiers={[
-          { min_quantity_kg: 500, price_per_kg: 10 },
-          { min_quantity_kg: 1000, price_per_kg: 9 },
+          { min_bags: null, min_quantity_kg: 500, price_per_kg: 10 },
+          { min_bags: null, min_quantity_kg: 1000, price_per_kg: 9 },
         ]}
       />
     );
@@ -166,7 +166,7 @@ describe("ClosedDrawerBody — value mode", () => {
       <ClosedDrawerBody
         group={group}
         mode="value"
-        tiers={[{ min_quantity_kg: 500, price_per_kg: 10 }]}
+        tiers={[{ min_bags: null, min_quantity_kg: 500, price_per_kg: 10 }]}
       />
     );
     expect(screen.queryByTestId("closed-tier-summary")).not.toBeInTheDocument();
@@ -224,7 +224,7 @@ describe("ClosedDrawerBody — refund mode", () => {
       <ClosedDrawerBody
         group={group}
         mode="refund"
-        tiers={[{ min_quantity_kg: 500, price_per_kg: 10 }]}
+        tiers={[{ min_bags: null, min_quantity_kg: 500, price_per_kg: 10 }]}
       />
     );
     const header = screen.getByTestId("closed-refund-header");

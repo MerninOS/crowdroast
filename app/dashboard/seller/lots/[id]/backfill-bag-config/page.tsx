@@ -10,7 +10,7 @@ import {
 } from "@merninos/ui";
 import { Button } from "@merninos/ui";
 import { ArrowLeft } from "lucide-react";
-import type { Lot, PricingTier } from "@/lib/types";
+import type { Lot } from "@/lib/types";
 import { BackfillBagConfigForm } from "./backfill-bag-config-form";
 
 // Server component (Task 3.6): auth-gate the route, fetch the lot + tiers, and
@@ -142,13 +142,13 @@ export default async function BackfillBagConfigPage({
         existingMinBagsToSucceed={(lot as Lot).min_bags_to_succeed}
         hasActiveCampaign={Boolean(activeCampaign)}
         tiers={
-          (tiers ?? []).map((t) => ({
-            id: t.id,
-            min_quantity_kg: t.min_quantity_kg,
-            price_per_kg: t.price_per_kg,
-          })) as Array<
-            Pick<PricingTier, "id" | "min_quantity_kg" | "price_per_kg">
-          >
+          (tiers ?? [])
+            .filter((t) => t.min_quantity_kg !== null && t.min_quantity_kg !== undefined)
+            .map((t) => ({
+              id: t.id,
+              min_quantity_kg: Number(t.min_quantity_kg),
+              price_per_kg: t.price_per_kg,
+            }))
         }
       />
     </div>

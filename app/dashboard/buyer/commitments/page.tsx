@@ -176,18 +176,21 @@ export default async function BuyerCommitmentsPage({
     }
   }
 
-  let tiersByLotId: Record<string, { min_quantity_kg: number; price_per_kg: number }[]> = {};
+  let tiersByLotId: Record<
+    string,
+    { min_bags: number | null; min_quantity_kg: number | null; price_per_kg: number }[]
+  > = {};
   if (lotIds.length > 0) {
     const { data: pricingTiers } = await supabase
       .from("pricing_tiers")
-      .select("lot_id, min_quantity_kg, price_per_kg")
-      .in("lot_id", lotIds)
-      .order("min_quantity_kg", { ascending: true });
+      .select("lot_id, min_bags, min_quantity_kg, price_per_kg")
+      .in("lot_id", lotIds);
 
     for (const tier of pricingTiers || []) {
       if (!tiersByLotId[tier.lot_id]) tiersByLotId[tier.lot_id] = [];
       tiersByLotId[tier.lot_id].push({
-        min_quantity_kg: Number(tier.min_quantity_kg),
+        min_bags: tier.min_bags ?? null,
+        min_quantity_kg: tier.min_quantity_kg === null ? null : Number(tier.min_quantity_kg),
         price_per_kg: Number(tier.price_per_kg),
       });
     }
