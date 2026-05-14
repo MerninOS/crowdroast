@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendPriceDropInvestorEmail, sendPriceDropNonInvestorEmail } from "@/lib/email";
-import { getFinalPricePerKg } from "@/lib/payments/settlement-logic";
+import { getTierProgress } from "@/lib/tier-progress";
 import { authorizeCronRequest } from "@/lib/auth/cron-route";
 import { NextResponse } from "next/server";
 
@@ -53,10 +53,16 @@ async function sendPriceDropNotifications(request: Request) {
     );
   }
 
-  // Fetch active lots that have pricing tiers (volume discounts)
+  // Fetch active lots that have pricing tiers (volume discounts).
+  // bag_size_kg is needed so getTierProgress can resolve bag-aware tiers
+  // the same way settlement does (lib/settle-bag-pricing.ts) — without it,
+  // we'd fire price-drop notifications at weight thresholds even though
+  // settlement only credits the tier at completed-bag boundaries.
   const { data: lots, error: lotsError } = await admin
     .from("lots")
-    .select("id, title, price_per_kg, currency, committed_quantity_kg, commitment_deadline")
+    .select(
+      "id, title, price_per_kg, currency, committed_quantity_kg, commitment_deadline, bag_size_kg"
+    )
     .in("status", ["active", "fully_committed"]);
 
   if (lotsError) {
@@ -68,17 +74,23 @@ async function sendPriceDropNotifications(request: Request) {
   for (const lot of lots || []) {
     const { data: tiers } = await admin
       .from("pricing_tiers")
-      .select("min_quantity_kg, price_per_kg")
-      .eq("lot_id", lot.id)
-      .order("min_quantity_kg", { ascending: false });
+      .select("min_bags, min_quantity_kg, price_per_kg")
+      .eq("lot_id", lot.id);
 
     if (!tiers || tiers.length === 0) continue;
 
-    const effectivePrice = getFinalPricePerKg(
-      lot.price_per_kg,
-      lot.committed_quantity_kg,
-      tiers
-    );
+    const effectivePrice = getTierProgress(
+      {
+        committed_quantity_kg: Number(lot.committed_quantity_kg || 0),
+        price_per_kg: Number(lot.price_per_kg || 0),
+        bag_size_kg: lot.bag_size_kg ?? null,
+      },
+      tiers.map((t) => ({
+        min_bags: t.min_bags ?? null,
+        min_quantity_kg: t.min_quantity_kg === null ? null : Number(t.min_quantity_kg),
+        price_per_kg: Number(t.price_per_kg),
+      }))
+    ).currentPricePerKg;
 
     // No tier crossed — base price still applies
     if (effectivePrice >= lot.price_per_kg) continue;
