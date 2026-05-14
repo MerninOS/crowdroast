@@ -100,23 +100,59 @@ export async function POST(request: Request) {
     );
   }
 
-  const remaining = lot.total_quantity_kg - lot.committed_quantity_kg;
-  if (quantity_kg > remaining) {
+  // Find the buyer's existing commit on this campaign, if any. One-row-per-
+  // buyer-per-campaign: a second commit *adds* to the prior quantity rather
+  // than creating a new row. Cancelled rows don't block — the buyer can
+  // recommit after a self-cancel.
+  const { data: existingCommit } = await supabase
+    .from("commitments")
+    .select(
+      "id, quantity_kg, payment_status, stripe_customer_id, stripe_payment_method_id, stripe_checkout_session_id"
+    )
+    .eq("campaign_id", campaign.id)
+    .eq("buyer_id", user.id)
+    .neq("status", "cancelled")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  // The new TOTAL quantity (existing + this request).
+  const existingQty = existingCommit?.quantity_kg ?? 0;
+  const newTotalQuantityKg = existingQty + quantity_kg;
+
+  // Remaining-kg gate. After the trigger fix, `lot.committed_quantity_kg`
+  // only counts commits with `payment_status IN ('setup_complete',
+  // 'charge_succeeded')`. So the buyer's existing kg is only in that
+  // aggregate if their card is already saved; otherwise it's "free pool"
+  // until they finish Stripe.
+  const priorCountedQty =
+    existingCommit && existingCommit.payment_status === "setup_complete"
+      ? existingQty
+      : 0;
+  const othersCommittedKg = lot.committed_quantity_kg - priorCountedQty;
+  const buyerCeiling = lot.total_quantity_kg - othersCommittedKg;
+  if (newTotalQuantityKg > buyerCeiling) {
+    const addable = Math.max(0, buyerCeiling - existingQty);
     return NextResponse.json(
-      { error: `Only ${remaining} kg remaining` },
+      { error: `Only ${addable} kg remaining on this lot` },
       { status: 400 }
     );
   }
 
-  // Fetch pricing tiers to determine the active price
+  // Fetch pricing tiers — bag-aware tiers carry `min_bags`, legacy tiers
+  // carry `min_quantity_kg`. The bag-aware path uses computeCompletedBagsAndPrice
+  // (the same algorithm settlement uses) directly off the bag-shaped rows.
   const { data: tiers } = await supabase
     .from("pricing_tiers")
-    .select("*")
+    .select("min_bags, min_quantity_kg, price_per_kg")
     .eq("lot_id", lot_id)
     .order("min_quantity_kg", { ascending: false });
 
-  // After this commitment, the new total committed quantity
-  const newTotal = lot.committed_quantity_kg + quantity_kg;
+  // The lot-wide total that WOULD result if the buyer finishes setup.
+  // Independent of where their prior kg currently sits (counted or not in
+  // lot.committed_quantity_kg under the new trigger) — we always project
+  // others + buyer's new total.
+  const lotTotalAfter = othersCommittedKg + newTotalQuantityKg;
 
   // Resolve the active seller price per kg. For bag-aware lots (the live
   // path now), keep the commit-time tier in sync with settlement by
@@ -127,7 +163,7 @@ export async function POST(request: Request) {
   let activeSellerPricePerKg = lot.price_per_kg;
   if (lot.bag_size_kg !== null && lot.bag_size_kg > 0) {
     const { price_per_kg } = computeCompletedBagsAndPrice({
-      total_committed_kg: newTotal,
+      total_committed_kg: lotTotalAfter,
       bag_size_kg: Number(lot.bag_size_kg),
       base_price_per_kg: lot.price_per_kg,
       tiers: (tiers ?? []).map((t) => ({
@@ -142,7 +178,10 @@ export async function POST(request: Request) {
   } else if (tiers && tiers.length > 0) {
     // Legacy kg-tier resolution preserved for unconverted lots.
     for (const tier of tiers) {
-      if (newTotal >= tier.min_quantity_kg) {
+      if (
+        typeof tier.min_quantity_kg === "number" &&
+        lotTotalAfter >= tier.min_quantity_kg
+      ) {
         activeSellerPricePerKg = tier.price_per_kg;
         break; // tiers are sorted desc, so first match is the highest applicable
       }
@@ -150,7 +189,7 @@ export async function POST(request: Request) {
   }
 
   const activeBuyerPricePerKg = addPlatformFee(activeSellerPricePerKg);
-  const total_price = quantity_kg * activeBuyerPricePerKg;
+  const total_price = newTotalQuantityKg * activeBuyerPricePerKg;
   const chargeAmountCents = Math.round(total_price * 100);
 
   const { data: profile } = await supabase
@@ -159,7 +198,10 @@ export async function POST(request: Request) {
     .eq("id", user.id)
     .single();
 
-  let stripeCustomerId: string | null = profile?.stripe_customer_id || null;
+  let stripeCustomerId: string | null =
+    existingCommit?.stripe_customer_id ||
+    profile?.stripe_customer_id ||
+    null;
   if (!stripeCustomerId) {
     const customer = await createStripeCustomer(profile?.email || user.email || null);
     stripeCustomerId = customer.id;
@@ -170,51 +212,107 @@ export async function POST(request: Request) {
       .eq("id", user.id);
   }
 
-  const { data: existingUnpaidCommitment } = await supabase
-    .from("commitments")
-    .select("id")
-    .eq("lot_id", lot_id)
-    .eq("buyer_id", user.id)
-    .is("stripe_payment_intent_id", null)
-    .neq("status", "cancelled")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // Three persistence shapes:
+  //   A. Card already saved on existing row (payment_status='setup_complete'):
+  //      just bump quantity + price. No Stripe round-trip. Trigger updates
+  //      lot.committed_quantity_kg.
+  //   B. Existing row still pending (no card yet): bump quantity, reset
+  //      Stripe-session columns, and we'll send the buyer back to Stripe to
+  //      finish the setup. The row stays one-per-buyer.
+  //   C. No existing row: insert fresh and send to Stripe.
+  const isAdditiveWithSavedCard =
+    !!existingCommit &&
+    existingCommit.payment_status === "setup_complete" &&
+    !!existingCommit.stripe_payment_method_id;
 
-  const commitmentPayload = {
+  const basePayload = {
     lot_id,
     buyer_id: user.id,
     hub_id: hub_id || null,
     campaign_id: campaign.id,
-    quantity_kg,
+    quantity_kg: newTotalQuantityKg,
     price_per_kg: activeSellerPricePerKg,
     total_price,
     notes: notes || null,
-    status: "pending",
-    payment_status: "pending_setup",
     charge_amount_cents: chargeAmountCents,
     charge_currency: (lot.currency || "USD").toLowerCase(),
     stripe_customer_id: stripeCustomerId,
-    stripe_checkout_session_id: null,
-    stripe_setup_intent_id: null,
-    stripe_payment_method_id: null,
-    stripe_payment_intent_id: null,
-    stripe_charge_id: null,
-    payment_error: null,
-    charged_at: null,
   };
 
-  const commitmentQuery = existingUnpaidCommitment
-    ? supabase
-        .from("commitments")
-        .update(commitmentPayload)
-        .eq("id", existingUnpaidCommitment.id)
-    : supabase.from("commitments").insert(commitmentPayload);
+  let data: { id: string } & Record<string, unknown>;
 
-  const { data, error } = await commitmentQuery.select().single();
+  if (isAdditiveWithSavedCard && existingCommit) {
+    // Path A — additive, card already saved. Keep payment_status=setup_complete.
+    const { data: updated, error } = await supabase
+      .from("commitments")
+      .update({
+        ...basePayload,
+        // Don't reset stripe_* fields — the saved card stays put.
+      })
+      .eq("id", existingCommit.id)
+      .select()
+      .single();
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    data = updated;
+  } else if (existingCommit) {
+    // Path B — additive, but card setup never completed. Bump quantity and
+    // reset the Stripe-session columns so a fresh setup session can be
+    // generated below.
+    const { data: updated, error } = await supabase
+      .from("commitments")
+      .update({
+        ...basePayload,
+        status: "pending",
+        payment_status: "pending_setup",
+        stripe_checkout_session_id: null,
+        stripe_setup_intent_id: null,
+        stripe_payment_method_id: null,
+        stripe_payment_intent_id: null,
+        stripe_charge_id: null,
+        payment_error: null,
+        charged_at: null,
+      })
+      .eq("id", existingCommit.id)
+      .select()
+      .single();
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    data = updated;
+  } else {
+    // Path C — first commit on this campaign for this buyer.
+    const { data: inserted, error } = await supabase
+      .from("commitments")
+      .insert({
+        ...basePayload,
+        status: "pending",
+        payment_status: "pending_setup",
+        stripe_checkout_session_id: null,
+        stripe_setup_intent_id: null,
+        stripe_payment_method_id: null,
+        stripe_payment_intent_id: null,
+        stripe_charge_id: null,
+        payment_error: null,
+        charged_at: null,
+      })
+      .select()
+      .single();
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    data = inserted;
+  }
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  // Short-circuit Path A: the row is set; settlement will charge the saved
+  // card per bag at close. No Stripe redirect needed; the form will refresh
+  // and show the new total.
+  if (isAdditiveWithSavedCard) {
+    return NextResponse.json(
+      { commitment: data, updated_quantity_kg: newTotalQuantityKg },
+      { status: 200 }
+    );
   }
 
   // Compute the bag-aware Locked/Filling split for the buyer's new commit.

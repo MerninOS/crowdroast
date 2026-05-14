@@ -198,11 +198,22 @@ export function CampaignCommitForm({
         throw new Error((err as any).error || 'Failed to create commitment')
       }
       const payload = await res.json()
-      if (payload?.checkout_url) {
-        window.location.href = payload.checkout_url as string
+      // The route returns one of three success shapes:
+      //   - `checkout_url`         legacy charge-on-commit flow (card + charge in one go)
+      //   - `setup_client_secret`  bag-aware first-time commit (save-card-only Checkout Session URL)
+      //   - neither                bag-aware additive commit (buyer already has a saved card on
+      //                            this campaign — the row's quantity was updated server-side
+      //                            and no Stripe round-trip is needed)
+      // Without the setup_client_secret branch the buyer would never reach Stripe and the row
+      // would sit forever in `payment_status = 'pending_setup'`.
+      const redirectUrl =
+        (payload?.checkout_url as string | undefined) ||
+        (payload?.setup_client_secret as string | undefined)
+      if (redirectUrl) {
+        window.location.href = redirectUrl
         return
       }
-      toast.success('Commitment created.')
+      toast.success("You're in. Card on file — we'll charge at close.")
       setConfirmOpen(false)
       setCommitted(true)
       onSuccess?.()
