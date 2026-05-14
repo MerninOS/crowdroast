@@ -205,6 +205,77 @@ function hasChargeFailed(group: CommitmentGroup): boolean {
 }
 
 /**
+ * Inputs the `NeedsAttentionCard` renders. Pure derivation so the card
+ * component itself stays a thin shell — and so the bag-aware "X of Y bags
+ * couldn't be charged" messaging can be tested without spinning up React.
+ *
+ * Returns:
+ *   • `failedKg`  — total kg the buyer LOST (sum of failed bag rows for
+ *                   bag-aware commits; commitment.quantity_kg for legacy
+ *                   charge_failed rows).
+ *   • `reason`    — buyer-facing failure blurb. Bag-aware: a count-based
+ *                   message ("X of Y bags couldn't be charged") since the
+ *                   raw `failed_reason` codes (`missing_payment_method`,
+ *                   `auth_probe_failed`) aren't buyer-meaningful. Legacy:
+ *                   the commitment's `payment_error` if set, else a
+ *                   generic "card was declined" line.
+ *   • `hasAny`    — true when at least one commit in the group is in the
+ *                   `failed` effective state. Card consumers can short-
+ *                   circuit on false.
+ */
+export interface NeedsAttentionDisplay {
+  failedKg: number;
+  reason: string;
+  hasAny: boolean;
+}
+
+export function deriveNeedsAttentionDisplay(
+  group: CommitmentGroup
+): NeedsAttentionDisplay {
+  let failedKg = 0;
+  let failedBags = 0;
+  let totalBags = 0;
+  let legacyReason: string | null = null;
+  let anyFailed = false;
+
+  for (const c of group.commitments) {
+    const bags = group.bagChargesByCommitmentId?.[c.id];
+    const state = effectiveChargeState(c, bags);
+    if (state !== "failed") continue;
+    anyFailed = true;
+
+    if (bags && bags.length > 0) {
+      // Bag-aware: sum kg of failed rows and accumulate the failed/total
+      // counts so the message can read "X of Y bags …".
+      totalBags += bags.length;
+      for (const b of bags) {
+        if (b.payment_status === "payment_failed") {
+          failedKg += Number(b.kg || 0);
+          failedBags += 1;
+        }
+      }
+    } else {
+      // Legacy: the whole commitment is failed. Use quantity_kg as the
+      // lost weight and pick up payment_error if we have it.
+      failedKg += Number(c.quantity_kg || 0);
+      if (!legacyReason && c.payment_error) legacyReason = c.payment_error;
+    }
+  }
+
+  let reason: string;
+  if (failedBags > 0 && totalBags > 0) {
+    reason =
+      failedBags === totalBags
+        ? "Your card couldn't be charged for any of the bags"
+        : `Your card couldn't be charged for ${failedBags} of ${totalBags} bags`;
+  } else {
+    reason = legacyReason || "Your card was declined";
+  }
+
+  return { failedKg, reason, hasAny: anyFailed };
+}
+
+/**
  * Map a (lot × campaign) group to its lifecycle stage.
  *
  * Whenever a `campaign` is present, the campaign's own status is the

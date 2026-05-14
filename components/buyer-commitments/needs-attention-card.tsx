@@ -1,20 +1,26 @@
 import Link from "next/link";
 import { Button } from "@merninos/ui";
 import { UnitWeightText } from "@/components/unit-value";
-import type { CommitmentGroup } from "./bucket-by-lifecycle";
+import { deriveNeedsAttentionDisplay, type CommitmentGroup } from "./bucket-by-lifecycle";
 
 export interface NeedsAttentionCardProps {
   group: CommitmentGroup;
 }
 
 /**
- * Surfaces a commitment whose payment has failed (`payment_status = 'charge_failed'`).
+ * Surfaces a commitment whose payment has failed.
+ *
+ * "Failed" is read via `deriveNeedsAttentionDisplay`, which considers both
+ * legacy `commitment.payment_status === 'charge_failed'` AND bag-aware
+ * `commitment_bag_charges.payment_status === 'payment_failed'`. Without
+ * that derivation a bag-aware commit with every bag dead would render as
+ * `0 kg · Charge failed — retrying` because the legacy commitment-level
+ * field stays parked at `setup_complete`.
+ *
  * Excluded from cycle math; the user's only action is to fix payment.
  */
 export function NeedsAttentionCard({ group }: NeedsAttentionCardProps) {
-  const failed = group.commitments.filter((c) => c.payment_status === "charge_failed");
-  const failedKg = failed.reduce((s, c) => s + Number(c.quantity_kg || 0), 0);
-  const reason = failed.find((c) => c.payment_error)?.payment_error || "Charge failed — retrying";
+  const { failedKg, reason } = deriveNeedsAttentionDisplay(group);
 
   return (
     <div
