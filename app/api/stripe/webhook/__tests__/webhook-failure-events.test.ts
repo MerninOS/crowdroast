@@ -95,6 +95,18 @@ vi.mock("@/lib/email", () => ({
   sendCardAuthFailedEmail: (...args: unknown[]) => mockSendCardAuthFailedEmail(...args),
 }));
 
+// Tracks calls into the bag-charge-rearm helper. The webhook handlers
+// call this when a setup-mode session completes for an existing commit
+// that has terminal-failed bag rows. The mock surfaces the args so tests
+// can assert wiring + that the helper is NOT called on the auth-probe-
+// failed branch.
+const mockRearmFailedBagCharges = vi.fn();
+
+vi.mock("@/lib/bag-charge-rearm", () => ({
+  rearmFailedBagCharges: (...args: unknown[]) =>
+    mockRearmFailedBagCharges(...args),
+}));
+
 import { POST } from "@/app/api/stripe/webhook/route";
 
 function makeRequest(event: unknown): Request {
@@ -113,6 +125,11 @@ beforeEach(() => {
   mockGetSetupIntent.mockReset();
   mockSendCardAuthFailedEmail.mockReset();
   mockSendCardAuthFailedEmail.mockResolvedValue({ success: true });
+  mockRearmFailedBagCharges.mockReset();
+  mockRearmFailedBagCharges.mockResolvedValue({
+    status: "no_failed_rows",
+    rearmedRowIds: [],
+  });
   process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
 });
 
@@ -674,5 +691,124 @@ describe("Stripe webhook — failure events cancel commitments", () => {
       col: "id",
       val: "commit-si-no-pm-err",
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Bag-charge re-arm wiring (P3 — buyer card-update flow)
+  // -------------------------------------------------------------------------
+  // When a buyer completes a fresh Stripe Checkout setup session via the
+  // restart-setup flow, both setup-mode webhook handlers should call
+  // rearmFailedBagCharges with the commitment id + new setup_intent id so
+  // any terminal payment_failed bag rows flip back to awaiting_charge with
+  // a fresh idempotency key.
+
+  it("setup_intent.succeeded calls rearmFailedBagCharges when the SI carries a payment_method", async () => {
+    const res = await POST(
+      makeRequest({
+        id: "evt_si_rearm",
+        type: "setup_intent.succeeded",
+        data: {
+          object: {
+            id: "seti_rearm_1",
+            payment_method: "pm_rearm",
+            customer: "cus_rearm",
+            metadata: { commitment_id: "commit-rearm-1" },
+          },
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockRearmFailedBagCharges).toHaveBeenCalledTimes(1);
+    expect(mockRearmFailedBagCharges).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        commitmentId: "commit-rearm-1",
+        newSetupIntentId: "seti_rearm_1",
+      })
+    );
+  });
+
+  it("setup_intent.succeeded does NOT call rearmFailedBagCharges when payment_method is missing (no usable card to retry with)", async () => {
+    const res = await POST(
+      makeRequest({
+        id: "evt_si_norearm",
+        type: "setup_intent.succeeded",
+        data: {
+          object: {
+            id: "seti_norearm",
+            // No payment_method — bug-mode payload that PR #86 hardened against.
+            customer: "cus_n",
+            metadata: { commitment_id: "commit-norearm" },
+          },
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockRearmFailedBagCharges).not.toHaveBeenCalled();
+  });
+
+  it("checkout.session.completed (mode=setup) on probe.ok calls rearmFailedBagCharges", async () => {
+    commitmentLookup = {
+      id: "commit-rearm-cs",
+      lot: { id: "lot-1", title: "Lot", currency: "USD" },
+      buyer: { email: "buyer@example.com", contact_name: "Bo" },
+    };
+    mockProbeCardAuth.mockResolvedValue({ ok: true });
+
+    const res = await POST(
+      makeRequest({
+        id: "evt_cs_rearm",
+        type: "checkout.session.completed",
+        data: {
+          object: {
+            id: "cs_rearm",
+            mode: "setup",
+            setup_intent: "seti_cs_rearm",
+            customer: "cus_cs_rearm",
+            payment_method: "pm_cs_rearm",
+          },
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockRearmFailedBagCharges).toHaveBeenCalledTimes(1);
+    expect(mockRearmFailedBagCharges).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        commitmentId: "commit-rearm-cs",
+        newSetupIntentId: "seti_cs_rearm",
+      })
+    );
+  });
+
+  it("checkout.session.completed (mode=setup) on probe.fail does NOT call rearmFailedBagCharges (declined card mustn't unlock retries)", async () => {
+    commitmentLookup = {
+      id: "commit-norearm-cs",
+      lot: { id: "lot-1", title: "Lot", currency: "USD" },
+      buyer: { email: "buyer@example.com", contact_name: "Bo" },
+    };
+    mockProbeCardAuth.mockResolvedValue({ ok: false, reason: "card_declined" });
+
+    const res = await POST(
+      makeRequest({
+        id: "evt_cs_norearm",
+        type: "checkout.session.completed",
+        data: {
+          object: {
+            id: "cs_norearm",
+            mode: "setup",
+            setup_intent: "seti_cs_norearm",
+            customer: "cus_n",
+            payment_method: "pm_n",
+          },
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockRearmFailedBagCharges).not.toHaveBeenCalled();
   });
 });

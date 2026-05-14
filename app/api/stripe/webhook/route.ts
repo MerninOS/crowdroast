@@ -6,6 +6,7 @@ import {
   verifyStripeWebhookSignature,
 } from "@/lib/stripe";
 import { insertReferralAttributionIfEligible } from "@/lib/referrals/insert-attribution";
+import { rearmFailedBagCharges } from "@/lib/bag-charge-rearm";
 import { sendCardAuthFailedEmail } from "@/lib/email";
 import { NextResponse } from "next/server";
 
@@ -161,6 +162,28 @@ export async function POST(request: Request) {
             currency,
           });
 
+          // Re-arm any terminal `payment_failed` bag charges for this
+          // commitment on the probe-OK path. Fires for first-time setups
+          // too — those have no failed bag rows, so the helper is a no-op.
+          // Only kicks in when the buyer came back via the restart-setup
+          // flow after a prior decline.
+          if (probe.ok && commitmentRow?.id && session.setup_intent) {
+            try {
+              await rearmFailedBagCharges(admin, {
+                commitmentId: commitmentRow.id,
+                newSetupIntentId: session.setup_intent,
+              });
+            } catch (rearmErr) {
+              // Best-effort: a re-arm failure must not 500 the webhook.
+              // Worst case the buyer is left with terminal rows and needs
+              // manual support — the dashboard still shows the right state.
+              console.warn(
+                "[webhook checkout.session.completed mode=setup] rearmFailedBagCharges failed",
+                rearmErr instanceof Error ? rearmErr.message : rearmErr
+              );
+            }
+          }
+
           if (!probe.ok) {
             // M4 idempotency stamp: Stripe delivers webhooks at-least-once,
             // and probeCardAuth is intentionally idempotent (deterministic
@@ -306,6 +329,25 @@ export async function POST(request: Request) {
           .from("commitments")
           .update(updatePayload)
           .eq("id", setupIntent.metadata.commitment_id);
+
+        // Re-arm any terminal `payment_failed` bag charges so the worker
+        // retries them with the buyer's freshly-attached card on the next
+        // tick. Mirrors the call from the sibling checkout.session.completed
+        // handler — both webhooks fire on the same setup completion, so
+        // whichever lands first wins the claim; the second is a no-op.
+        if (setupIntent.payment_method) {
+          try {
+            await rearmFailedBagCharges(admin, {
+              commitmentId: setupIntent.metadata.commitment_id,
+              newSetupIntentId: setupIntent.id,
+            });
+          } catch (rearmErr) {
+            console.warn(
+              "[webhook setup_intent.succeeded] rearmFailedBagCharges failed",
+              rearmErr instanceof Error ? rearmErr.message : rearmErr
+            );
+          }
+        }
 
         // Defensive: if Stripe handed us a succeeded setup_intent with no
         // payment_method AND the row doesn't already have one (sibling

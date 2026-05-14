@@ -1,7 +1,6 @@
-import Link from "next/link";
-import { Button } from "@merninos/ui";
 import { UnitWeightText } from "@/components/unit-value";
-import { deriveNeedsAttentionDisplay, type CommitmentGroup } from "./bucket-by-lifecycle";
+import { effectiveChargeState, deriveNeedsAttentionDisplay, type CommitmentGroup } from "./bucket-by-lifecycle";
+import { UpdatePaymentButton } from "./update-payment-button";
 
 export interface NeedsAttentionCardProps {
   group: CommitmentGroup;
@@ -21,6 +20,19 @@ export interface NeedsAttentionCardProps {
  */
 export function NeedsAttentionCard({ group }: NeedsAttentionCardProps) {
   const { failedKg, reason } = deriveNeedsAttentionDisplay(group);
+
+  // The card-update flow has to target one commitment id (Stripe Checkout
+  // sessions are 1:1 with a commitment). When the group has multiple
+  // failed commits — rare; would require the same buyer to commit twice
+  // on the same campaign — pick the first failed one and let the button
+  // restart that. The buyer can repeat the action for any remaining
+  // failed commits on subsequent dashboard visits.
+  const failedCommitId =
+    group.commitments.find(
+      (c) =>
+        effectiveChargeState(c, group.bagChargesByCommitmentId?.[c.id]) ===
+        "failed"
+    )?.id ?? null;
 
   return (
     <div
@@ -43,13 +55,7 @@ export function NeedsAttentionCard({ group }: NeedsAttentionCardProps) {
           </div>
         </div>
       </div>
-      <Button asChild size="sm" variant="default" className="self-stretch sm:self-auto">
-        <Link
-          href={`/dashboard/buyer/lot/${group.lotId}${group.hubId ? `?hub=${group.hubId}` : ""}`}
-        >
-          Update payment →
-        </Link>
-      </Button>
+      {failedCommitId ? <UpdatePaymentButton commitmentId={failedCommitId} /> : null}
     </div>
   );
 }
