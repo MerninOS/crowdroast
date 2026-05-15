@@ -1023,8 +1023,23 @@ async function settleDeadlines(request: Request) {
         backgroundTasks.push(
           sendLotSuccessNotifications(admin, lot.id, campaign.hub_id)
         );
+        // Total kg the seller needs to physically ship = sum of allocated
+        // bag kg across confirmed commits. Each entry in lockedKgByCommitment
+        // is a whole multiple of bag_size_kg (expandToBagPortions writes
+        // full-bag portions only), so the sum lines up with
+        // completed_bags × bag_size_kg. Without this, the shipment row's
+        // weight_kg stayed NULL and the seller shipments tab rendered no
+        // weight at all.
+        const totalShipmentKg = Array.from(
+          lockedKgByCommitment.values()
+        ).reduce((sum, kg) => sum + Number(kg || 0), 0);
         backgroundTasks.push(
-          createShipmentForLot(lot.id, campaign.hub_id, campaign.id)
+          createShipmentForLot(
+            lot.id,
+            campaign.hub_id,
+            campaign.id,
+            totalShipmentKg
+          )
         );
       }
 
@@ -1055,6 +1070,12 @@ async function settleDeadlines(request: Request) {
     let transferFailedCount = 0;
     let failedCount = 0;
     let succeededCount = 0;
+    // Sum kg of commits whose per-commit Stripe transfer succeeded.
+    // Mirrors the bag-aware branch's `lockedKgByCommitment` sum — used to
+    // stamp shipments.weight_kg so the seller shipments tab + hub pickup
+    // page can render the right weight. Without this, shipments stayed
+    // at weight_kg=NULL and the seller saw no weight at all.
+    let succeededKg = 0;
     const debugCommitments: Array<Record<string, unknown>> = [];
     const hubConnectAccountByHubId = new Map<string, string | null>();
     const transferCapabilityByAccount = new Map<string, boolean>();
@@ -1388,6 +1409,7 @@ async function settleDeadlines(request: Request) {
             },
           });
           succeededCount += 1;
+          succeededKg += Number(commitment.quantity_kg || 0);
           continue;
         }
 
@@ -1493,6 +1515,7 @@ async function settleDeadlines(request: Request) {
         }
 
         succeededCount += 1;
+        succeededKg += Number(commitment.quantity_kg || 0);
       } catch (transferError) {
         failedCount += 1;
         transferFailedCount += 1;
@@ -1570,7 +1593,14 @@ async function settleDeadlines(request: Request) {
     console.log("[settle-deadlines] campaign", campaign.id, "lot", lot.id, "— debug:", debug, "transferFailedCount:", transferFailedCount, "failedCount:", failedCount, "succeededCount:", succeededCount, "orphansCancelled:", orphansCancelled);
     if (!debug && transferFailedCount === 0) {
       backgroundTasks.push(sendLotSuccessNotifications(admin, lot.id, campaign.hub_id));
-      backgroundTasks.push(createShipmentForLot(lot.id, campaign.hub_id, campaign.id));
+      // Legacy: pass the sum of successfully-transferred commits' quantity_kg
+      // so the shipments row gets a populated weight_kg. The bag-aware
+      // branch above does the same with kg_locked_at_settlement; both arrive
+      // at the same source of truth — "what the seller actually needs to
+      // ship after this campaign settled."
+      backgroundTasks.push(
+        createShipmentForLot(lot.id, campaign.hub_id, campaign.id, succeededKg)
+      );
     } else {
       console.log("[settle-deadlines] skipping success emails and shipment creation — condition not met");
     }

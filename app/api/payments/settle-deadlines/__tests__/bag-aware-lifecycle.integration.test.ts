@@ -134,8 +134,14 @@ vi.mock("@/lib/auth/admin", () => ({
   getConfiguredAdminEmails: () => ["admin@test.local"],
 }));
 
+// Surface a typed reference to the createShipmentForLot mock so we can
+// assert it was called with the right total kg (sum of
+// kg_locked_at_settlement across confirmed commits). Without that arg,
+// shipments.weight_kg stays NULL and the seller shipments tab + hub
+// pickup page render no weight at all.
+const createShipmentForLotMock = vi.fn().mockResolvedValue({ ok: true });
 vi.mock("@/lib/shipments", () => ({
-  createShipmentForLot: vi.fn().mockResolvedValue({ ok: true }),
+  createShipmentForLot: (...args: unknown[]) => createShipmentForLotMock(...args),
 }));
 
 vi.mock("@/lib/referrals/insert-attribution", () => ({
@@ -525,6 +531,18 @@ describe("settle-deadlines bag-aware lifecycle integration (Task 4.15)", () => {
       fn: "finalize_campaign",
       args: { p_campaign_id: "camp-1", p_outcome: "settled" },
     });
+
+    // createShipmentForLot must be called with the total settled kg
+    // (sum of kg_locked_at_settlement across the 3 confirmed commits =
+    // 60 + 30 + 30 = 120). Without this argument, shipments.weight_kg
+    // stays NULL and the seller shipments tab + hub pickup page render
+    // no weight at all.
+    expect(createShipmentForLotMock).toHaveBeenCalledWith(
+      "lot-1",
+      "hub-1",
+      "camp-1",
+      120
+    );
 
     // Per-commit stamp must set both kg_locked AND status='confirmed' so the
     // orphan-cancel pass on a re-entrant run skips them and the seller +

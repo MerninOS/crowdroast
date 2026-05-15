@@ -4,6 +4,7 @@ import { Card, CardContent } from "@merninos/ui";
 import { Badge } from "@merninos/ui";
 import { UnitWeightText } from "@/components/unit-value";
 import { CommitmentPickupButton } from "@/components/commitment-pickup-button";
+import { commitmentDisplayKg } from "@/lib/commitment-kg";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
@@ -34,10 +35,16 @@ export default async function HubShipmentDetailPage({
   const lot = shipment.lot as { id: string; title: string } | null;
   if (!lot) redirect("/dashboard/hub/shipments");
 
-  // Fetch commitments for this lot (hub owner RLS policy grants access)
+  // Fetch commitments for this lot (hub owner RLS policy grants access).
+  // `kg_locked_at_settlement` is what the hub owner actually owes the
+  // buyer at pickup — for a bag-aware partial-fill commit it's strictly
+  // less than the buyer's pre-settle `quantity_kg`. Without it, the
+  // hub manager hands over the over-pledged amount.
   const { data: commitments } = await supabase
     .from("commitments")
-    .select("id, buyer_id, quantity_kg, status, picked_up_at")
+    .select(
+      "id, buyer_id, quantity_kg, kg_locked_at_settlement, status, picked_up_at"
+    )
     .eq("lot_id", shipment.lot_id)
     .eq("status", "confirmed")
     .order("created_at", { ascending: true });
@@ -140,7 +147,7 @@ export default async function HubShipmentDetailPage({
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-foreground">{name}</p>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        <UnitWeightText kg={Number(c.quantity_kg)} />
+                        <UnitWeightText kg={commitmentDisplayKg(c)} />
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
