@@ -235,7 +235,10 @@ export function RaisingDrawerBody({ group, tiers }: RaisingDrawerBodyProps) {
         <div className="font-body text-[11px] font-extrabold uppercase tracking-[0.14em] text-espresso/60">
           Your contributions
         </div>
-        <ContributionsTable commitments={group.commitments} />
+        <ContributionsTable
+          commitments={group.commitments}
+          bagChargesByCommitmentId={group.bagChargesByCommitmentId}
+        />
       </div>
 
       <Button asChild variant="default" size="default" className="self-start">

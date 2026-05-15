@@ -87,17 +87,197 @@ describe("ContributionsTable", () => {
     expect(screen.queryByTestId("commitment-refund-c-none")).not.toBeInTheDocument();
   });
 
-  it("falls back to total_price when charge_amount_cents is null", () => {
+  it("shows $0 when no money has actually moved (charge_amount_cents null + no bag rows)", () => {
+    // Pre-fix this fell back to total_price (the buyer's pre-settle PLEDGE)
+    // even though the card was never charged — overstated what the buyer
+    // had paid. Now reflects actual money moved on Stripe via
+    // effectiveChargedCents, which returns 0 in this anomalous state.
     const commitments: Commitment[] = [
       makeCommitment({
-        id: "c-fallback",
+        id: "c-no-cents",
         charge_amount_cents: null,
         total_price: 99,
+        payment_status: "setup_complete",
       }),
     ];
     render(<ContributionsTable commitments={commitments} />);
-    const row = screen.getByTestId("commitment-row-c-fallback");
-    expect(row.textContent).toContain("$99.00");
+    const row = screen.getByTestId("commitment-row-c-no-cents");
+    expect(row.textContent).toContain("$0.00");
+  });
+
+  it("shows $0 for cancelled commits (never charged the card)", () => {
+    const commitments: Commitment[] = [
+      makeCommitment({
+        id: "c-cancelled",
+        status: "cancelled",
+        payment_status: "cancelled",
+        charge_amount_cents: null,
+        total_price: 132,
+      }),
+    ];
+    render(<ContributionsTable commitments={commitments} />);
+    const row = screen.getByTestId("commitment-row-c-cancelled");
+    expect(row.textContent).toContain("$0.00");
+  });
+
+  // -------------------------------------------------------------------------
+  // Bag-aware partial-fill scenarios (the user-reported bug)
+  // -------------------------------------------------------------------------
+  // A buyer pledged 72 kg against a 63-kg bag; settlement locked 1 bag
+  // (63 kg) and dropped the leftover 9 kg. The table should now show:
+  //   parent row: 63 kg @ $880  (Paid)
+  //   dropped row: 9 kg @ $0    (Not charged)
+  // so the math reads cleanly. Pre-fix, the parent row showed 63 kg but
+  // the buyer's pledged total_price as the dollar amount — that math
+  // didn't add up.
+
+  it("renders a separate 'Not charged' sub-row for the kg that didn't fill a bag", () => {
+    const commitments: Commitment[] = [
+      makeCommitment({
+        id: "c-partial",
+        payment_status: "setup_complete",
+        charge_amount_cents: null,
+        quantity_kg: 72,
+        kg_locked_at_settlement: 63,
+        total_price: 832,
+      }),
+    ];
+    const bagChargesByCommitmentId = {
+      "c-partial": [
+        {
+          id: "bc-1",
+          commitment_id: "c-partial",
+          bag_number: 1,
+          kg: 63,
+          amount_cents: 88000, // $880
+          payment_status: "charged" as const,
+          updated_at: "2026-04-20T00:00:00Z",
+        },
+      ],
+    };
+    render(
+      <ContributionsTable
+        commitments={commitments}
+        bagChargesByCommitmentId={bagChargesByCommitmentId}
+      />
+    );
+    // Parent row reflects the actually-charged amount ($880), not the
+    // buyer's pre-settle pledge ($832 for 72 kg).
+    const parent = screen.getByTestId("commitment-row-c-partial");
+    expect(parent.textContent).toContain("$880.00");
+
+    // Dropped sub-row exists with the leftover kg and $0.
+    const dropped = screen.getByTestId("commitment-dropped-c-partial");
+    expect(dropped).toBeInTheDocument();
+    expect(dropped.textContent).toContain("9");
+    expect(dropped.textContent).toContain("$0.00");
+    expect(dropped.textContent).toMatch(/Not charged/i);
+  });
+
+  it("does NOT render a dropped sub-row when the commit filled cleanly", () => {
+    // 60 kg pledged, 60 kg locked = clean fill; no leftover.
+    const commitments: Commitment[] = [
+      makeCommitment({
+        id: "c-clean",
+        payment_status: "setup_complete",
+        charge_amount_cents: null,
+        quantity_kg: 60,
+        kg_locked_at_settlement: 60,
+      }),
+    ];
+    const bagChargesByCommitmentId = {
+      "c-clean": [
+        {
+          id: "bc-1",
+          commitment_id: "c-clean",
+          bag_number: 1,
+          kg: 60,
+          amount_cents: 60000,
+          payment_status: "charged" as const,
+          updated_at: "2026-04-20T00:00:00Z",
+        },
+      ],
+    };
+    render(
+      <ContributionsTable
+        commitments={commitments}
+        bagChargesByCommitmentId={bagChargesByCommitmentId}
+      />
+    );
+    expect(screen.queryByTestId("commitment-dropped-c-clean")).not.toBeInTheDocument();
+  });
+
+  it("does NOT render a dropped sub-row pre-settle (kg_locked_at_settlement still null)", () => {
+    // The buyer is still on the active campaign — settlement hasn't run, so
+    // nothing has been "dropped" yet. Showing a dropped row here would be
+    // confusing.
+    const commitments: Commitment[] = [
+      makeCommitment({
+        id: "c-raising",
+        payment_status: "setup_complete",
+        charge_amount_cents: null,
+        quantity_kg: 72,
+        kg_locked_at_settlement: null,
+      }),
+    ];
+    render(<ContributionsTable commitments={commitments} />);
+    expect(screen.queryByTestId("commitment-dropped-c-raising")).not.toBeInTheDocument();
+  });
+
+  it("sums multiple charged bag rows for the parent total (multi-bag commit)", () => {
+    const commitments: Commitment[] = [
+      makeCommitment({
+        id: "c-multibag",
+        payment_status: "setup_complete",
+        charge_amount_cents: null,
+        quantity_kg: 120,
+        kg_locked_at_settlement: 120,
+      }),
+    ];
+    const bagChargesByCommitmentId = {
+      "c-multibag": [
+        { id: "bc-1", commitment_id: "c-multibag", bag_number: 1, kg: 60, amount_cents: 60000, payment_status: "charged" as const, updated_at: "2026-04-20T00:00:00Z" },
+        { id: "bc-2", commitment_id: "c-multibag", bag_number: 2, kg: 60, amount_cents: 60000, payment_status: "charged" as const, updated_at: "2026-04-20T00:00:00Z" },
+      ],
+    };
+    render(
+      <ContributionsTable
+        commitments={commitments}
+        bagChargesByCommitmentId={bagChargesByCommitmentId}
+      />
+    );
+    const row = screen.getByTestId("commitment-row-c-multibag");
+    // $600 + $600 = $1,200 — sums charged bag amount_cents, not commitment.total_price.
+    expect(row.textContent).toContain("$1,200.00");
+  });
+
+  it("only credits CHARGED bag rows in the parent total — failed bags don't inflate it", () => {
+    // 2 bags total: 1 charged ($600), 1 payment_failed. Parent total should
+    // be $600 ONLY. The user's bug was that the total reflected the
+    // buyer's pre-settle pledge even when some bags failed.
+    const commitments: Commitment[] = [
+      makeCommitment({
+        id: "c-partial-fail",
+        payment_status: "setup_complete",
+        charge_amount_cents: null,
+        quantity_kg: 120,
+        kg_locked_at_settlement: 120,
+      }),
+    ];
+    const bagChargesByCommitmentId = {
+      "c-partial-fail": [
+        { id: "bc-1", commitment_id: "c-partial-fail", bag_number: 1, kg: 60, amount_cents: 60000, payment_status: "charged" as const, updated_at: "2026-04-20T00:00:00Z" },
+        { id: "bc-2", commitment_id: "c-partial-fail", bag_number: 2, kg: 60, amount_cents: 60000, payment_status: "payment_failed" as const, updated_at: "2026-04-20T00:00:00Z" },
+      ],
+    };
+    render(
+      <ContributionsTable
+        commitments={commitments}
+        bagChargesByCommitmentId={bagChargesByCommitmentId}
+      />
+    );
+    const row = screen.getByTestId("commitment-row-c-partial-fail");
+    expect(row.textContent).toContain("$600.00");
   });
 
   it("renders an empty-state message when only charge_failed commitments are passed", () => {
