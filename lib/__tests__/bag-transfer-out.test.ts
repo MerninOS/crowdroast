@@ -1,14 +1,20 @@
 /**
- * Tests for `transferOutBagIfReady` (lib/bag-transfer-out.ts) — Task 4.11.
+ * Tests for `transferOutBagIfReady` (lib/bag-transfer-out.ts).
  *
- * Covers the three documented return paths:
- *   1. `'not_ready'`   — at least one sibling row is non-terminal
- *   2. `'already_done'` — `bag_transfers` already has the (lot, bag) row
- *   3. `'transferred'` — happy path: split math, two Stripe calls, ledger row
+ * Covers:
+ *   1. `'not_ready'`    — at least one sibling row is non-terminal
+ *   2. `'already_done'` — bag_transfers row's seller + hub legs both complete
+ *   3. `'transferred'`  — happy path: split math, source_transaction on
+ *                         single-row bags, fresh attempt-suffixed key,
+ *                         ledger UPSERT
+ *   4. `'skipped'`      — missing Connect account / hub_id unresolved
+ *   5. Retry behavior   — seller-leg failure UPSERTs a retry-needed row;
+ *                         a subsequent run skips the done leg and retries
+ *                         the pending one with an incremented attempt_count
  *
- * Strategy: same in-memory Supabase chain stub as `charge-worker.test.ts`,
- * pre-staged with a queue of responses keyed by the `.from(table)` call
- * order. The Stripe transfer function is injected via the `deps` parameter.
+ * Strategy: in-memory Supabase chain stub pre-staged with a queue of
+ * responses keyed by `.from(table)` call order. Stripe + getPaymentIntent
+ * are injected via the `deps` parameter.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -18,48 +24,40 @@ import {
 } from "@/lib/bag-transfer-out";
 
 // -------------------------------------------------------------------------
-// Supabase chain stub.
+// Supabase chain stub
 // -------------------------------------------------------------------------
-// Each `from(table)` call dequeues the next pre-staged response. The chain
-// captures INSERT payloads so the happy-path test can assert the recorded
-// ledger row.
 
-type CapturedInsert = {
+type CapturedWrite = {
   table: string;
+  op: "insert" | "upsert";
   payload: Record<string, unknown>;
 };
-type SelectResponse = {
-  data: unknown;
-  error: unknown;
-};
+type SelectResponse = { data: unknown; error: unknown };
 
-const insertCaptured: CapturedInsert[] = [];
+const writeCaptured: CapturedWrite[] = [];
 const fromQueue: Array<() => Record<string, unknown>> = [];
 let currentTable: string | null = null;
 
 function makeChain(response: SelectResponse) {
-  let pendingInsertPayload: Record<string, unknown> | null = null;
   const tableNow = currentTable!;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const chain: any = {
     select: vi.fn(() => chain),
     eq: vi.fn(() => chain),
     in: vi.fn(() => chain),
+    limit: vi.fn(() => chain),
     insert: vi.fn((p: Record<string, unknown>) => {
-      pendingInsertPayload = p;
-      // INSERT terminates the chain on its own (no .select() needed); the
-      // stub resolves it via `then`. Capture immediately so the assertion
-      // runs even if the test never awaits the chain.
-      insertCaptured.push({ table: tableNow, payload: p });
+      writeCaptured.push({ table: tableNow, op: "insert", payload: p });
+      return chain;
+    }),
+    upsert: vi.fn((p: Record<string, unknown>) => {
+      writeCaptured.push({ table: tableNow, op: "upsert", payload: p });
       return chain;
     }),
     maybeSingle: vi.fn(() => Promise.resolve(response)),
     single: vi.fn(() => Promise.resolve(response)),
-    then: (resolve: (v: unknown) => void) => {
-      // Plain awaited UPDATE/INSERT without .select()/.single().
-      void pendingInsertPayload;
-      return Promise.resolve(response).then(resolve);
-    },
+    then: (resolve: (v: unknown) => void) =>
+      Promise.resolve(response).then(resolve),
   };
   return chain;
 }
@@ -76,9 +74,7 @@ function makeSupabase(): any {
   return {
     from: vi.fn((table: string) => {
       const next = fromQueue.shift();
-      if (!next) {
-        throw new Error(`Unexpected from(${table}) — queue empty`);
-      }
+      if (!next) throw new Error(`Unexpected from(${table}) — queue empty`);
       return next();
     }),
   };
@@ -107,25 +103,32 @@ function defaultCommitmentJoin(overrides: Record<string, unknown> = {}) {
     campaign: {
       id: "camp-1",
       hub_id: "hub-1",
-      hub: {
-        owner_profile: { stripe_connect_account_id: "acct_hub_1" },
-      },
+      hub: { owner_profile: { stripe_connect_account_id: "acct_hub_1" } },
     },
     ...overrides,
   };
 }
 
 function makeDeps(
-  stripeImpl: TransferOutBagDeps["createBagTransfer"]
+  stripeImpl: TransferOutBagDeps["createBagTransfer"],
+  piImpl?: TransferOutBagDeps["getPaymentIntent"]
 ): TransferOutBagDeps {
   return {
     createBagTransfer: stripeImpl,
+    getPaymentIntent:
+      piImpl ||
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (vi.fn(async () => ({ latest_charge: "ch_default" })) as any),
     now: () => FIXED_NOW,
   };
 }
 
+function bagTransfersFinder() {
+  return writeCaptured.find((w) => w.table === "bag_transfers");
+}
+
 beforeEach(() => {
-  insertCaptured.length = 0;
+  writeCaptured.length = 0;
   fromQueue.length = 0;
   currentTable = null;
 });
@@ -135,22 +138,13 @@ beforeEach(() => {
 // -------------------------------------------------------------------------
 
 describe("transferOutBagIfReady", () => {
-  // ------------------------------------------------------------------
-  // 1. not_ready: sibling rows non-terminal
-  // ------------------------------------------------------------------
   it("returns 'not_ready' when at least one sibling row is still awaiting_charge", async () => {
-    // commitments lookup
-    enqueue("commitments", {
-      data: defaultCommitmentJoin(),
-      error: null,
-    });
-    // bag_transfers idempotency lookup → no existing row
+    enqueue("commitments", { data: defaultCommitmentJoin(), error: null });
     enqueue("bag_transfers", { data: null, error: null });
-    // commitment_bag_charges sibling lookup: ONE charged + ONE awaiting
     enqueue("commitment_bag_charges", {
       data: [
-        { amount_cents: 11000, kg: 10, payment_status: "charged" },
-        { amount_cents: 11000, kg: 10, payment_status: "awaiting_charge" },
+        { amount_cents: 11000, kg: 10, payment_status: "charged", stripe_payment_intent_id: "pi_a" },
+        { amount_cents: 11000, kg: 10, payment_status: "awaiting_charge", stripe_payment_intent_id: null },
       ],
       error: null,
     });
@@ -164,20 +158,20 @@ describe("transferOutBagIfReady", () => {
 
     expect(result.status).toBe("not_ready");
     expect(transferMock).not.toHaveBeenCalled();
-    expect(insertCaptured).toHaveLength(0);
+    expect(writeCaptured).toHaveLength(0);
   });
 
-  // ------------------------------------------------------------------
-  // 2. already_done: bag_transfers already has the row
-  // ------------------------------------------------------------------
-  it("returns 'already_done' when bag_transfers already has the (lot, bag) row", async () => {
-    enqueue("commitments", {
-      data: defaultCommitmentJoin(),
-      error: null,
-    });
-    // bag_transfers lookup returns an existing row → short-circuit.
+  it("returns 'already_done' when the bag_transfers row's seller + hub legs are both complete", async () => {
+    enqueue("commitments", { data: defaultCommitmentJoin(), error: null });
     enqueue("bag_transfers", {
-      data: { lot_id: "lot-1" },
+      data: {
+        attempt_count: 1,
+        seller_amount_cents: 20000,
+        hub_amount_cents: 440,
+        seller_transfer_id: "tr_seller_done",
+        hub_transfer_id: "tr_hub_done",
+        failed_reason: null,
+      },
       error: null,
     });
 
@@ -192,62 +186,123 @@ describe("transferOutBagIfReady", () => {
     expect(transferMock).not.toHaveBeenCalled();
   });
 
-  // ------------------------------------------------------------------
-  // 3. transferred: happy path
-  // ------------------------------------------------------------------
-  it("fires seller + hub transfers and inserts bag_transfers on the happy path", async () => {
-    // Two charged rows. Each: 10 kg × $10/kg × 1.10 (platform fee) × 100 cents
-    //                      = 11,000 cents buyer-paid (`amount_cents`).
-    // Bag total buyer-paid = 22,000 cents.
-    // Seller back-solved per row: round(11000 / 1.10) = 10,000 cents each.
-    // Seller sum across the two rows = 20,000 cents (matches the historic
-    // 20 kg × $10 × 100 figure but is derived from amount_cents, NOT a tier
-    // lookup — that's the B2 fix).
-    // Hub = floor(22000 × 200 / 10000) = 440 cents (capped by total−seller).
-    // Platform keeps = 22000 − 20000 − 440 = 1,560 cents (≈ 8% of seller base).
-    enqueue("commitments", {
-      data: defaultCommitmentJoin(),
+  it("treats the zero-amount sentinel row as already_done", async () => {
+    enqueue("commitments", { data: defaultCommitmentJoin(), error: null });
+    enqueue("bag_transfers", {
+      data: {
+        attempt_count: 1,
+        seller_amount_cents: 0,
+        hub_amount_cents: 0,
+        seller_transfer_id: null,
+        hub_transfer_id: null,
+        failed_reason: null,
+      },
       error: null,
     });
-    enqueue("bag_transfers", { data: null, error: null });
-    enqueue("commitment_bag_charges", {
-      data: [
-        { amount_cents: 11000, kg: 10, payment_status: "charged" },
-        { amount_cents: 11000, kg: 10, payment_status: "charged" },
-      ],
-      error: null,
-    });
-    // NOTE: pricing_tiers is intentionally NOT queried anymore — the seller
-    // base is back-solved per-row from amount_cents. If this enqueue list
-    // included a pricing_tiers stub, the test would emit "Unexpected from()".
-    // Final INSERT into bag_transfers.
-    enqueue("bag_transfers", { data: null, error: null });
-
-    const transferMock = vi
-      .fn()
-      .mockImplementationOnce(async () => ({ id: "tr_seller_123" }))
-      .mockImplementationOnce(async () => ({ id: "tr_hub_456" }));
 
     const result = await transferOutBagIfReady(
       makeSupabase(),
       { commitmentId: "commit-1", bagNumber: 1 },
-      makeDeps(transferMock)
+      makeDeps(vi.fn())
+    );
+    expect(result.status).toBe("already_done");
+  });
+
+  it("single-row bag: resolves source_transaction from the row's PI and fires both transfers with attempt 1", async () => {
+    enqueue("commitments", { data: defaultCommitmentJoin(), error: null });
+    enqueue("bag_transfers", { data: null, error: null }); // no existing row
+    enqueue("commitment_bag_charges", {
+      data: [
+        {
+          amount_cents: 99000,
+          kg: 60,
+          payment_status: "charged",
+          stripe_payment_intent_id: "pi_single",
+        },
+      ],
+      error: null,
+    });
+    enqueue("bag_transfers", { data: null, error: null }); // success upsert
+
+    const transferMock = vi
+      .fn()
+      .mockImplementationOnce(async () => ({ id: "tr_seller_s" }))
+      .mockImplementationOnce(async () => ({ id: "tr_hub_s" }));
+    const getPIMock = vi.fn(async () => ({ latest_charge: "ch_single_99" }));
+
+    const result = await transferOutBagIfReady(
+      makeSupabase(),
+      { commitmentId: "commit-1", bagNumber: 1 },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      makeDeps(transferMock, getPIMock as any)
     );
 
     expect(result.status).toBe("transferred");
-    expect(result.amounts).toEqual({
-      sellerCents: 20000,
-      hubCents: 440,
-      platformCents: 1560,
-      totalChargedCents: 22000,
+    // PI → latest_charge resolution happened for the single-row bag.
+    expect(getPIMock).toHaveBeenCalledWith("pi_single");
+    // 99000 buyer cents → seller round(99000/1.10)=90000, hub floor(99000×0.02)=1980.
+    expect(transferMock).toHaveBeenNthCalledWith(1, {
+      amountCents: 90000,
+      currency: "usd",
+      destinationAccountId: "acct_seller_1",
+      lotId: "lot-1",
+      bagNumber: 1,
+      role: "seller",
+      sourceChargeId: "ch_single_99",
+      attemptNumber: 1,
     });
-    expect(result.transferIds).toEqual({
-      seller: "tr_seller_123",
-      hub: "tr_hub_456",
+    expect(transferMock).toHaveBeenNthCalledWith(2, {
+      amountCents: 1980,
+      currency: "usd",
+      destinationAccountId: "acct_hub_1",
+      lotId: "lot-1",
+      bagNumber: 1,
+      role: "hub",
+      sourceChargeId: "ch_single_99",
+      attemptNumber: 1,
     });
+    const write = bagTransfersFinder();
+    expect(write?.op).toBe("upsert");
+    expect(write?.payload).toMatchObject({
+      lot_id: "lot-1",
+      bag_number: 1,
+      seller_amount_cents: 90000,
+      hub_amount_cents: 1980,
+      seller_transfer_id: "tr_seller_s",
+      hub_transfer_id: "tr_hub_s",
+      attempt_count: 1,
+      failed_reason: null,
+    });
+  });
 
-    // Stripe was called twice: seller first, then hub.
-    expect(transferMock).toHaveBeenCalledTimes(2);
+  it("multi-row bag: does NOT use source_transaction (aggregate transfer from platform balance)", async () => {
+    enqueue("commitments", { data: defaultCommitmentJoin(), error: null });
+    enqueue("bag_transfers", { data: null, error: null });
+    enqueue("commitment_bag_charges", {
+      data: [
+        { amount_cents: 11000, kg: 10, payment_status: "charged", stripe_payment_intent_id: "pi_x" },
+        { amount_cents: 11000, kg: 10, payment_status: "charged", stripe_payment_intent_id: "pi_y" },
+      ],
+      error: null,
+    });
+    enqueue("bag_transfers", { data: null, error: null });
+
+    const transferMock = vi
+      .fn()
+      .mockImplementationOnce(async () => ({ id: "tr_seller_m" }))
+      .mockImplementationOnce(async () => ({ id: "tr_hub_m" }));
+    const getPIMock = vi.fn();
+
+    const result = await transferOutBagIfReady(
+      makeSupabase(),
+      { commitmentId: "commit-1", bagNumber: 1 },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      makeDeps(transferMock, getPIMock as any)
+    );
+
+    expect(result.status).toBe("transferred");
+    // Multi-row → no PI resolution, sourceChargeId omitted/null.
+    expect(getPIMock).not.toHaveBeenCalled();
     expect(transferMock).toHaveBeenNthCalledWith(1, {
       amountCents: 20000,
       currency: "usd",
@@ -255,37 +310,11 @@ describe("transferOutBagIfReady", () => {
       lotId: "lot-1",
       bagNumber: 1,
       role: "seller",
-    });
-    expect(transferMock).toHaveBeenNthCalledWith(2, {
-      amountCents: 440,
-      currency: "usd",
-      destinationAccountId: "acct_hub_1",
-      lotId: "lot-1",
-      bagNumber: 1,
-      role: "hub",
-    });
-
-    // Ledger row was inserted with the split + Stripe ids stamped.
-    const insert = insertCaptured.find(
-      (i) => i.table === "bag_transfers"
-    );
-    expect(insert).toBeDefined();
-    expect(insert?.payload).toMatchObject({
-      lot_id: "lot-1",
-      hub_id: "hub-1",
-      bag_number: 1,
-      currency: "USD",
-      seller_amount_cents: 20000,
-      hub_amount_cents: 440,
-      platform_amount_cents: 1560,
-      seller_transfer_id: "tr_seller_123",
-      hub_transfer_id: "tr_hub_456",
+      sourceChargeId: null,
+      attemptNumber: 1,
     });
   });
 
-  // ------------------------------------------------------------------
-  // 4. skipped: missing seller stripe account
-  // ------------------------------------------------------------------
   it("returns 'skipped' when seller has no Stripe Connect account", async () => {
     enqueue("commitments", {
       data: defaultCommitmentJoin({
@@ -314,37 +343,14 @@ describe("transferOutBagIfReady", () => {
     expect(transferMock).not.toHaveBeenCalled();
   });
 
-  // ------------------------------------------------------------------
-  // 5a. money-correctness: irrational price + uneven kg → platform stays ≥ 0
-  // ------------------------------------------------------------------
-  // Pathological case the old kg-tier resolver could mis-handle: many small
-  // rows with prices that don't round cleanly through the platform-fee
-  // multiplier. Asserts:
-  //   1. seller_amount is the SUM of per-row round(amount_cents / 1.10),
-  //      not a single round() over the total kg (root cause of B3).
-  //   2. platform_amount NEVER lands negative.
-  //   3. The three shares sum to the buyer-paid total (no money invented
-  //      or lost).
-  //   4. `pricing_tiers` is never queried (B2 fix — no kg-tier resolver).
   it("computes split correctly with irrational prices and uneven kg without going negative", async () => {
-    // Three charged rows with amounts that don't divide cleanly by 1.10.
-    // Sum of buyer-paid = 11003 cents. Per-row seller back-solve:
-    //   round(3667 / 1.10) = round(3333.6363…) = 3334
-    //   round(3668 / 1.10) = round(3334.5454…) = 3335
-    //   round(3668 / 1.10) = 3335
-    //   Sum = 10004 cents.
-    // Hub = floor(11003 × 200 / 10000) = 220.
-    // Platform = 11003 − 10004 − 220 = 779 (>0 ✓).
-    enqueue("commitments", {
-      data: defaultCommitmentJoin(),
-      error: null,
-    });
+    enqueue("commitments", { data: defaultCommitmentJoin(), error: null });
     enqueue("bag_transfers", { data: null, error: null });
     enqueue("commitment_bag_charges", {
       data: [
-        { amount_cents: 3667, kg: 3.333, payment_status: "charged" },
-        { amount_cents: 3668, kg: 3.334, payment_status: "charged" },
-        { amount_cents: 3668, kg: 3.334, payment_status: "charged" },
+        { amount_cents: 3667, kg: 3.333, payment_status: "charged", stripe_payment_intent_id: "pi_1" },
+        { amount_cents: 3668, kg: 3.334, payment_status: "charged", stripe_payment_intent_id: "pi_2" },
+        { amount_cents: 3668, kg: 3.334, payment_status: "charged", stripe_payment_intent_id: "pi_3" },
       ],
       error: null,
     });
@@ -362,37 +368,27 @@ describe("transferOutBagIfReady", () => {
     );
 
     expect(result.status).toBe("transferred");
-    expect(result.amounts).toBeDefined();
     const amounts = result.amounts!;
     expect(amounts.totalChargedCents).toBe(11003);
     expect(amounts.sellerCents).toBe(10004);
     expect(amounts.hubCents).toBe(220);
     expect(amounts.platformCents).toBe(779);
-
-    // Hard invariants — the whole point of the B3 fix.
     expect(amounts.platformCents).toBeGreaterThanOrEqual(0);
-    expect(amounts.sellerCents + amounts.hubCents + amounts.platformCents).toBe(
-      amounts.totalChargedCents
-    );
+    expect(
+      amounts.sellerCents + amounts.hubCents + amounts.platformCents
+    ).toBe(amounts.totalChargedCents);
   });
 
-  // ------------------------------------------------------------------
-  // 5. transferred (degenerate): all rows payment_failed → zero-money record
-  // ------------------------------------------------------------------
-  it("records a zero-amount bag_transfers row when every sibling is payment_failed", async () => {
-    enqueue("commitments", {
-      data: defaultCommitmentJoin(),
-      error: null,
-    });
+  it("upserts a zero-amount bag_transfers row when every sibling is payment_failed", async () => {
+    enqueue("commitments", { data: defaultCommitmentJoin(), error: null });
     enqueue("bag_transfers", { data: null, error: null });
     enqueue("commitment_bag_charges", {
       data: [
-        { amount_cents: 11000, kg: 10, payment_status: "payment_failed" },
-        { amount_cents: 11000, kg: 10, payment_status: "payment_failed" },
+        { amount_cents: 11000, kg: 10, payment_status: "payment_failed", stripe_payment_intent_id: null },
+        { amount_cents: 11000, kg: 10, payment_status: "payment_failed", stripe_payment_intent_id: null },
       ],
       error: null,
     });
-    // Final INSERT for the zero-amount ledger row.
     enqueue("bag_transfers", { data: null, error: null });
 
     const transferMock = vi.fn();
@@ -405,21 +401,19 @@ describe("transferOutBagIfReady", () => {
     expect(result.status).toBe("transferred");
     expect(result.reason).toBe("all_rows_failed_no_money_to_move");
     expect(transferMock).not.toHaveBeenCalled();
-    expect(insertCaptured[0]?.payload).toMatchObject({
-      lot_id: "lot-1",
-      hub_id: "hub-1",
-      bag_number: 1,
+    const write = bagTransfersFinder();
+    expect(write?.op).toBe("upsert");
+    expect(write?.payload).toMatchObject({
       seller_amount_cents: 0,
       hub_amount_cents: 0,
       platform_amount_cents: 0,
       seller_transfer_id: null,
       hub_transfer_id: null,
+      attempt_count: 1,
+      failed_reason: null,
     });
   });
 
-  // ------------------------------------------------------------------
-  // 7. skipped: hub_id unresolved (bag_transfers.hub_id NOT NULL guard)
-  // ------------------------------------------------------------------
   it("returns 'skipped' when neither campaign.hub_id nor commitment.hub_id is resolvable", async () => {
     enqueue("commitments", {
       data: defaultCommitmentJoin({
@@ -427,9 +421,7 @@ describe("transferOutBagIfReady", () => {
         campaign: {
           id: "camp-1",
           hub_id: null,
-          hub: {
-            owner_profile: { stripe_connect_account_id: "acct_hub_1" },
-          },
+          hub: { owner_profile: { stripe_connect_account_id: "acct_hub_1" } },
         },
       }),
       error: null,
@@ -445,6 +437,151 @@ describe("transferOutBagIfReady", () => {
     expect(result.status).toBe("skipped");
     expect(result.reason).toBe("hub_id_unresolved_on_commitment");
     expect(transferMock).not.toHaveBeenCalled();
-    expect(insertCaptured).toHaveLength(0);
+    expect(writeCaptured).toHaveLength(0);
+  });
+
+  // ------------------------------------------------------------------
+  // Retry behavior
+  // ------------------------------------------------------------------
+
+  it("seller transfer failure UPSERTs a retry-needed row (attempt 1, failed_reason set) and returns skipped", async () => {
+    enqueue("commitments", { data: defaultCommitmentJoin(), error: null });
+    enqueue("bag_transfers", { data: null, error: null }); // no existing row
+    enqueue("commitment_bag_charges", {
+      data: [
+        {
+          amount_cents: 99000,
+          kg: 60,
+          payment_status: "charged",
+          stripe_payment_intent_id: "pi_fail",
+        },
+      ],
+      error: null,
+    });
+    enqueue("bag_transfers", { data: null, error: null }); // failure upsert
+
+    const transferMock = vi.fn(async () => {
+      throw new Error(
+        "You have insufficient available funds in your Stripe account."
+      );
+    });
+
+    const result = await transferOutBagIfReady(
+      makeSupabase(),
+      { commitmentId: "commit-1", bagNumber: 2 },
+      makeDeps(transferMock)
+    );
+
+    expect(result.status).toBe("skipped");
+    expect(result.reason).toContain("seller_transfer_failed");
+    expect(result.reason).toContain("insufficient available funds");
+    const write = bagTransfersFinder();
+    expect(write?.op).toBe("upsert");
+    expect(write?.payload).toMatchObject({
+      lot_id: "lot-1",
+      bag_number: 2,
+      seller_amount_cents: 90000,
+      seller_transfer_id: null,
+      hub_transfer_id: null,
+      attempt_count: 1,
+    });
+    expect(write?.payload.failed_reason).toContain("seller_transfer_failed");
+  });
+
+  it("on a retry with an existing seller-done/hub-pending row: skips the seller leg, retries hub with attempt_count+1", async () => {
+    enqueue("commitments", { data: defaultCommitmentJoin(), error: null });
+    // Existing partial row: seller leg done on attempt 1, hub leg failed.
+    enqueue("bag_transfers", {
+      data: {
+        attempt_count: 1,
+        seller_amount_cents: 90000,
+        hub_amount_cents: 1980,
+        seller_transfer_id: "tr_seller_prev",
+        hub_transfer_id: null,
+        failed_reason: "hub_transfer_failed: insufficient available funds",
+      },
+      error: null,
+    });
+    enqueue("commitment_bag_charges", {
+      data: [
+        {
+          amount_cents: 99000,
+          kg: 60,
+          payment_status: "charged",
+          stripe_payment_intent_id: "pi_retry",
+        },
+      ],
+      error: null,
+    });
+    enqueue("bag_transfers", { data: null, error: null }); // success upsert
+
+    // Only the hub transfer should be attempted this run.
+    const transferMock = vi.fn(async () => ({ id: "tr_hub_retry_ok" }));
+
+    const result = await transferOutBagIfReady(
+      makeSupabase(),
+      { commitmentId: "commit-1", bagNumber: 3 },
+      makeDeps(transferMock)
+    );
+
+    expect(result.status).toBe("transferred");
+    // Seller leg skipped — only one Stripe call (the hub retry).
+    expect(transferMock).toHaveBeenCalledTimes(1);
+    expect(transferMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: "hub",
+        // attempt_count was 1, so this retry is attempt 2 → fresh key.
+        attemptNumber: 2,
+      })
+    );
+    // Final ledger row carries BOTH transfer ids (seller from the prior
+    // attempt, hub from this one) and clears failed_reason.
+    const write = bagTransfersFinder();
+    expect(write?.payload).toMatchObject({
+      seller_transfer_id: "tr_seller_prev",
+      hub_transfer_id: "tr_hub_retry_ok",
+      attempt_count: 2,
+      failed_reason: null,
+    });
+  });
+
+  it("falls back to general-balance transfer (no source) when getPaymentIntent throws", async () => {
+    enqueue("commitments", { data: defaultCommitmentJoin(), error: null });
+    enqueue("bag_transfers", { data: null, error: null });
+    enqueue("commitment_bag_charges", {
+      data: [
+        {
+          amount_cents: 99000,
+          kg: 60,
+          payment_status: "charged",
+          stripe_payment_intent_id: "pi_blip",
+        },
+      ],
+      error: null,
+    });
+    enqueue("bag_transfers", { data: null, error: null });
+
+    const transferMock = vi
+      .fn()
+      .mockImplementationOnce(async () => ({ id: "tr_s" }))
+      .mockImplementationOnce(async () => ({ id: "tr_h" }));
+    const getPIMock = vi.fn(async () => {
+      throw new Error("stripe timeout");
+    });
+
+    const result = await transferOutBagIfReady(
+      makeSupabase(),
+      { commitmentId: "commit-1", bagNumber: 1 },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      makeDeps(transferMock, getPIMock as any)
+    );
+
+    expect(result.status).toBe("transferred");
+    // sourceChargeId resolves to null on the blip → still fires (legacy
+    // general-balance path), retry sweep covers it if it fails.
+    expect(transferMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ role: "seller", sourceChargeId: null })
+    );
   });
 });

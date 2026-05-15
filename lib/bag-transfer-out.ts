@@ -37,6 +37,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   createBagTransfer,
+  getPaymentIntent,
   type StripeTransfer,
 } from "@/lib/stripe";
 import { HUB_SHARE_BPS, PLATFORM_FEE_RATE } from "@/lib/pricing";
@@ -82,6 +83,12 @@ export interface TransferOutBagResult {
  */
 export interface TransferOutBagDeps {
   createBagTransfer?: typeof createBagTransfer;
+  /**
+   * Override for `getPaymentIntent` so tests can avoid hitting Stripe.
+   * Used to resolve each charged row's `stripe_payment_intent_id` →
+   * `latest_charge` so we can pass `source_transaction` on the transfer.
+   */
+  getPaymentIntent?: typeof getPaymentIntent;
   now?: () => Date;
 }
 
@@ -135,6 +142,27 @@ interface SiblingChargeRow {
     | "charged"
     | "retry_scheduled"
     | "payment_failed";
+  /**
+   * Stripe PaymentIntent id from the row. Used to fetch `latest_charge`
+   * for `source_transaction` on the transfer. Null when the charge worker
+   * hasn't called Stripe yet — but rows in `charged` state always have
+   * this populated (the worker writes it on the success path).
+   */
+  stripe_payment_intent_id: string | null;
+}
+
+/**
+ * Shape of the `bag_transfers` row we read pre-flight. NULLable
+ * transfer-id columns let us encode "partial progress" — e.g. seller
+ * leg done, hub leg failed, retry just the hub.
+ */
+interface ExistingBagTransfer {
+  attempt_count: number;
+  seller_amount_cents: number;
+  hub_amount_cents: number;
+  seller_transfer_id: string | null;
+  hub_transfer_id: string | null;
+  failed_reason: string | null;
 }
 
 // -------------------------------------------------------------------------
@@ -158,6 +186,7 @@ export async function transferOutBagIfReady(
   deps: TransferOutBagDeps = {}
 ): Promise<TransferOutBagResult> {
   const transferFn = deps.createBagTransfer || createBagTransfer;
+  const getPI = deps.getPaymentIntent || getPaymentIntent;
 
   // ---------------------------------------------------------------------
   // 1. Resolve the (lot, bag) tuple + destination accounts.
@@ -212,14 +241,21 @@ export async function transferOutBagIfReady(
   }
 
   // ---------------------------------------------------------------------
-  // 2. Idempotency guard: has a transfer already fired for this bag?
+  // 2. Read existing bag_transfers state (if any).
   // ---------------------------------------------------------------------
-  // Done BEFORE the sibling-status scan so the cheap PK lookup short-circuits
-  // the worst-case "every tick re-counts every bag" load on the worker.
+  // Three terminal states we want to short-circuit on:
+  //   • Fully done — every required transfer id is set (or the zero-amount
+  //     sentinel: nothing to move).
+  //   • Already partial — we'll skip whichever leg has its id set and
+  //     retry the other leg. The `attempt_count` on the row drives the
+  //     fresh idempotency key.
+  //   • Not yet attempted — no row. attempt_count starts at 1.
   const { data: existingTransfer, error: existingTransferError } =
     await supabase
       .from("bag_transfers")
-      .select("lot_id")
+      .select(
+        "attempt_count, seller_amount_cents, hub_amount_cents, seller_transfer_id, hub_transfer_id, failed_reason"
+      )
       .eq("lot_id", lotId)
       .eq("bag_number", args.bagNumber)
       .maybeSingle();
@@ -230,9 +266,17 @@ export async function transferOutBagIfReady(
       reason: `bag_transfers_lookup_failed: ${existingTransferError.message}`,
     };
   }
-  if (existingTransfer) {
-    return { status: "already_done" };
+  const existing = existingTransfer as ExistingBagTransfer | null;
+  if (existing) {
+    const sellerDone =
+      existing.seller_transfer_id != null || existing.seller_amount_cents === 0;
+    const hubDone =
+      existing.hub_transfer_id != null || existing.hub_amount_cents === 0;
+    if (sellerDone && hubDone) {
+      return { status: "already_done" };
+    }
   }
+  const attemptNumber = (existing?.attempt_count ?? 0) + 1;
 
   // ---------------------------------------------------------------------
   // 3. Are ALL sibling rows for this (lot, bag) terminal?
@@ -243,7 +287,9 @@ export async function transferOutBagIfReady(
   // codebase (see the buyer-dashboard reads).
   const { data: siblingRows, error: siblingError } = await supabase
     .from("commitment_bag_charges")
-    .select("amount_cents, kg, payment_status, commitment:commitment_id!inner(lot_id)")
+    .select(
+      "amount_cents, kg, payment_status, stripe_payment_intent_id, commitment:commitment_id!inner(lot_id)"
+    )
     .eq("bag_number", args.bagNumber)
     .eq("commitment.lot_id", lotId);
 
@@ -280,24 +326,30 @@ export async function transferOutBagIfReady(
 
   if (totalChargedCents === 0) {
     // All rows ended `payment_failed` — there's no money to transfer.
-    // Record the row so we don't re-evaluate the bag on every future tick.
-    const { error: insertError } = await supabase
+    // Record the row (upsert because a retry sweep might re-enter this
+    // path) so we don't re-evaluate the bag on every future tick.
+    const { error: upsertError } = await supabase
       .from("bag_transfers")
-      .insert({
-        lot_id: lotId,
-        hub_id: hubId,
-        bag_number: args.bagNumber,
-        currency: (currency || "usd").toUpperCase(),
-        seller_amount_cents: 0,
-        hub_amount_cents: 0,
-        platform_amount_cents: 0,
-        seller_transfer_id: null,
-        hub_transfer_id: null,
-      });
-    if (insertError) {
+      .upsert(
+        {
+          lot_id: lotId,
+          hub_id: hubId,
+          bag_number: args.bagNumber,
+          currency: (currency || "usd").toUpperCase(),
+          seller_amount_cents: 0,
+          hub_amount_cents: 0,
+          platform_amount_cents: 0,
+          seller_transfer_id: null,
+          hub_transfer_id: null,
+          attempt_count: attemptNumber,
+          failed_reason: null,
+        },
+        { onConflict: "lot_id,bag_number" }
+      );
+    if (upsertError) {
       return {
         status: "skipped",
-        reason: `bag_transfers_insert_failed_zero: ${insertError.message}`,
+        reason: `bag_transfers_insert_failed_zero: ${upsertError.message}`,
       };
     }
     return {
@@ -358,18 +410,55 @@ export async function transferOutBagIfReady(
   // numbers below are pre-flighted and safe to pass to Stripe.
 
   // ---------------------------------------------------------------------
-  // 6. Fire the transfers.
+  // 6. Resolve the `source_transaction` charge id (single-row bags only).
+  // ---------------------------------------------------------------------
+  // When the bag has exactly ONE charged row, we can link the transfer
+  // directly to that row's underlying Stripe charge so Stripe debits it
+  // from those funds instead of the platform's general balance. That
+  // sidesteps the `insufficient_funds` failure mode entirely — works the
+  // moment the buyer charge succeeds, even before Stripe's general
+  // balance clears.
+  //
+  // Multi-row bags (currently 0% of data — verified via SQL) would need
+  // N transfers per role to use source_transaction correctly (each from
+  // its own row's charge). Until that case exists in production we fall
+  // back to a single aggregate transfer drawn from the platform balance
+  // and rely on the retry sweep (see process-bag-charges cron) to
+  // re-attempt if balance hasn't cleared. TODO: per-row split when the
+  // first multi-row bag lands.
+  let sourceChargeId: string | null = null;
+  if (chargedRows.length === 1 && chargedRows[0].stripe_payment_intent_id) {
+    try {
+      const pi = await getPI(chargedRows[0].stripe_payment_intent_id);
+      sourceChargeId = pi.latest_charge || null;
+    } catch (err) {
+      // Stripe round-trip blip is non-fatal — fall back to general-balance
+      // mode. The retry sweep will re-attempt on the next tick.
+      console.warn(
+        "[bag-transfer-out] getPaymentIntent failed; transferring from platform balance",
+        {
+          paymentIntentId: chargedRows[0].stripe_payment_intent_id,
+          error: err instanceof Error ? err.message : err,
+        }
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // 7. Fire the transfers — skipping any leg that's already complete.
   // ---------------------------------------------------------------------
   // Order matters for partial-failure semantics: seller first (the bigger,
-  // user-facing payout) then hub. If seller succeeds and hub throws, the
-  // ledger row is NOT inserted — the next worker tick will re-run, and
-  // seller's idempotent retry will deduplicate against Stripe's prior
-  // success while hub's call gets a fresh attempt. The bag-scoped
-  // idempotency keys guarantee no double-pay.
+  // user-facing payout) then hub. Each leg writes its outcome to a
+  // bag_transfers UPSERT IMMEDIATELY so a failure persists the partial
+  // progress — the retry sweep then picks up only the leg that's still
+  // pending, with a fresh idempotency key from the incremented
+  // attempt_count.
   let sellerTransfer: StripeTransfer | null = null;
   let hubTransfer: StripeTransfer | null = null;
+  const sellerAlreadyDone = existing?.seller_transfer_id != null;
+  const hubAlreadyDone = existing?.hub_transfer_id != null;
 
-  if (split.sellerAmount > 0) {
+  if (split.sellerAmount > 0 && !sellerAlreadyDone) {
     try {
       sellerTransfer = await transferFn({
         amountCents: split.sellerAmount,
@@ -378,16 +467,31 @@ export async function transferOutBagIfReady(
         lotId,
         bagNumber: args.bagNumber,
         role: "seller",
+        sourceChargeId,
+        attemptNumber,
       });
     } catch (err) {
-      return {
-        status: "skipped",
-        reason: `seller_transfer_failed: ${err instanceof Error ? err.message : "unknown"}`,
-      };
+      const reason = `seller_transfer_failed: ${err instanceof Error ? err.message : "unknown"}`;
+      // Persist the failure so the next worker tick can detect retry-needed
+      // and re-fire with a fresh idempotency key.
+      await upsertLedger(supabase, {
+        lotId,
+        hubId,
+        bagNumber: args.bagNumber,
+        currency,
+        sellerAmount: split.sellerAmount,
+        hubAmount: split.hubAmount,
+        platformAmount: split.platformAmount,
+        sellerTransferId: null,
+        hubTransferId: null,
+        attemptCount: attemptNumber,
+        failedReason: reason,
+      });
+      return { status: "skipped", reason };
     }
   }
 
-  if (split.hubAmount > 0) {
+  if (split.hubAmount > 0 && !hubAlreadyDone) {
     try {
       hubTransfer = await transferFn({
         amountCents: split.hubAmount,
@@ -396,47 +500,54 @@ export async function transferOutBagIfReady(
         lotId,
         bagNumber: args.bagNumber,
         role: "hub",
+        sourceChargeId,
+        attemptNumber,
       });
     } catch (err) {
-      return {
-        status: "skipped",
-        reason: `hub_transfer_failed: ${err instanceof Error ? err.message : "unknown"}`,
-      };
+      const reason = `hub_transfer_failed: ${err instanceof Error ? err.message : "unknown"}`;
+      // Persist with the seller leg's id (which DID succeed this attempt
+      // OR was already done from a prior attempt) so the retry sweep
+      // doesn't re-fire the seller leg.
+      await upsertLedger(supabase, {
+        lotId,
+        hubId,
+        bagNumber: args.bagNumber,
+        currency,
+        sellerAmount: split.sellerAmount,
+        hubAmount: split.hubAmount,
+        platformAmount: split.platformAmount,
+        sellerTransferId:
+          sellerTransfer?.id ?? existing?.seller_transfer_id ?? null,
+        hubTransferId: null,
+        attemptCount: attemptNumber,
+        failedReason: reason,
+      });
+      return { status: "skipped", reason };
     }
   }
 
   // ---------------------------------------------------------------------
-  // 7. Record the ledger row.
+  // 8. Both legs done — record the ledger row in its terminal state.
   // ---------------------------------------------------------------------
-  const { error: insertError } = await supabase
-    .from("bag_transfers")
-    .insert({
-      lot_id: lotId,
-      hub_id: hubId,
-      bag_number: args.bagNumber,
-      currency: currency.toUpperCase(),
-      seller_amount_cents: split.sellerAmount,
-      hub_amount_cents: split.hubAmount,
-      platform_amount_cents: split.platformAmount,
-      seller_transfer_id: sellerTransfer?.id ?? null,
-      hub_transfer_id: hubTransfer?.id ?? null,
-    });
+  const upsertError = await upsertLedger(supabase, {
+    lotId,
+    hubId,
+    bagNumber: args.bagNumber,
+    currency,
+    sellerAmount: split.sellerAmount,
+    hubAmount: split.hubAmount,
+    platformAmount: split.platformAmount,
+    sellerTransferId:
+      sellerTransfer?.id ?? existing?.seller_transfer_id ?? null,
+    hubTransferId: hubTransfer?.id ?? existing?.hub_transfer_id ?? null,
+    attemptCount: attemptNumber,
+    failedReason: null,
+  });
 
-  if (insertError) {
-    // Duplicate-key here is the concurrent-worker race winning the second
-    // half: the OTHER tick fired its transfers and inserted before we did.
-    // Stripe's idempotency means our transfer calls above replayed the
-    // existing operations rather than double-paying, so the net effect is
-    // safe. Surface as `already_done` instead of a hard failure.
-    if (
-      typeof insertError.message === "string" &&
-      insertError.message.toLowerCase().includes("duplicate key")
-    ) {
-      return { status: "already_done", reason: "concurrent_winner" };
-    }
+  if (upsertError) {
     return {
       status: "skipped",
-      reason: `bag_transfers_insert_failed: ${insertError.message}`,
+      reason: `bag_transfers_upsert_failed: ${upsertError}`,
     };
   }
 
@@ -449,10 +560,53 @@ export async function transferOutBagIfReady(
       totalChargedCents,
     },
     transferIds: {
-      seller: sellerTransfer?.id ?? null,
-      hub: hubTransfer?.id ?? null,
+      seller: sellerTransfer?.id ?? existing?.seller_transfer_id ?? null,
+      hub: hubTransfer?.id ?? existing?.hub_transfer_id ?? null,
     },
   };
+}
+
+/**
+ * UPSERT into `bag_transfers`. Wraps the call so the success path and
+ * the four failure-path early-returns share the same shape. Returns the
+ * error message on failure (or null on success) so callers can fold it
+ * into their own structured return.
+ */
+async function upsertLedger(
+  supabase: SupabaseClient,
+  args: {
+    lotId: string;
+    hubId: string;
+    bagNumber: number;
+    currency: string;
+    sellerAmount: number;
+    hubAmount: number;
+    platformAmount: number;
+    sellerTransferId: string | null;
+    hubTransferId: string | null;
+    attemptCount: number;
+    failedReason: string | null;
+  }
+): Promise<string | null> {
+  const { error } = await supabase
+    .from("bag_transfers")
+    .upsert(
+      {
+        lot_id: args.lotId,
+        hub_id: args.hubId,
+        bag_number: args.bagNumber,
+        currency: args.currency.toUpperCase(),
+        seller_amount_cents: args.sellerAmount,
+        hub_amount_cents: args.hubAmount,
+        platform_amount_cents: args.platformAmount,
+        seller_transfer_id: args.sellerTransferId,
+        hub_transfer_id: args.hubTransferId,
+        attempt_count: args.attemptCount,
+        failed_reason: args.failedReason,
+      },
+      { onConflict: "lot_id,bag_number" }
+    );
+  return error?.message ?? null;
 }
 
 // -------------------------------------------------------------------------
