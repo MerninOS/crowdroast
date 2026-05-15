@@ -284,11 +284,35 @@ export async function sendLotClosedHubOwnerEmail(
 // ---------------------------------------------------------------------------
 
 export interface LotClosedBatchParams {
-  lot: Pick<Lot, "id" | "title" | "total_quantity_kg">;
+  lot: Pick<Lot, "id" | "title">;
   buyers: Array<{
     buyer: Pick<Profile, "email" | "contact_name">;
-    commitment: Pick<Commitment, "id" | "total_price" | "quantity_kg">;
+    commitment: Pick<Commitment, "id">;
+    /**
+     * Kg the buyer actually settled — for bag-aware that's
+     * `kg_locked_at_settlement` (allocated bags × bag_size_kg), which can
+     * be less than the buyer's pre-settle pledge when leftover kg didn't
+     * fill a bag. For legacy payment-mode commits it's `quantity_kg`.
+     * Caller resolves the fallback so this layer doesn't have to.
+     */
+    settledKg: number;
+    /**
+     * Total dollars on the buyer's card for this commit. For bag-aware
+     * that's the sum of `commitment_bag_charges.amount_cents / 100`
+     * (planned charges, since this email fires BEFORE the daily charge
+     * worker runs — so the cents haven't moved yet but the amount is
+     * locked). For legacy it's `charge_amount_cents / 100`. Falls back
+     * to `total_price` as a last resort.
+     */
+    settledTotalDollars: number;
   }>;
+  /**
+   * Total kg the seller needs to ship — sum of settledKg across all
+   * confirmed commits. Drives the seller email's "Total quantity sold"
+   * line. Mirrors `shipments.weight_kg` (PR #94) so the two surfaces
+   * agree.
+   */
+  totalSettledKg: number;
   seller?: Pick<Profile, "email" | "contact_name"> | null;
   hub?: Pick<Hub, "name" | "address" | "city" | "state" | "country"> | null;
   hubOwner?: Pick<Profile, "email" | "contact_name"> | null;
@@ -304,7 +328,7 @@ export async function sendLotClosedEmailsBatch(
 
   const payloads: { to: string; subject: string; html: string }[] = [];
 
-  for (const { buyer, commitment } of params.buyers) {
+  for (const { buyer, settledKg, settledTotalDollars } of params.buyers) {
     if (!buyer.email) continue;
     payloads.push({
       to: buyer.email,
@@ -312,8 +336,14 @@ export async function sendLotClosedEmailsBatch(
       html: await renderLotClosedBuyerHtml({
         buyerName: buyer.contact_name || "there",
         lotTitle: params.lot.title,
-        quantityKg: commitment.quantity_kg,
-        totalPrice: commitment.total_price,
+        // Settled kg, not the pre-settle pledge. For a bag-aware partial-fill
+        // commit (pledged 72 kg → locked 63 kg, leftover 9 kg dropped) the
+        // buyer sees 63 kg here.
+        quantityKg: settledKg,
+        // The dollar amount their card will be charged across the bags —
+        // sum of the just-created bag-charge amount_cents. Matches the
+        // CampaignSettled (AC10) per-bag email's `totalChargedCents`.
+        totalPrice: settledTotalDollars,
         currency: "USD",
         orderUrl,
       }),
@@ -330,7 +360,11 @@ export async function sendLotClosedEmailsBatch(
       html: await renderLotClosedSellerHtml({
         sellerName: params.seller.contact_name || "Seller",
         lotTitle: params.lot.title,
-        totalQuantityKg: params.lot.total_quantity_kg,
+        // Seller's "Total quantity sold" must mirror the actual shipment
+        // weight (shipments.weight_kg, set by PR #94 from the same source).
+        // Pre-fix this read `lot.total_quantity_kg` which the caller had
+        // overridden to be sum-of-pledges — wrong for bag-aware partials.
+        totalQuantityKg: params.totalSettledKg,
         hubAddress,
         fulfillmentUrl,
         relistReviewUrl,
