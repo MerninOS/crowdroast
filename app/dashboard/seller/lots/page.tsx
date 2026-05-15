@@ -14,6 +14,7 @@ import {
   SellerAwaitingRelistCard,
   type RelistOutcome,
 } from "@/components/seller-awaiting-relist-card";
+import { commitmentDisplayKg } from "@/lib/commitment-kg";
 
 const statusStyles: Record<string, string> = {
   active: "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -148,18 +149,30 @@ export default async function SellerLotsPage() {
       // Exclude cancelled commitments so failed and cancelled campaigns
       // don't over-count refunded buyers, and dedupe per-campaign by
       // buyer_id so the buyerCount reflects distinct buyers, not rows.
+      //
+      // Include `kg_locked_at_settlement` so a settled bag-aware campaign
+      // sums the actual locked kg (allocated bags × bag_size_kg) instead
+      // of the pre-settle pledge. `commitmentDisplayKg` resolves the
+      // fallback per commit: locked when set, pledge otherwise — matches
+      // the seller commitments page (PR #92) and the shipment weight
+      // (PR #94).
       const { data: commitmentRows } = await supabase
         .from("commitments")
-        .select("campaign_id, buyer_id, quantity_kg")
+        .select("campaign_id, buyer_id, quantity_kg, kg_locked_at_settlement")
         .in("campaign_id", terminalCampaignIds)
         .neq("status", "cancelled");
 
       const buyerSets = new Map<string, Set<string>>();
       const kgByCampaign = new Map<string, number>();
-      for (const row of (commitmentRows as { campaign_id: string; buyer_id: string; quantity_kg: number }[]) || []) {
+      for (const row of (commitmentRows as {
+        campaign_id: string;
+        buyer_id: string;
+        quantity_kg: number;
+        kg_locked_at_settlement: number | null;
+      }[]) || []) {
         kgByCampaign.set(
           row.campaign_id,
-          (kgByCampaign.get(row.campaign_id) ?? 0) + (Number(row.quantity_kg) || 0)
+          (kgByCampaign.get(row.campaign_id) ?? 0) + commitmentDisplayKg(row)
         );
         const buyers = buyerSets.get(row.campaign_id) ?? new Set<string>();
         if (row.buyer_id) buyers.add(row.buyer_id);
