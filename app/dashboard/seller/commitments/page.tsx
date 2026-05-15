@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { SellerCommitmentsClient, type LotCampaignCard } from "@/components/seller-commitments-client";
 import { getTierProgress } from "@/lib/tier-progress";
+import { commitmentDisplayKg } from "@/lib/commitment-kg";
 
 export default async function SellerCommitmentsPage() {
   const supabase = await createClient();
@@ -37,7 +38,7 @@ export default async function SellerCommitmentsPage() {
       campaignIds.length > 0
         ? supabase
             .from("commitments")
-            .select("id, campaign_id, lot_id, quantity_kg")
+            .select("id, campaign_id, lot_id, quantity_kg, kg_locked_at_settlement")
             .in("campaign_id", campaignIds)
             .neq("status", "cancelled")
         : Promise.resolve({ data: [] }),
@@ -47,7 +48,10 @@ export default async function SellerCommitmentsPage() {
         .in("lot_id", lotIds),
     ]);
 
-    const commitmentsByCampaignId: Record<string, { quantity_kg: number }[]> = {};
+    const commitmentsByCampaignId: Record<
+      string,
+      { quantity_kg: number; kg_locked_at_settlement: number | null }[]
+    > = {};
     for (const c of commitments || []) {
       if (!c.campaign_id) continue;
       if (!commitmentsByCampaignId[c.campaign_id]) commitmentsByCampaignId[c.campaign_id] = [];
@@ -75,15 +79,23 @@ export default async function SellerCommitmentsPage() {
       const lotCommitments = commitmentsByCampaignId[campaign.id] || [];
       if (lotCommitments.length === 0) continue;
 
+      // Total kg the seller should plan to ship. Pre-settle: sum of buyer
+      // pledges (matches lot.committed_quantity_kg). Post-settle: sum of
+      // `kg_locked_at_settlement` — finalize_campaign resets
+      // lot.committed_quantity_kg to 0, so we MUST source from commits to
+      // show the right total once the campaign settles.
       const totalCommittedKg = lotCommitments.reduce(
-        (sum, c) => sum + Number(c.quantity_kg || 0),
+        (sum, c) => sum + commitmentDisplayKg(c),
         0
       );
 
       const tiers = tiersByLotId[lot.id] || [];
       const currentPricePerKg = getTierProgress(
         {
-          committed_quantity_kg: Number(lot.committed_quantity_kg || 0),
+          // Same source-of-truth principle for tier resolution: locked total
+          // post-settle, lot.committed_quantity_kg pre-settle. The legacy
+          // value would resolve to tier 0 once the lot is recycled.
+          committed_quantity_kg: totalCommittedKg,
           price_per_kg: Number(lot.price_per_kg || 0),
           bag_size_kg: lot.bag_size_kg ?? null,
         },
@@ -100,7 +112,7 @@ export default async function SellerCommitmentsPage() {
           : null;
       const isLotBagAware = lotBagSizeKg !== null;
       const completedBags = isLotBagAware
-        ? Math.floor(Number(lot.committed_quantity_kg) / lotBagSizeKg)
+        ? Math.floor(totalCommittedKg / lotBagSizeKg)
         : 0;
       const minBags = Number(lot.min_bags_to_succeed || 0);
 
@@ -110,7 +122,7 @@ export default async function SellerCommitmentsPage() {
       } else if (
         isLotBagAware
           ? completedBags >= minBags
-          : Number(lot.committed_quantity_kg) >= Number(lot.min_commitment_kg)
+          : totalCommittedKg >= Number(lot.min_commitment_kg)
       ) {
         statusLabel = "Open / Guaranteed";
       } else {

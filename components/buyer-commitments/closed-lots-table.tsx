@@ -1,7 +1,14 @@
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { UnitPriceText, UnitWeightText } from "@/components/unit-value";
-import { stageOfGroup, STAGE_META, type CommitmentGroup, type StageColor } from "./bucket-by-lifecycle";
+import {
+  effectiveChargedCents,
+  stageOfGroup,
+  STAGE_META,
+  type CommitmentGroup,
+  type StageColor,
+} from "./bucket-by-lifecycle";
+import { commitmentDisplayKg } from "@/lib/commitment-kg";
 
 export interface ClosedLotsTableProps {
   groups: CommitmentGroup[];
@@ -42,13 +49,20 @@ function rowDate(g: CommitmentGroup): string | null {
 
 function buildRow(g: CommitmentGroup) {
   const stage = stageOfGroup(g);
-  const succeeded = g.commitments.filter((c) => c.payment_status === "charge_succeeded");
-  const securedKg = succeeded.reduce((s, c) => s + Number(c.quantity_kg || 0), 0);
-  const paid = succeeded.reduce(
-    (s, c) => s + (c.charge_amount_cents != null ? c.charge_amount_cents / 100 : Number(c.total_price || 0)),
+  // Surface non-cancelled commits; "secured" comes from the settlement
+  // allocation (`kg_locked_at_settlement` for bag-aware, `quantity_kg`
+  // pre-settle), not from the legacy `charge_succeeded` filter which
+  // misses every bag-aware commit.
+  const live = g.commitments.filter((c) => c.status !== "cancelled");
+  const securedKg = live.reduce((s, c) => s + commitmentDisplayKg(c), 0);
+  // "Paid" sums cents that actually moved on Stripe — bag-charge `charged`
+  // rows for bag-aware, legacy `charge_amount_cents` for payment-mode.
+  const paidCents = live.reduce(
+    (s, c) => s + effectiveChargedCents(c, g.bagChargesByCommitmentId?.[c.id]),
     0
   );
-  const billed = succeeded.reduce((s, c) => s + Number(c.total_price || 0), 0);
+  const paid = paidCents / 100;
+  const billed = live.reduce((s, c) => s + Number(c.total_price || 0), 0);
   const refunded = Math.max(0, billed - paid);
   const avg = securedKg > 0 ? paid / securedKg : Number(g.lot?.price_per_kg || 0);
   const totalCell = stage === "minimum_not_met" ? `−${fmtMoney(refunded)}` : fmtMoney(paid);
