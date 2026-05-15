@@ -7,6 +7,7 @@ import { Badge } from "@merninos/ui";
 import { UnitWeightText, UnitPriceText } from "@/components/unit-value";
 import { SellerCampaignPreview } from "@/components/seller-campaign-preview";
 import { getTierProgress } from "@/lib/tier-progress";
+import { commitmentDisplayKg } from "@/lib/commitment-kg";
 
 const statusBadge: Record<
   "Open / At Risk" | "Open / Guaranteed" | "Successful",
@@ -72,9 +73,46 @@ export default async function SellerLotCommitmentsPage({
   ]);
 
   const tiers = pricingTiers || [];
+  // Tier resolution + status math source the kg total from commits, not
+  // `lot.committed_quantity_kg` — finalize_campaign resets that to 0 the
+  // moment a campaign settles (the lot is recycled), so reading it here
+  // would render a settled campaign at tier 0 / "At Risk".
+  // We compute it after the commitments fetch below.
+
+  let commitments: {
+    id: string;
+    quantity_kg: number;
+    kg_locked_at_settlement: number | null;
+    created_at: string;
+    buyer: { company_name: string | null; contact_name: string | null } | null;
+  }[] = [];
+
+  if (campaign) {
+    const { data } = await supabase
+      .from("commitments")
+      .select(
+        "id, quantity_kg, kg_locked_at_settlement, created_at, buyer:profiles!commitments_buyer_id_fkey(company_name, contact_name)"
+      )
+      .eq("campaign_id", campaign.id)
+      .neq("status", "cancelled")
+      .order("created_at", { ascending: false });
+    commitments = (data || []) as unknown as typeof commitments;
+  }
+
+  const hub = (campaign?.hub as unknown) as { id: string; name: string } | null;
+
+  // Source of truth for the lot total: sum of commits' display kg.
+  // - Pre-settle: matches lot.committed_quantity_kg (sum of buyer pledges).
+  // - Post-settle: sums kg_locked_at_settlement, since finalize_campaign
+  //   has reset lot.committed_quantity_kg to 0.
+  const totalCommittedKg = commitments.reduce(
+    (sum, c) => sum + commitmentDisplayKg(c),
+    0
+  );
+
   const currentPricePerKg = getTierProgress(
     {
-      committed_quantity_kg: Number(lot.committed_quantity_kg || 0),
+      committed_quantity_kg: totalCommittedKg,
       price_per_kg: Number(lot.price_per_kg || 0),
       bag_size_kg: lot.bag_size_kg ?? null,
     },
@@ -85,36 +123,16 @@ export default async function SellerLotCommitmentsPage({
     }))
   ).currentPricePerKg;
 
-  let commitments: {
-    id: string;
-    quantity_kg: number;
-    created_at: string;
-    buyer: { company_name: string | null; contact_name: string | null } | null;
-  }[] = [];
-
-  if (campaign) {
-    const { data } = await supabase
-      .from("commitments")
-      .select(
-        "id, quantity_kg, created_at, buyer:profiles!commitments_buyer_id_fkey(company_name, contact_name)"
-      )
-      .eq("campaign_id", campaign.id)
-      .neq("status", "cancelled")
-      .order("created_at", { ascending: false });
-    commitments = (data || []) as unknown as typeof commitments;
-  }
-
-  const hub = (campaign?.hub as unknown) as { id: string; name: string } | null;
-
   // Bag-aware status: "Guaranteed" when completed_bags >= min_bags_to_succeed.
-  // Legacy lots keep the kg threshold check.
+  // Legacy lots keep the kg threshold check. Both use the commit-sourced total
+  // so a settled campaign keeps showing the right status label after recycle.
   const lotBagSizeKg =
     lot.bag_size_kg != null && Number(lot.bag_size_kg) > 0
       ? Number(lot.bag_size_kg)
       : null;
   const isLotBagAware = lotBagSizeKg !== null;
   const completedBagsForStatus = isLotBagAware
-    ? Math.floor(Number(lot.committed_quantity_kg) / lotBagSizeKg)
+    ? Math.floor(totalCommittedKg / lotBagSizeKg)
     : 0;
   const minBagsForStatus = Number(lot.min_bags_to_succeed || 0);
 
@@ -125,7 +143,7 @@ export default async function SellerLotCommitmentsPage({
     } else if (
       isLotBagAware
         ? completedBagsForStatus >= minBagsForStatus
-        : Number(lot.committed_quantity_kg) >= Number(lot.min_commitment_kg)
+        : totalCommittedKg >= Number(lot.min_commitment_kg)
     ) {
       statusLabel = "Open / Guaranteed";
     } else {
@@ -133,10 +151,6 @@ export default async function SellerLotCommitmentsPage({
     }
   }
 
-  const totalCommittedKg = commitments.reduce(
-    (sum, c) => sum + Number(c.quantity_kg || 0),
-    0
-  );
   const projectedRevenue = totalCommittedKg * currentPricePerKg;
 
   const badge = statusLabel ? statusBadge[statusLabel] : null;
@@ -179,10 +193,13 @@ export default async function SellerLotCommitmentsPage({
 
       {/* Live bag-aware campaign preview — headline status for the seller.
           When bag_size_kg is null (legacy, pre-backfill lot), the component
-          renders its own "bag size missing" prompt. */}
+          renders its own "bag size missing" prompt.
+          Pass the commit-sourced total so the preview keeps showing the
+          right bag count and "If campaign closed now" value even after
+          finalize_campaign has reset lot.committed_quantity_kg to 0. */}
       <div className="mb-6">
         <SellerCampaignPreview
-          total_pledged_kg={Number(lot.committed_quantity_kg) || 0}
+          total_pledged_kg={totalCommittedKg}
           bag_size_kg={Number(lot.bag_size_kg) || 0}
           min_bags_to_succeed={Number(lot.min_bags_to_succeed) || 1}
         />
@@ -248,7 +265,14 @@ export default async function SellerLotCommitmentsPage({
           {commitments.map((c) => {
             const buyerName =
               c.buyer?.company_name || c.buyer?.contact_name || "Unknown Buyer";
-            const sellerAmount = Number(c.quantity_kg || 0) * currentPricePerKg;
+            // Per-commit weight + revenue uses the locked amount once the
+            // campaign settles (bag allocation rounds the buyer's pledge
+            // down to whole bags). Pre-settle it falls back to the pledge.
+            const displayKg = commitmentDisplayKg(c);
+            const sellerAmount = displayKg * currentPricePerKg;
+            const hasPartialFill =
+              c.kg_locked_at_settlement != null &&
+              Number(c.kg_locked_at_settlement) < Number(c.quantity_kg || 0);
             return (
               <Card key={c.id} className="shadow-sm">
                 <CardContent className="p-4">
@@ -264,10 +288,17 @@ export default async function SellerLotCommitmentsPage({
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
                     <div>
-                      <p className="text-xs text-muted-foreground">Weight</p>
-                      <p className="font-medium text-foreground">
-                        <UnitWeightText kg={Number(c.quantity_kg)} />
+                      <p className="text-xs text-muted-foreground">
+                        {hasPartialFill ? "Weight settled" : "Weight"}
                       </p>
+                      <p className="font-medium text-foreground">
+                        <UnitWeightText kg={displayKg} />
+                      </p>
+                      {hasPartialFill && (
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          Pledged <UnitWeightText kg={Number(c.quantity_kg)} /> · leftover didn&apos;t fill a bag
+                        </p>
+                      )}
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Your Amount</p>

@@ -3,11 +3,13 @@ import { addPlatformFee } from "@/lib/pricing";
 import { UnitWeightText } from "@/components/unit-value";
 import { ContributionsTable } from "./contributions-table";
 import {
+  effectiveChargedCents,
   STAGE_META,
   stageOfGroup,
   type CommitmentGroup,
   type StageColor,
 } from "../bucket-by-lifecycle";
+import { commitmentDisplayKg } from "@/lib/commitment-kg";
 
 export interface InMotionDrawerBodyProps {
   group: CommitmentGroup;
@@ -35,26 +37,30 @@ export function InMotionDrawerBody({ group }: InMotionDrawerBodyProps) {
   const stage = stageOfGroup(group);
   const stageMeta = STAGE_META[stage];
 
-  const succeeded = group.commitments.filter(
-    (c) => c.payment_status === "charge_succeeded" && c.status !== "cancelled"
-  );
-  const settledKg = succeeded.reduce(
-    (s, c) => s + Number(c.quantity_kg || 0),
+  // "Settled" = non-cancelled commits in this group. For bag-aware commits
+  // the per-commit settled weight is `kg_locked_at_settlement` (set by
+  // settle-deadlines once the campaign settles), not the original pledge.
+  // Reading via `commitmentDisplayKg` makes a partial-fill commit show
+  // the actually-locked kg, not the over-pledged amount.
+  const settled = group.commitments.filter((c) => c.status !== "cancelled");
+  const settledKg = settled.reduce(
+    (s, c) => s + commitmentDisplayKg(c),
     0
   );
-  const paid = succeeded.reduce(
-    (s, c) =>
-      s +
-      (c.charge_amount_cents != null
-        ? c.charge_amount_cents / 100
-        : Number(c.total_price || 0)),
+  // Paid = cents that actually moved. Bag-aware: sum of `charged` bag rows.
+  // Legacy: commitment.charge_amount_cents (net of refunds).
+  const paidCents = settled.reduce(
+    (s, c) => s + effectiveChargedCents(c, group.bagChargesByCommitmentId?.[c.id]),
     0
   );
-  // Saved versus base = (base_price_with_fee × kg) − actually paid, summed.
+  const paid = paidCents / 100;
+  // Saved versus base = (base_price_with_fee × kg actually settled) − actually paid.
+  // The kg axis must match `paid` — locked kg post-settle, pledge pre-settle —
+  // otherwise a partial-fill commit overstates "saved" by including unsettled kg.
   const basePrice = Number(lot?.price_per_kg || 0);
   const baseWithFee = basePrice > 0 ? addPlatformFee(basePrice) : 0;
-  const baselinePaid = succeeded.reduce(
-    (s, c) => s + baseWithFee * Number(c.quantity_kg || 0),
+  const baselinePaid = settled.reduce(
+    (s, c) => s + baseWithFee * commitmentDisplayKg(c),
     0
   );
   const saved = Math.max(0, baselinePaid - paid);

@@ -485,11 +485,15 @@ describe("settle-deadlines bag-aware lifecycle integration (Task 4.15)", () => {
       error: null,
       count: 3,
     });
-    // Three kg_locked_at_settlement stamps — order matches the Map's
-    // insertion order which mirrors the portion expansion: A → B → C.
+    // Three kg_locked_at_settlement (+ status='confirmed') stamps — order
+    // matches the Map's insertion order which mirrors the portion expansion:
+    // A → B → C.
     enqueueRoute("commitments", { data: null, error: null });
     enqueueRoute("commitments", { data: null, error: null });
     enqueueRoute("commitments", { data: null, error: null });
+    // Unallocated-commits SELECT: all 3 commits got bags so the response is
+    // empty (no rows to cancel as "didn't fill a bag").
+    enqueueRoute("commitments", { data: [], error: null });
 
     const res = await POST(makeReq());
     expect(res.status).toBe(200);
@@ -500,14 +504,43 @@ describe("settle-deadlines bag-aware lifecycle integration (Task 4.15)", () => {
     expect(body.results[0]).toMatchObject({
       campaign_id: "camp-1",
       lot_id: "lot-1",
-      outcome: "bag_charges_created",
+      // After the finalize wiring, the outcome flips from
+      // 'bag_charges_created' (interim staging-only state) to 'settled'.
+      // The interim state is now only used as a fallback when
+      // finalize_campaign itself fails.
+      outcome: "settled",
       bag_size_kg: 60,
       completed_bags: 2,
       price_per_kg: 10,
       bag_charges_planned: 3,
       bag_charges_inserted: 3,
       commitments_stamped: 3,
+      unallocated_cancelled: 0,
     });
+
+    // The route MUST call finalize_campaign to move the campaign out of
+    // 'active' once the bag-charge plan is durable. Without this call the
+    // campaign stays 'active' forever and the seller never sees "ship it."
+    expect(rpcCalls).toContainEqual({
+      fn: "finalize_campaign",
+      args: { p_campaign_id: "camp-1", p_outcome: "settled" },
+    });
+
+    // Per-commit stamp must set both kg_locked AND status='confirmed' so the
+    // orphan-cancel pass on a re-entrant run skips them and the seller +
+    // buyer dashboards bucket them as locked-in.
+    const stamps = routeUpdates.filter(
+      (u) =>
+        u.table === "commitments" &&
+        u.payload.kg_locked_at_settlement !== undefined
+    );
+    expect(stamps).toHaveLength(3);
+    for (const stamp of stamps) {
+      expect(stamp.payload).toMatchObject({
+        status: "confirmed",
+        payment_error: null,
+      });
+    }
 
     // Exactly one upsert into commitment_bag_charges with 3 rows.
     const bagChargesUpserts = routeUpserts.filter(

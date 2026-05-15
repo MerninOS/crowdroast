@@ -257,9 +257,11 @@ describe("settle-deadlines — bag-aware orphan filter regression", () => {
       error: null,
       count: 2,
     });
-    // 7-8) kg_locked_at_settlement stamps
+    // 7-8) kg_locked_at_settlement (+ status='confirmed') stamps
     enqueue("commitments", { data: null, error: null });
     enqueue("commitments", { data: null, error: null });
+    // Unallocated-commits SELECT — both commits got bags, no rows to cancel.
+    enqueue("commitments", { data: [], error: null });
 
     const res = await POST(makeReq());
     expect(res.status).toBe(200);
@@ -273,7 +275,7 @@ describe("settle-deadlines — bag-aware orphan filter regression", () => {
     expect(body.results[0]).toMatchObject({
       campaign_id: "camp-1",
       lot_id: "lot-1",
-      outcome: "bag_charges_created",
+      outcome: "settled",
       completed_bags: 2,
       bag_charges_planned: 2,
       bag_charges_inserted: 2,

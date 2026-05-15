@@ -20,9 +20,9 @@
  *   3 ≥ 3      → AC7 passes; this is a SUCCESSFUL bag-aware close.
  *
  * Asserts the route takes the bag-aware-success branch:
- *   • result.outcome === 'bag_charges_created'
+ *   • result.outcome === 'settled'
  *   • 3 commitment_bag_charges rows upserted
- *   • finalize_campaign NOT called as 'failed'
+ *   • finalize_campaign called as 'settled' (NOT 'failed')
  *   • createRefund NOT called (legacy refund path never entered)
  *
  * Mocking style mirrors `bag-aware-below-min-bags.test.ts` and the
@@ -283,10 +283,12 @@ describe("settle-deadlines — M9: bag-aware lots skip the legacy kg-minimum gat
       error: null,
       count: 3,
     });
-    // Three kg_locked_at_settlement stamps — one per commit.
+    // Three kg_locked_at_settlement (+ status='confirmed') stamps — one per commit.
     enqueue("commitments", { data: null, error: null });
     enqueue("commitments", { data: null, error: null });
     enqueue("commitments", { data: null, error: null });
+    // Unallocated-commits SELECT — all 3 commits got bags, nothing to cancel.
+    enqueue("commitments", { data: [], error: null });
 
     const res = await POST(makeReq());
     expect(res.status).toBe(200);
@@ -295,11 +297,13 @@ describe("settle-deadlines — M9: bag-aware lots skip the legacy kg-minimum gat
     // 1. Route reports bag-aware SUCCESS — not 'failed', not
     //    'minimum_not_met'. This is the load-bearing assertion: pre-fix it
     //    would be 'minimum_not_met' (or 'failed' after refund processing).
+    //    The outcome string updated from 'bag_charges_created' (interim
+    //    label) to 'settled' once finalize_campaign was wired in.
     expect(body.processed_campaigns).toBe(1);
     expect(body.results[0]).toMatchObject({
       campaign_id: "camp-m9",
       lot_id: "lot-m9",
-      outcome: "bag_charges_created",
+      outcome: "settled",
       bag_size_kg: 60,
       completed_bags: 3,
       bag_charges_planned: 3,

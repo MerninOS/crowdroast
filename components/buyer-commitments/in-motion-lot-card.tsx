@@ -2,7 +2,13 @@ import { ChevronRight } from "lucide-react";
 import { CommitmentPickupButton } from "@/components/commitment-pickup-button";
 import { UnitWeightText } from "@/components/unit-value";
 import { LifecycleTrack } from "./lifecycle-track";
-import { stageOfGroup, type CommitmentGroup } from "./bucket-by-lifecycle";
+import {
+  effectiveChargeState,
+  effectiveChargedCents,
+  stageOfGroup,
+  type CommitmentGroup,
+} from "./bucket-by-lifecycle";
+import { commitmentDisplayKg } from "@/lib/commitment-kg";
 
 export interface InMotionLotCardProps {
   group: CommitmentGroup;
@@ -25,18 +31,41 @@ function fmtRelDays(iso: string | null | undefined): string | null {
 export function InMotionLotCard({ group, onSelect, triggerRef }: InMotionLotCardProps) {
   const lot = group.lot;
   const stage = stageOfGroup(group);
-  const succeeded = group.commitments.filter((c) => c.payment_status === "charge_succeeded");
-  const myKg = succeeded.reduce((s, c) => s + Number(c.quantity_kg || 0), 0);
-  const paid = succeeded.reduce(
-    (s, c) => s + (c.charge_amount_cents != null ? c.charge_amount_cents / 100 : Number(c.total_price || 0)),
+  // Surface every non-cancelled commit, not just legacy `charge_succeeded`
+  // rows. Bag-aware commits stay at `setup_complete` even after settlement
+  // and through "in motion" — the truth of "is this commitment locked in"
+  // lives on `kg_locked_at_settlement` (set by settle-deadlines once the
+  // campaign settles).
+  const live = group.commitments.filter((c) => c.status !== "cancelled");
+  // "My weight" is what was AGREED — quantity_kg pre-settle, the actual
+  // allocated kg_locked_at_settlement post-settle. Reads via
+  // `commitmentDisplayKg` so the bag-aware-rounded amount shows up
+  // correctly when the buyer's pledge didn't fill a whole bag.
+  const myKg = live.reduce((s, c) => s + commitmentDisplayKg(c), 0);
+  // Paid = cents that actually moved on Stripe. Sums bag charges for
+  // bag-aware commits; falls back to legacy `charge_amount_cents` for
+  // payment-mode commits. Same semantics as `effectiveChargedCents` in
+  // the portfolio strip math.
+  const paidCents = live.reduce(
+    (s, c) => s + effectiveChargedCents(c, group.bagChargesByCommitmentId?.[c.id]),
     0
   );
-  const billed = succeeded.reduce((s, c) => s + Number(c.total_price || 0), 0);
+  const paid = paidCents / 100;
+  // Billed = gross before refunds. For bag-aware this is locked_kg × price
+  // before any failed-bag credit; for legacy it's the commitment.total_price.
+  const billed = live.reduce((s, c) => s + Number(c.total_price || 0), 0);
   const refunded = Math.max(0, billed - paid);
   const settlementFailed = lot?.settlement_status === "failed";
 
-  // Use the most-recent at-hub-stage commitment for the pickup button (any one will do — the API marks per-commitment)
-  const pickupCommitmentId = succeeded[0]?.id ?? group.commitments[0]?.id;
+  // Pickup button targets any commit at the at-hub stage. Prefer one that's
+  // confirmed-and-paid (effective state succeeded) since those are the
+  // commits eligible to pick up; fall back to the first live one.
+  const pickupCommitmentId =
+    live.find(
+      (c) =>
+        effectiveChargeState(c, group.bagChargesByCommitmentId?.[c.id]) ===
+        "succeeded"
+    )?.id ?? live[0]?.id ?? group.commitments[0]?.id;
 
   let nextEvent: string | null = null;
   if (stage === "in_transit") {

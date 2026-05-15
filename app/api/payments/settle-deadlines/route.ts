@@ -895,21 +895,100 @@ async function settleDeadlines(request: Request) {
       // Stamp kg_locked_at_settlement on each commit even on retry — the
       // value is derived from the (deterministic) bag assignment, so
       // re-writing it is safe and lets a retry self-heal a missed update.
+      // Also flip status → 'confirmed' so the orphan-cancel pass on a
+      // re-entrant run skips these (the filter excludes 'confirmed' rows),
+      // and so seller/buyer dashboards bucket them as locked-in rather than
+      // pending.
       let commitmentsStamped = 0;
       if (!debug && !bagChargesInsertError) {
         for (const [commitmentId, lockedKg] of lockedKgByCommitment) {
           const { error: updateError } = await admin
             .from("commitments")
-            .update({ kg_locked_at_settlement: lockedKg })
+            .update({
+              kg_locked_at_settlement: lockedKg,
+              status: "confirmed",
+              payment_error: null,
+            })
             .eq("id", commitmentId);
           if (!updateError) commitmentsStamped += 1;
+        }
+      }
+
+      // Cancel commits that finished setup but didn't get any bag at
+      // allocation (their leftover kg didn't fill a bag, or the bag count
+      // ran out before reaching them). Without this they'd stay at
+      // status='pending' forever — neither confirmed (because no bag) nor
+      // cancelled. The buyer's card was never charged so there's no
+      // refund to issue.
+      let unallocatedCancelled = 0;
+      if (!debug && !bagChargesInsertError) {
+        const allocatedIds = Array.from(lockedKgByCommitment.keys());
+        const { data: unallocated } = allocatedIds.length > 0
+          ? await admin
+              .from("commitments")
+              .select("id")
+              .eq("campaign_id", campaign.id)
+              .eq("payment_status", "setup_complete")
+              .neq("status", "cancelled")
+              .neq("status", "confirmed")
+              .not("id", "in", `(${allocatedIds.join(",")})`)
+          : await admin
+              .from("commitments")
+              .select("id")
+              .eq("campaign_id", campaign.id)
+              .eq("payment_status", "setup_complete")
+              .neq("status", "cancelled")
+              .neq("status", "confirmed");
+        for (const row of unallocated || []) {
+          const { error } = await admin
+            .from("commitments")
+            .update({
+              status: "cancelled",
+              payment_status: "cancelled",
+              payment_error:
+                "Didn't fill a bag at settlement — no charge issued",
+            })
+            .eq("id", row.id);
+          if (!error) unallocatedCancelled += 1;
+        }
+      }
+
+      // Atomically transition the campaign to 'settled' + recycle the lot.
+      // Mirrors the legacy path at the bottom of this file. Bag-aware
+      // money movement is deferred to the charge worker, but the campaign
+      // itself is "done collecting" at this point — sellers need to ship,
+      // buyers need to see Funds Held on the dashboard. Without this call
+      // the campaign sits at 'active' forever even though the bag plan is
+      // written.
+      let finalizeError: string | null = null;
+      if (!debug && !bagChargesInsertError) {
+        const finalizeResult = await finalizeCampaign(
+          admin,
+          campaign.id,
+          "settled"
+        );
+        if (!finalizeResult.ok) {
+          finalizeError = finalizeResult.error;
+          console.error(
+            `settle-deadlines: finalize_campaign failed for bag-aware settled campaign ${campaign.id}`,
+            finalizeResult.error
+          );
+          finalizeFailures.push({
+            campaign_id: campaign.id,
+            outcome: "settled",
+            error: finalizeResult.error,
+          });
         }
       }
 
       results.push({
         campaign_id: campaign.id,
         lot_id: lot.id,
-        outcome: bagChargesInsertError ? "failed" : "bag_charges_created",
+        outcome: bagChargesInsertError
+          ? "failed"
+          : finalizeError
+            ? "bag_charges_created"
+            : "settled",
         bag_size_kg: lotBagSizeKg,
         completed_bags: bagPricing.completed_bags,
         price_per_kg: pricePerKg,
@@ -917,8 +996,10 @@ async function settleDeadlines(request: Request) {
         bag_charges_planned: chargeRows.length,
         bag_charges_inserted: bagChargesInserted,
         commitments_stamped: commitmentsStamped,
+        unallocated_cancelled: unallocatedCancelled,
         orphans_cancelled: orphansCancelled,
         ...(bagChargesInsertError ? { error: bagChargesInsertError } : {}),
+        ...(finalizeError ? { finalize_error: finalizeError } : {}),
         ...(debug
           ? {
               debug_charge_rows: chargeRows,
@@ -927,10 +1008,26 @@ async function settleDeadlines(request: Request) {
           : {}),
       });
 
-      // Bag-aware lots skip transfer-out, success emails, shipment creation,
-      // finalize_campaign, and the legacy refund path. Those land in
-      // Task 4.6 (fees) / 4.8 (charge worker) / 4.11 (transfer-out) /
-      // 4.7 (min-bags failure mode + finalize wiring).
+      // Fire success notifications + create the shipment row so the seller
+      // sees the shipment task and the buyer sees something queued on the
+      // lifecycle track. Fire-and-forget — a notification failure must not
+      // block the cron from acknowledging the settled campaign.
+      // Gated on a clean finalize so a stuck-active campaign doesn't get
+      // duplicate emails on the next retry tick.
+      if (
+        !debug &&
+        !bagChargesInsertError &&
+        !finalizeError &&
+        commitmentsStamped > 0
+      ) {
+        backgroundTasks.push(
+          sendLotSuccessNotifications(admin, lot.id, campaign.hub_id)
+        );
+        backgroundTasks.push(
+          createShipmentForLot(lot.id, campaign.hub_id, campaign.id)
+        );
+      }
+
       continue;
     }
 

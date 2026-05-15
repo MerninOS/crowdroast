@@ -4,7 +4,11 @@ import { getTierProgress } from "@/lib/tier-progress";
 import { ContributionsTable } from "./contributions-table";
 import { BagBreakdown } from "./bag-breakdown";
 import { refundDollarsFor } from "./refund-amount";
-import type { CommitmentGroup } from "../bucket-by-lifecycle";
+import {
+  effectiveChargedCents,
+  type CommitmentGroup,
+} from "../bucket-by-lifecycle";
+import { commitmentDisplayKg } from "@/lib/commitment-kg";
 
 export interface ClosedDrawerBodyProps {
   group: CommitmentGroup;
@@ -38,18 +42,18 @@ export function ClosedDrawerBody({
 }: ClosedDrawerBodyProps) {
   const lot = group.lot;
 
-  const succeeded = group.commitments.filter(
-    (c) => c.payment_status === "charge_succeeded" && c.status !== "cancelled"
-  );
-  const totalKg = succeeded.reduce((s, c) => s + Number(c.quantity_kg || 0), 0);
-  const paid = succeeded.reduce(
-    (s, c) =>
-      s +
-      (c.charge_amount_cents != null
-        ? c.charge_amount_cents / 100
-        : Number(c.total_price || 0)),
+  // Non-cancelled commits in this group are the "settled" set. Bag-aware
+  // commits stay at `setup_complete` even after picking up, so the legacy
+  // `charge_succeeded` filter would render an empty drawer for them. Read
+  // `kg_locked_at_settlement` via `commitmentDisplayKg` for per-commit kg
+  // so partial-fill rounding shows up correctly.
+  const succeeded = group.commitments.filter((c) => c.status !== "cancelled");
+  const totalKg = succeeded.reduce((s, c) => s + commitmentDisplayKg(c), 0);
+  const paidCents = succeeded.reduce(
+    (s, c) => s + effectiveChargedCents(c, group.bagChargesByCommitmentId?.[c.id]),
     0
   );
+  const paid = paidCents / 100;
   const totalRefund = group.commitments.reduce(
     (s, c) => s + refundDollarsFor(c),
     0
@@ -94,11 +98,14 @@ export function ClosedDrawerBody({
     );
   }
 
-  // Value mode — picked_up | done
+  // Value mode — picked_up | done. The kg axis here must match `paid` so a
+  // partial-fill commit doesn't overstate "saved" by including unsettled kg
+  // in the baseline calculation. `commitmentDisplayKg` returns the locked
+  // amount post-settle and the pledge pre-settle.
   const basePrice = Number(lot?.price_per_kg || 0);
   const baseWithFee = basePrice > 0 ? addPlatformFee(basePrice) : 0;
   const baselinePaid = succeeded.reduce(
-    (s, c) => s + baseWithFee * Number(c.quantity_kg || 0),
+    (s, c) => s + baseWithFee * commitmentDisplayKg(c),
     0
   );
   const saved = Math.max(0, baselinePaid - paid);
