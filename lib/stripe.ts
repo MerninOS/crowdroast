@@ -378,25 +378,37 @@ export async function createTransfer(params: {
  * Bag-aware (Task 4.11) transfer-out helper. Differs from `createTransfer`
  * on two axes:
  *
- *   1. **No `source_transaction`**. The bag-aware settlement model charges
- *      multiple buyers' cards into a single bag — each buyer charge already
- *      cleared into the platform's main balance with its own PaymentIntent.
- *      Linking the aggregate payout to one of those charges would
- *      under-report the bag's revenue and misroute Stripe's
- *      `source_transaction` debits. Dropping it means the transfer is
- *      satisfied from the platform's general Stripe balance, which is the
- *      correct semantics here: the buyer-side money has already landed there.
- *      A consequence: Stripe processing fees are NOT auto-deducted from this
- *      transfer's source — the platform absorbs them out of its retained 8%
- *      share. See `lib/bag-transfer-out.ts` for the math.
+ *   1. **Optional `source_transaction`**. When the caller passes
+ *      `sourceChargeId`, Stripe debits the transfer from that specific
+ *      buyer charge's funds — which means the transfer doesn't need the
+ *      platform's main available balance to clear first. This is the
+ *      preferred path: it works the moment the charge succeeds, even
+ *      while Stripe still considers the platform balance "pending" (2-7
+ *      days in production, sometimes longer in test mode where the
+ *      `4000000000000077` test card is required to seed available balance).
  *
- *   2. **Bag-scoped idempotency**. The legacy key `transfer-<role>-<commit>`
- *      is commitment-unique; the bag-aware model has multiple bags per
- *      commitment, so the key must include `lot_id + bag_number` to keep
- *      a re-run from collapsing two distinct transfers onto one Stripe
- *      operation. The deterministic format
- *      `bag-transfer-<role>-<lotId>-<bagNumber>` matches our existing
- *      convention.
+ *      The previous design dropped `source_transaction` entirely on the
+ *      theory that "multiple buyers can contribute to one bag," but in
+ *      practice transfer-out fires per-charge-row anyway, so each
+ *      sub-transfer cleanly maps to one source charge. Callers that
+ *      don't pass it (legacy code path or aggregate-mode tests) still
+ *      get the old behavior — Stripe draws from the general balance and
+ *      will fail with `insufficient_funds` if the balance hasn't cleared.
+ *
+ *   2. **Per-attempt idempotency**. The key now includes an
+ *      `attempt-<N>` suffix so a retry after a Stripe failure
+ *      (`insufficient_funds`, transient network blip, etc.) doesn't
+ *      replay the cached error response — Stripe caches the original
+ *      response under each unique key for 24h regardless of success or
+ *      failure, so a deterministic key would lock us out of retries
+ *      for a full day. The caller passes `attemptNumber` from the
+ *      `bag_transfers.attempt_count` column (migration #46) so retries
+ *      get a fresh key while same-attempt re-invocations (Stripe
+ *      webhook retries, concurrent worker ticks) still de-duplicate.
+ *
+ *      The key format `bag-transfer-<role>-<lotId>-<bagNumber>-attempt-<N>`
+ *      remains scoped to the bag — different lots, bags, and roles all
+ *      get distinct keys without coordination.
  *
  * Recorded metadata is bag-scoped (lot_id, bag_number) rather than
  * commitment-scoped because there is no single commitment that "owns" a
@@ -409,19 +421,42 @@ export async function createBagTransfer(params: {
   lotId: string;
   bagNumber: number;
   role: "seller" | "hub";
+  /**
+   * Stripe charge id (`ch_...`) to set as `source_transaction`. When set,
+   * Stripe debits the transfer from that specific charge's funds instead
+   * of the platform's general balance — the recommended path because it
+   * succeeds immediately on each charged row's funds, no waiting for
+   * platform balance to clear. Pass null/undefined to fall back to the
+   * legacy general-balance flow (e.g. for multi-row aggregate transfers
+   * that don't map to a single source).
+   */
+  sourceChargeId?: string | null;
+  /**
+   * The 1-based attempt number for this transfer. Suffixed onto the
+   * Stripe idempotency key so retries after a failure use a fresh key.
+   * Default 1 preserves backwards compatibility for callers that don't
+   * track retries.
+   */
+  attemptNumber?: number;
 }) {
+  const attempt = params.attemptNumber ?? 1;
+  const body: Record<string, unknown> = {
+    amount: params.amountCents,
+    currency: params.currency.toLowerCase(),
+    destination: params.destinationAccountId,
+    "metadata[lot_id]": params.lotId,
+    "metadata[bag_number]": params.bagNumber,
+    "metadata[recipient_role]": params.role,
+    "metadata[settlement_model]": "bag_aware",
+    "metadata[attempt_number]": attempt,
+  };
+  if (params.sourceChargeId) {
+    body.source_transaction = params.sourceChargeId;
+  }
   return stripeRequest<StripeTransfer>(
     "/transfers",
-    {
-      amount: params.amountCents,
-      currency: params.currency.toLowerCase(),
-      destination: params.destinationAccountId,
-      "metadata[lot_id]": params.lotId,
-      "metadata[bag_number]": params.bagNumber,
-      "metadata[recipient_role]": params.role,
-      "metadata[settlement_model]": "bag_aware",
-    },
-    `bag-transfer-${params.role}-${params.lotId}-${params.bagNumber}`
+    body,
+    `bag-transfer-${params.role}-${params.lotId}-${params.bagNumber}-attempt-${attempt}`
   );
 }
 
