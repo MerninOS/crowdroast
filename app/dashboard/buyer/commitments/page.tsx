@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ShoppingCart } from "lucide-react";
 import { Button } from "@merninos/ui";
 import type { Commitment, ShipmentStatus } from "@/lib/types";
-import { getCheckoutSession, getPaymentIntent } from "@/lib/stripe";
+import { getCheckoutSession, getPaymentIntent, getSetupIntent } from "@/lib/stripe";
 import { addPlatformFee } from "@/lib/pricing";
 import {
   bucketByLifecycle,
@@ -61,16 +61,44 @@ async function syncPendingSetupCommitments(
             .eq("buyer_id", buyerId);
         }
       } else {
+        // Mode=setup. For Checkout Sessions in setup mode, Stripe documents
+        // that `session.payment_method` is NULL — the real PM is attached
+        // to the resulting SetupIntent. Without the fetch-fallback below
+        // we'd write null to `stripe_payment_method_id` and strand the
+        // commit at settlement with `missing_payment_method`. Same pattern
+        // the webhook handler at app/api/stripe/webhook/route.ts:99-110
+        // uses; mirrored here so this fallback sync path matches.
         const setupIntentId = session.setup_intent || null;
-        if (setupIntentId || session.payment_method) {
+        let paymentMethodId: string | null = session.payment_method || null;
+        if (!paymentMethodId && setupIntentId) {
+          try {
+            const setupIntent = await getSetupIntent(setupIntentId);
+            paymentMethodId = setupIntent.payment_method || null;
+          } catch {
+            paymentMethodId = null;
+          }
+        }
+
+        if (setupIntentId || paymentMethodId) {
+          // Defensive payload shape: only include fields we have non-null
+          // values for. The OLD code wrote `stripe_payment_method_id: null`
+          // and `stripe_customer_id: null` unconditionally, which would
+          // overwrite a real PM written by a concurrent webhook delivery.
+          // PR #86 fixed this same clobber pattern in the webhook handler;
+          // applying it here closes the parallel write path.
+          const updatePayload: Record<string, unknown> = {
+            payment_status: "setup_complete",
+            stripe_setup_intent_id: setupIntentId,
+          };
+          if (paymentMethodId) {
+            updatePayload.stripe_payment_method_id = paymentMethodId;
+          }
+          if (session.customer) {
+            updatePayload.stripe_customer_id = session.customer;
+          }
           await supabase
             .from("commitments")
-            .update({
-              payment_status: "setup_complete",
-              stripe_setup_intent_id: setupIntentId,
-              stripe_payment_method_id: session.payment_method || null,
-              stripe_customer_id: session.customer || null,
-            })
+            .update(updatePayload)
             .eq("id", commitment.id)
             .eq("buyer_id", buyerId);
         }
