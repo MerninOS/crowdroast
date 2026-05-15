@@ -94,12 +94,40 @@ async function sendLotSuccessNotifications(admin: AdminClient, lotId: string, hu
       .single();
     console.log("[sendLotSuccessNotifications] seller fetch:", { seller: seller?.email, sellerError });
 
+    // Include bag-aware settlement fields so the email shows what was
+    // actually locked, not what was pledged pre-settle.
+    // - kg_locked_at_settlement: bag-aware "you got X kg out of your Y pledge"
+    // - charge_amount_cents: legacy "you were charged $X at commit time"
     const { data: commitments, error: commitmentsError } = await admin
       .from("commitments")
-      .select("id, buyer_id, quantity_kg, total_price")
+      .select(
+        "id, buyer_id, quantity_kg, kg_locked_at_settlement, total_price, charge_amount_cents"
+      )
       .eq("lot_id", lotId)
       .eq("status", "confirmed");
     console.log("[sendLotSuccessNotifications] confirmed commitments:", { count: commitments?.length, commitmentsError });
+
+    // For bag-aware commits, charge_amount_cents is NULL at this point —
+    // the charge worker hasn't run yet (this email fires from settle-deadlines
+    // at 00:00 UTC; the charge worker runs at 02:00 UTC). The planned dollar
+    // total per buyer lives on commitment_bag_charges.amount_cents, which
+    // we just inserted moments ago. Pull those rows so the buyer email can
+    // show the right "Total paid" number.
+    const commitIds = (commitments || []).map((c) => c.id);
+    const { data: bagCharges } = commitIds.length > 0
+      ? await admin
+          .from("commitment_bag_charges")
+          .select("commitment_id, amount_cents")
+          .in("commitment_id", commitIds)
+      : { data: [] };
+    const bagChargeCentsByCommitId = new Map<string, number>();
+    for (const row of bagCharges || []) {
+      bagChargeCentsByCommitId.set(
+        row.commitment_id,
+        (bagChargeCentsByCommitId.get(row.commitment_id) || 0) +
+          Number(row.amount_cents || 0)
+      );
+    }
 
     const buyerIds = [...new Set((commitments || []).map((c) => c.buyer_id).filter(Boolean))];
     const { data: buyers } =
@@ -140,7 +168,31 @@ async function sendLotSuccessNotifications(admin: AdminClient, lotId: string, hu
           console.log("[sendLotSuccessNotifications] skipping buyer — no email for buyer_id", commitment.buyer_id);
           return null;
         }
-        return { buyer: { email: buyer.email, contact_name: buyer.contact_name }, commitment };
+        // settledKg: bag-aware locked amount, with quantity_kg fallback for
+        // legacy commits (kg_locked_at_settlement is NULL pre-bag-aware).
+        const settledKg =
+          commitment.kg_locked_at_settlement != null &&
+          Number(commitment.kg_locked_at_settlement) > 0
+            ? Number(commitment.kg_locked_at_settlement)
+            : Number(commitment.quantity_kg || 0);
+        // settledTotalDollars: prefer the sum of bag-charge cents
+        // (bag-aware), then legacy charge_amount_cents, then total_price as
+        // last-resort fallback. Bag charges' amount_cents IS the planned
+        // buyer-side total (kg × tier price × 1 + platform fee), set by
+        // settle-deadlines moments before this email fires.
+        const bagCharCents = bagChargeCentsByCommitId.get(commitment.id);
+        const settledTotalDollars =
+          bagCharCents && bagCharCents > 0
+            ? bagCharCents / 100
+            : commitment.charge_amount_cents != null
+              ? Number(commitment.charge_amount_cents) / 100
+              : Number(commitment.total_price || 0);
+        return {
+          buyer: { email: buyer.email, contact_name: buyer.contact_name },
+          commitment: { id: commitment.id },
+          settledKg,
+          settledTotalDollars,
+        };
       })
       .filter((p): p is NonNullable<typeof p> => p !== null);
 
@@ -151,17 +203,19 @@ async function sendLotSuccessNotifications(admin: AdminClient, lotId: string, hu
       hub: hub?.id ?? "none",
     });
 
-    // Sum confirmed commitments rather than reading lot.committed_quantity_kg
-    // — by the time this runs, finalize_campaign has already reset the lot
-    // row to committed_quantity_kg=0 as part of the recycle.
-    const totalQuantityKg = (commitments || []).reduce(
-      (sum, c) => sum + Number(c.quantity_kg || 0),
+    // Sum settled kg across all confirmed commits — drives the seller
+    // email's "Total quantity sold" line and mirrors shipments.weight_kg
+    // (PR #94) so the seller's two surfaces (shipments tab + this email)
+    // show the same number.
+    const totalSettledKg = buyerPayloads.reduce(
+      (sum, p) => sum + p.settledKg,
       0
     );
 
     const result = await sendLotClosedEmailsBatch({
-      lot: { id: lot.id, title: lot.title, total_quantity_kg: totalQuantityKg },
+      lot: { id: lot.id, title: lot.title },
       buyers: buyerPayloads,
+      totalSettledKg,
       seller,
       hub,
       hubOwner,
