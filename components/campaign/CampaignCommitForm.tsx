@@ -58,6 +58,13 @@ type PresetChoice = {
   label: string
   /** Quantity in the buyer's chosen display unit. */
   displayQty: number
+  /** The precise kg this preset represents. Tracked separately from
+   *  `displayQty` because converting the display value back to kg can drift
+   *  by a fraction of a kg (kg→lb→round-to-1-decimal→kg). For "Top off" that
+   *  drift can push the submitted kg just past the open bag's remaining
+   *  capacity, falsely triggering the cross-boundary warning and storing a
+   *  sliver of a fresh bag on the commitment. */
+  exactKg: number
 }
 
 /**
@@ -86,11 +93,11 @@ function getBagPresets(
 
   const choices: PresetChoice[] = []
   if (topOffDisplay > 0 && topOffDisplay < oneBagDisplay) {
-    choices.push({ label: 'Top off', displayQty: topOffDisplay })
+    choices.push({ label: 'Top off', displayQty: topOffDisplay, exactKg: bagRemainingKg })
   }
-  choices.push({ label: '½ bag', displayQty: halfBagDisplay })
-  choices.push({ label: '1 bag', displayQty: oneBagDisplay })
-  choices.push({ label: '2 bags', displayQty: twoBagDisplay })
+  choices.push({ label: '½ bag', displayQty: halfBagDisplay, exactKg: bagSizeKg / 2 })
+  choices.push({ label: '1 bag', displayQty: oneBagDisplay, exactKg: bagSizeKg })
+  choices.push({ label: '2 bags', displayQty: twoBagDisplay, exactKg: bagSizeKg * 2 })
 
   // Filter out anything that won't fit in remaining lot capacity.
   return choices.filter((c) => c.displayQty > 0 && c.displayQty <= maxDisplay)
@@ -139,6 +146,14 @@ export function CampaignCommitForm({
     : legacyPresets.find((n) => n <= maxDisplay) ?? 1
 
   const [qty, setQty] = React.useState<number>(defaultDisplay)
+  // When a bag-aware preset is clicked we know the buyer's intended kg
+  // exactly (e.g. "Top off" = bagRemainingKg). Tracking it separately from
+  // `qty` avoids the display→kg roundtrip drift that otherwise pushes the
+  // submitted kg just past the open bag's remaining capacity. Cleared the
+  // moment the buyer edits the input or steps with +/-.
+  const [qtyKgOverride, setQtyKgOverride] = React.useState<number | null>(
+    isBagAware ? bagPresets[0]?.exactKg ?? null : null
+  )
   const [notes, setNotes] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(false)
   const [confirmOpen, setConfirmOpen] = React.useState(false)
@@ -146,17 +161,23 @@ export function CampaignCommitForm({
 
   // When the unit toggle flips mid-session, convert qty so the buyer
   // doesn't see "88 lb" suddenly become "88 kg". Round to one decimal to
-  // match the input's allowed precision.
+  // match the input's allowed precision. When a preset override is active,
+  // re-derive the display value from the exact kg so the override stays
+  // pinned to the user's original intent (e.g. "Top off" stays exact).
   const prevUnitRef = React.useRef(unit)
   React.useEffect(() => {
     if (prevUnitRef.current !== unit) {
-      const asKg = fromDisplayWeight(qty, prevUnitRef.current)
+      const asKg =
+        qtyKgOverride !== null
+          ? qtyKgOverride
+          : fromDisplayWeight(qty, prevUnitRef.current)
       setQty(Math.round(toDisplayWeight(asKg, unit) * 10) / 10)
       prevUnitRef.current = unit
     }
-  }, [unit, qty])
+  }, [unit, qty, qtyKgOverride])
 
-  const qtyKg = fromDisplayWeight(qty, unit)
+  const qtyKg =
+    qtyKgOverride !== null ? qtyKgOverride : fromDisplayWeight(qty, unit)
   const buyerPricePerKg = addPlatformFee(activePricePerKg)
   const total = qtyKg * buyerPricePerKg
   const displayPricePerUnit = toDisplayPricePerUnit(buyerPricePerKg, unit)
@@ -280,9 +301,10 @@ export function CampaignCommitForm({
       >
         <button
           type="button"
-          onClick={() =>
+          onClick={() => {
             setQty(Math.max(0.1, Math.round((qty - step) * 10) / 10))
-          }
+            setQtyKgOverride(null)
+          }}
           aria-label="Decrease quantity"
           style={{
             width: 42,
@@ -309,6 +331,7 @@ export function CampaignCommitForm({
           onChange={(e) => {
             const next = Number.parseFloat(e.target.value)
             setQty(Number.isFinite(next) ? next : 0)
+            setQtyKgOverride(null)
           }}
           style={{
             flex: 1,
@@ -338,9 +361,10 @@ export function CampaignCommitForm({
         </span>
         <button
           type="button"
-          onClick={() =>
+          onClick={() => {
             setQty(Math.min(maxDisplay, Math.round((qty + step) * 10) / 10))
-          }
+            setQtyKgOverride(null)
+          }}
           aria-label="Increase quantity"
           style={{
             width: 42,
@@ -372,7 +396,10 @@ export function CampaignCommitForm({
               <button
                 key={choice.label}
                 type="button"
-                onClick={() => setQty(choice.displayQty)}
+                onClick={() => {
+                  setQty(choice.displayQty)
+                  setQtyKgOverride(choice.exactKg)
+                }}
                 title={`${choice.displayQty} ${unit}`}
                 style={{
                   flex: '1 1 0',
@@ -397,7 +424,10 @@ export function CampaignCommitForm({
               <button
                 key={n}
                 type="button"
-                onClick={() => setQty(n)}
+                onClick={() => {
+                  setQty(n)
+                  setQtyKgOverride(null)
+                }}
                 style={{
                   flex: '1 1 0',
                   padding: '8px 4px',

@@ -102,6 +102,47 @@ describe('CampaignCommitForm — bag-aware (commit flow)', () => {
     ).toMatch(/refunds if the bag doesn['’]t hit/i)
   })
 
+  it('clicking "Top off" does NOT trigger the split warning when bagRemainingKg has decimals (would round up across boundary)', () => {
+    // Open bag has 9.95 kg remaining (40 - 30.05). Without the kg-override
+    // fix the "Top off" preset rounds 9.95 → 10.0 display kg, converts back
+    // to 10.0 kg, and crosses the 9.95 boundary — falsely surfacing the
+    // split warning even though the buyer's intent is to finish *this* bag.
+    const { container } = renderForm({ totalCommittedKg: 30.05 })
+    const topOffBtn = screen.getByRole('button', { name: /top off/i })
+
+    fireEvent.click(topOffBtn)
+
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+    expect(screen.queryByText(/spans a bag boundary/i)).toBeNull()
+  })
+
+  it('clicking "Top off" submits exactly bagRemainingKg (not the display-rounded value)', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(
+        new Response(JSON.stringify({}), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      )
+
+    renderForm({ totalCommittedKg: 30.05 })
+    fireEvent.click(screen.getByRole('button', { name: /top off/i }))
+    fireEvent.submit(screen.getByRole('button', { name: /commit/i }).closest('form')!)
+
+    // The form opens a confirm dialog; clicking its primary action issues the POST.
+    const saveBtn = await screen.findByRole('button', { name: /save card & lock in/i })
+    fireEvent.click(saveBtn)
+
+    // Yield to the microtask that calls fetch.
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(fetchSpy).toHaveBeenCalled()
+    const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string)
+    // 40 - 30.05 = 9.95 — the precise kg the open bag still needs.
+    expect(body.quantity_kg).toBeCloseTo(9.95, 5)
+
+    fetchSpy.mockRestore()
+  })
+
   it('footnote text mentions partial-bag refund rule when bag-aware', () => {
     const { container } = renderForm()
     expect(container.textContent).toMatch(/only full bags ship/i)
